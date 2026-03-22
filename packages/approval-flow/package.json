@@ -1,0 +1,25 @@
+{
+  "name": "@x6-bpmn2/approval-flow",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@antv/x6": "^2.18.1",
+    "@antv/x6-vue-shape": "^2.1.2",
+    "@arco-design/web-vue": "^2.57.0",
+    "@x6-bpmn2/plugin": "1.0.0",
+    "bpmn-js": "^18.13.1",
+    "tslib": "^2.8.1",
+    "vue": "^3.5.30"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.5",
+    "typescript": "^5.9.3",
+    "vite": "^6.2.0",
+    "vue-tsc": "^3.2.6"
+  }
+}

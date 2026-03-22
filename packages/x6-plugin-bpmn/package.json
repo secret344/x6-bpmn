@@ -1,0 +1,41 @@
+{
+  "name": "@x6-bpmn2/plugin",
+  "version": "1.0.0",
+  "description": "BPMN 2.0 plugin for AntV X6",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./dist/style.css": "./dist/style.css"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "peerDependencies": {
+    "@antv/x6": ">=2.0.0"
+  },
+  "devDependencies": {
+    "@antv/x6": "^2.18.1",
+    "@vitest/coverage-v8": "^3.2.4",
+    "jsdom": "^27.0.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "bpmn-moddle": "^10.0.0"
+  }
+}

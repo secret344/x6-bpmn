@@ -1,0 +1,15 @@
+{
+  "name": "x6-bpmn2-workspace",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:plugin": "cd packages/x6-plugin-bpmn && npm run build",
+    "build:example": "cd packages/example && npm run build",
+    "build:approval": "cd packages/approval-flow && npm run build",
+    "build": "npm run build:plugin && npm run build:example",
+    "dev": "cd packages/example && npm run dev",
+    "dev:approval": "cd packages/approval-flow && npm run dev"
+  }
+}

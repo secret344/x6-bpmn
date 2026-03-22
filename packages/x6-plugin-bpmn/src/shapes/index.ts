@@ -1,0 +1,6 @@
+export { registerEventShapes } from './events'
+export { registerActivityShapes } from './activities'
+export { registerGatewayShapes } from './gateways'
+export { registerDataShapes } from './data'
+export { registerArtifactShapes } from './artifacts'
+export { registerSwimlaneShapes } from './swimlanes'
