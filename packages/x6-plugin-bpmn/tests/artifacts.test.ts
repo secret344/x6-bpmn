@@ -7,7 +7,11 @@ import {
   BPMN_GROUP,
 } from '../src/utils/constants'
 
-describe('registerArtifactShapes', () => {
+/**
+ * 工件图形注册测试（registerArtifactShapes）
+ * 验证文本注释和分组 2 种工件图形的配置。
+ */
+describe('工件图形注册（registerArtifactShapes）', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let registerNodeSpy: any
 
@@ -15,31 +19,31 @@ describe('registerArtifactShapes', () => {
     registerNodeSpy = vi.spyOn(Graph, 'registerNode').mockImplementation(() => undefined as any)
   })
 
-  it('should call registerArtifactShapes without errors', () => {
+  it('调用不应抛出异常', () => {
     expect(() => registerArtifactShapes()).not.toThrow()
   })
 
-  it('should register exactly 2 artifact shapes', () => {
+  it('应注册恰好 2 个工件图形', () => {
     registerArtifactShapes()
     expect(registerNodeSpy).toHaveBeenCalledTimes(2)
   })
 
   // ==================== Text Annotation ====================
 
-  describe('Text Annotation', () => {
-    it('should register Text Annotation', () => {
+  describe('文本注释（Text Annotation）', () => {
+    it('应注册文本注释图形', () => {
       registerArtifactShapes()
       expect(registerNodeSpy).toHaveBeenCalledWith(BPMN_TEXT_ANNOTATION, expect.any(Object), true)
     })
 
-    it('Text Annotation should inherit from rect', () => {
+    it('文本注释应继承自 rect', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_TEXT_ANNOTATION)!
       const config = call[1] as any
       expect(config.inherit).toBe('rect')
     })
 
-    it('Text Annotation should have left bracket line', () => {
+    it('文本注释应有左侧括号线', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_TEXT_ANNOTATION)!
       const config = call[1] as any
@@ -49,7 +53,7 @@ describe('registerArtifactShapes', () => {
       expect(config.attrs.bracket.stroke).toBe(BPMN_COLORS.annotation.stroke)
     })
 
-    it('Text Annotation body should have no stroke (only bracket)', () => {
+    it('文本注释主体无描边（只显示括号线）', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_TEXT_ANNOTATION)!
       const config = call[1] as any
@@ -57,7 +61,7 @@ describe('registerArtifactShapes', () => {
       expect(config.attrs.body.fill).toBe(BPMN_COLORS.annotation.fill)
     })
 
-    it('Text Annotation should be 120x50', () => {
+    it('文本注释默认尺寸应为 120×50', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_TEXT_ANNOTATION)!
       const config = call[1] as any
@@ -65,7 +69,7 @@ describe('registerArtifactShapes', () => {
       expect(config.height).toBe(50)
     })
 
-    it('Text Annotation label should be left-aligned', () => {
+    it('文本注释标签应左对齐', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_TEXT_ANNOTATION)!
       const config = call[1] as any
@@ -75,20 +79,20 @@ describe('registerArtifactShapes', () => {
 
   // ==================== Group ====================
 
-  describe('Group', () => {
-    it('should register Group', () => {
+  describe('分组（Group）', () => {
+    it('应注册分组图形', () => {
       registerArtifactShapes()
       expect(registerNodeSpy).toHaveBeenCalledWith(BPMN_GROUP, expect.any(Object), true)
     })
 
-    it('Group should inherit from rect', () => {
+    it('分组应继承自 rect', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_GROUP)!
       const config = call[1] as any
       expect(config.inherit).toBe('rect')
     })
 
-    it('Group should be large (300x200)', () => {
+    it('分组默认尺寸应为 300×200（大容器）', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_GROUP)!
       const config = call[1] as any
@@ -96,14 +100,14 @@ describe('registerArtifactShapes', () => {
       expect(config.height).toBe(200)
     })
 
-    it('Group should have dashed border', () => {
+    it('分组应有虚线边框', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_GROUP)!
       const config = call[1] as any
       expect(config.attrs.body.strokeDasharray).toBe('10,4')
     })
 
-    it('Group should have rounded corners', () => {
+    it('分组应有圆角', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_GROUP)!
       const config = call[1] as any
@@ -111,7 +115,7 @@ describe('registerArtifactShapes', () => {
       expect(config.attrs.body.ry).toBe(12)
     })
 
-    it('Group should have transparent fill', () => {
+    it('分组填充色应为透明', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_GROUP)!
       const config = call[1] as any
@@ -119,21 +123,21 @@ describe('registerArtifactShapes', () => {
       expect(config.attrs.body.fill).toBe('transparent')
     })
 
-    it('Group should use group stroke color', () => {
+    it('分组描边应使用 group 颜色', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_GROUP)!
       const config = call[1] as any
       expect(config.attrs.body.stroke).toBe(BPMN_COLORS.group.stroke)
     })
 
-    it('Group should have low zIndex (background)', () => {
+    it('分组 zIndex 应为 -1（渲染在背景层）', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_GROUP)!
       const config = call[1] as any
       expect(config.zIndex).toBe(-1)
     })
 
-    it('Group label should be bold', () => {
+    it('分组标签应加粗', () => {
       registerArtifactShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_GROUP)!
       const config = call[1] as any
@@ -143,15 +147,15 @@ describe('registerArtifactShapes', () => {
 
   // ==================== General Artifact Properties ====================
 
-  describe('General Artifact Properties', () => {
-    it('all artifacts should be passed with overwrite=true', () => {
+  describe('工件图形通用属性', () => {
+    it('所有工件注册时 overwrite 参数应为 true', () => {
       registerArtifactShapes()
       for (const call of registerNodeSpy.mock.calls) {
         expect(call[2]).toBe(true)
       }
     })
 
-    it('all artifacts should have body and label selectors', () => {
+    it('所有工件的 markup 应包含 body 和 label 选择器', () => {
       registerArtifactShapes()
       for (const call of registerNodeSpy.mock.calls) {
         const config = call[1] as any

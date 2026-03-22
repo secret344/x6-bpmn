@@ -12,7 +12,11 @@ import {
   BPMN_DATA_ASSOCIATION,
 } from '../src/utils/constants'
 
-describe('registerConnectionShapes', () => {
+/**
+ * 连接线图形注册测试（registerConnectionShapes）
+ * 验证 7 种 BPMN 2.0 连接线图形的线条样式、箭头和颜色配置。
+ */
+describe('连接线图形注册（registerConnectionShapes）', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let registerEdgeSpy: any
 
@@ -20,11 +24,11 @@ describe('registerConnectionShapes', () => {
     registerEdgeSpy = vi.spyOn(Graph, 'registerEdge').mockImplementation(() => undefined as any)
   })
 
-  it('should call registerConnectionShapes without errors', () => {
+  it('调用不应抛出异常', () => {
     expect(() => registerConnectionShapes()).not.toThrow()
   })
 
-  it('should register exactly 7 connection types', () => {
+  it('应注册恰好 7 种连接线类型', () => {
     registerConnectionShapes()
     expect(registerEdgeSpy).toHaveBeenCalledTimes(7)
   })
@@ -35,7 +39,7 @@ describe('registerConnectionShapes', () => {
     BPMN_DATA_ASSOCIATION,
   ]
 
-  it('should register all 7 connection types', () => {
+  it('应注册全部 7 种连接线', () => {
     registerConnectionShapes()
     for (const name of allConnectionNames) {
       expect(registerEdgeSpy).toHaveBeenCalledWith(name, expect.any(Object), true)
@@ -44,8 +48,8 @@ describe('registerConnectionShapes', () => {
 
   // ==================== Sequence Flow ====================
 
-  describe('Sequence Flow', () => {
-    it('should be a solid line with filled arrowhead', () => {
+  describe('顺序流（Sequence Flow）', () => {
+    it('应为实线并带有实心箭头', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_SEQUENCE_FLOW)!
       const config = call[1] as any
@@ -57,7 +61,7 @@ describe('registerConnectionShapes', () => {
       expect(config.attrs.line.strokeDasharray).toBeUndefined()
     })
 
-    it('should inherit from edge', () => {
+    it('应继承自 edge', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_SEQUENCE_FLOW)!
       const config = call[1] as any
@@ -67,8 +71,8 @@ describe('registerConnectionShapes', () => {
 
   // ==================== Conditional Flow ====================
 
-  describe('Conditional Flow', () => {
-    it('should have diamond source marker (condition indicator)', () => {
+  describe('条件流（Conditional Flow）', () => {
+    it('源端应有菱形标记（条件指示符）', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_CONDITIONAL_FLOW)!
       const config = call[1] as any
@@ -77,7 +81,7 @@ describe('registerConnectionShapes', () => {
       expect(config.attrs.line.sourceMarker.fill).toBe('#fff')
     })
 
-    it('should have filled arrowhead target marker', () => {
+    it('目标端应有实心箭头', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_CONDITIONAL_FLOW)!
       const config = call[1] as any
@@ -85,9 +89,7 @@ describe('registerConnectionShapes', () => {
       expect(config.attrs.line.targetMarker.name).toBe('block')
     })
 
-    it('should use sequence flow color', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_CONDITIONAL_FLOW)!
+    it('应使用顺序流颜色（条件流）', () => {
       const config = call[1] as any
       expect(config.attrs.line.stroke).toBe(BPMN_COLORS.sequenceFlow)
     })
@@ -95,8 +97,8 @@ describe('registerConnectionShapes', () => {
 
   // ==================== Default Flow ====================
 
-  describe('Default Flow', () => {
-    it('should have filled arrowhead', () => {
+  describe('默认流（Default Flow）', () => {
+    it('目标端应有实心箭头（默认流）', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_DEFAULT_FLOW)!
       const config = call[1] as any
@@ -104,7 +106,7 @@ describe('registerConnectionShapes', () => {
       expect(config.attrs.line.targetMarker.name).toBe('block')
     })
 
-    it('should have sourceMarker for default flow slash', () => {
+    it('源端应有默认流斜线标记', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_DEFAULT_FLOW)!
       const config = call[1] as any
@@ -113,9 +115,7 @@ describe('registerConnectionShapes', () => {
       expect(config.attrs.line.sourceMarker.fill).toBe('none')
     })
 
-    it('should use sequence flow color', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_DEFAULT_FLOW)!
+    it('应使用顺序流颜色（默认流）', () => {
       const config = call[1] as any
       expect(config.attrs.line.stroke).toBe(BPMN_COLORS.sequenceFlow)
     })
@@ -123,15 +123,13 @@ describe('registerConnectionShapes', () => {
 
   // ==================== Message Flow ====================
 
-  describe('Message Flow', () => {
-    it('should be a dashed line', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_MESSAGE_FLOW)!
+  describe('消息流（Message Flow）', () => {
+    it('消息流应为虚线', () => {
       const config = call[1] as any
       expect(config.attrs.line.strokeDasharray).toBe('8,5')
     })
 
-    it('should have circle source marker', () => {
+    it('源端应有圆形标记', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_MESSAGE_FLOW)!
       const config = call[1] as any
@@ -140,7 +138,7 @@ describe('registerConnectionShapes', () => {
       expect(config.attrs.line.sourceMarker.fill).toBe('#fff')
     })
 
-    it('should have open arrowhead target marker', () => {
+    it('目标端应有空心箭头（消息流）', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_MESSAGE_FLOW)!
       const config = call[1] as any
@@ -148,7 +146,7 @@ describe('registerConnectionShapes', () => {
       expect(config.attrs.line.targetMarker.open).toBe(true)
     })
 
-    it('should use messageFlow color (blue)', () => {
+    it('应使用消息流颜色（蓝色）', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_MESSAGE_FLOW)!
       const config = call[1] as any
@@ -158,24 +156,20 @@ describe('registerConnectionShapes', () => {
 
   // ==================== Association ====================
 
-  describe('Association', () => {
-    it('should be a dotted line', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_ASSOCIATION)!
+  describe('关联（Association）', () => {
+    it('关联应为点线', () => {
       const config = call[1] as any
       expect(config.attrs.line.strokeDasharray).toBe('4,4')
     })
 
-    it('should have NO arrowhead (undirected)', () => {
+    it('关联不应有箭头（无方向）', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_ASSOCIATION)!
       const config = call[1] as any
       expect(config.attrs.line.targetMarker).toBeNull()
     })
 
-    it('should use association color', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_ASSOCIATION)!
+    it('关联应使用关联颜色', () => {
       const config = call[1] as any
       expect(config.attrs.line.stroke).toBe(BPMN_COLORS.association)
     })
@@ -183,25 +177,19 @@ describe('registerConnectionShapes', () => {
 
   // ==================== Directed Association ====================
 
-  describe('Directed Association', () => {
-    it('should be a dotted line', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_DIRECTED_ASSOCIATION)!
+  describe('定向关联（Directed Association）', () => {
+    it('定向关联应为点线', () => {
       const config = call[1] as any
       expect(config.attrs.line.strokeDasharray).toBe('4,4')
     })
 
-    it('should have open arrowhead', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_DIRECTED_ASSOCIATION)!
+    it('定向关联应有空心箭头', () => {
       const config = call[1] as any
       expect(config.attrs.line.targetMarker).toBeDefined()
       expect(config.attrs.line.targetMarker.open).toBe(true)
     })
 
-    it('should use association color', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_DIRECTED_ASSOCIATION)!
+    it('定向关联应使用关联颜色', () => {
       const config = call[1] as any
       expect(config.attrs.line.stroke).toBe(BPMN_COLORS.association)
     })
@@ -209,25 +197,21 @@ describe('registerConnectionShapes', () => {
 
   // ==================== Data Association ====================
 
-  describe('Data Association', () => {
-    it('should be a dashed line (different from association dot pattern)', () => {
+  describe('数据关联（Data Association）', () => {
+    it('数据关联应为虚线（与关联点线区分）', () => {
       registerConnectionShapes()
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_DATA_ASSOCIATION)!
       const config = call[1] as any
       expect(config.attrs.line.strokeDasharray).toBe('6,3')
     })
 
-    it('should have open arrowhead', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_DATA_ASSOCIATION)!
+    it('数据关联应有空心箭头', () => {
       const config = call[1] as any
       expect(config.attrs.line.targetMarker).toBeDefined()
       expect(config.attrs.line.targetMarker.open).toBe(true)
     })
 
-    it('should use association color', () => {
-      registerConnectionShapes()
-      const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_DATA_ASSOCIATION)!
+    it('数据关联应使用关联颜色', () => {
       const config = call[1] as any
       expect(config.attrs.line.stroke).toBe(BPMN_COLORS.association)
     })
@@ -235,8 +219,8 @@ describe('registerConnectionShapes', () => {
 
   // ==================== General Connection Properties ====================
 
-  describe('General Connection Properties', () => {
-    it('all connections should inherit from edge', () => {
+  describe('连接线通用属性', () => {
+    it('所有连接线应继承自 edge', () => {
       registerConnectionShapes()
       for (const call of registerEdgeSpy.mock.calls) {
         const config = call[1] as any
@@ -244,14 +228,14 @@ describe('registerConnectionShapes', () => {
       }
     })
 
-    it('all connections should be passed with overwrite=true', () => {
+    it('所有连接线注册时 overwrite 参数应为 true', () => {
       registerConnectionShapes()
       for (const call of registerEdgeSpy.mock.calls) {
         expect(call[2]).toBe(true)
       }
     })
 
-    it('all connections should have zIndex 0', () => {
+    it('所有连接线的 zIndex 应为 0', () => {
       registerConnectionShapes()
       for (const call of registerEdgeSpy.mock.calls) {
         const config = call[1] as any
@@ -259,7 +243,7 @@ describe('registerConnectionShapes', () => {
       }
     })
 
-    it('all connections should have empty labels array', () => {
+    it('所有连接线的 labels 应为空数组', () => {
       registerConnectionShapes()
       for (const call of registerEdgeSpy.mock.calls) {
         const config = call[1] as any

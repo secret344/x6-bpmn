@@ -27,7 +27,11 @@ import {
   BPMN_END_EVENT_SIGNAL, BPMN_END_EVENT_TERMINATE, BPMN_END_EVENT_MULTIPLE,
 } from '../src/utils/constants'
 
-describe('registerEventShapes', () => {
+/**
+ * 事件图形注册测试（registerEventShapes）
+ * 验证开始 / 中间 / 边界 / 结束 4 类事件，共 47 个图形的圆形、颜色、图标和属性。
+ */
+describe('事件图形注册（registerEventShapes）', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let registerNodeSpy: any
 
@@ -35,32 +39,32 @@ describe('registerEventShapes', () => {
     registerNodeSpy = vi.spyOn(Graph, 'registerNode').mockImplementation(() => undefined as any)
   })
 
-  it('should call registerEventShapes without errors', () => {
+  it('调用不应抛出异常', () => {
     expect(() => registerEventShapes()).not.toThrow()
   })
 
-  it('should register exactly 47 event shapes', () => {
+  it('应注册恰好 47 个事件图形', () => {
     registerEventShapes()
     expect(registerNodeSpy).toHaveBeenCalledTimes(47)
   })
 
   // ==================== Start Events (7) ====================
 
-  describe('Start Events', () => {
+  describe('开始事件', () => {
     const startEventNames = [
       BPMN_START_EVENT, BPMN_START_EVENT_MESSAGE, BPMN_START_EVENT_TIMER,
       BPMN_START_EVENT_CONDITIONAL, BPMN_START_EVENT_SIGNAL,
       BPMN_START_EVENT_MULTIPLE, BPMN_START_EVENT_PARALLEL_MULTIPLE,
     ]
 
-    it('should register all 7 Start Event types', () => {
+    it('应注册全部 7 种开始事件类型', () => {
       registerEventShapes()
       for (const name of startEventNames) {
         expect(registerNodeSpy).toHaveBeenCalledWith(name, expect.any(Object), true)
       }
     })
 
-    it('should use single thin circle (no double circle) for Start Events', () => {
+    it('开始事件应使用单细圆（非双圆）', () => {
       registerEventShapes()
       for (const name of startEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -72,7 +76,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('should use green color for Start Events (BPMN convention)', () => {
+    it('开始事件应使用绿色（BPMN 惯例）', () => {
       registerEventShapes()
       for (const name of startEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -82,7 +86,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('should have 4 ports (top, right, bottom, left) for Start Events', () => {
+    it('开始事件应有 4 个连接端口', () => {
       registerEventShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_START_EVENT)!
       const config = call[1] as any
@@ -93,7 +97,7 @@ describe('registerEventShapes', () => {
       expect(config.ports.items).toHaveLength(4)
     })
 
-    it('should set 36x36 size for event shapes', () => {
+    it('事件图形默认尺寸应为 36×36', () => {
       registerEventShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_START_EVENT)!
       const config = call[1] as any
@@ -101,14 +105,14 @@ describe('registerEventShapes', () => {
       expect(config.height).toBe(36)
     })
 
-    it('plain Start Event should not have icon', () => {
+    it('普通开始事件不应有图标', () => {
       registerEventShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_START_EVENT)!
       const config = call[1] as any
       expect(config.attrs.icon).toBeUndefined()
     })
 
-    it('typed Start Events should have icon paths', () => {
+    it('带类型的开始事件应有图标路径', () => {
       registerEventShapes()
       const typedEvents = startEventNames.filter(n => n !== BPMN_START_EVENT)
       for (const name of typedEvents) {
@@ -122,7 +126,7 @@ describe('registerEventShapes', () => {
 
   // ==================== Intermediate Throw Events (7) ====================
 
-  describe('Intermediate Throw Events', () => {
+  describe('中间抛出事件', () => {
     const throwEventNames = [
       BPMN_INTERMEDIATE_THROW_EVENT, BPMN_INTERMEDIATE_THROW_EVENT_MESSAGE,
       BPMN_INTERMEDIATE_THROW_EVENT_ESCALATION, BPMN_INTERMEDIATE_THROW_EVENT_LINK,
@@ -130,14 +134,14 @@ describe('registerEventShapes', () => {
       BPMN_INTERMEDIATE_THROW_EVENT_MULTIPLE,
     ]
 
-    it('should register all 7 Intermediate Throw Event types', () => {
+    it('应注册全部 7 种中间抛出事件', () => {
       registerEventShapes()
       for (const name of throwEventNames) {
         expect(registerNodeSpy).toHaveBeenCalledWith(name, expect.any(Object), true)
       }
     })
 
-    it('should use double circle for Intermediate Events (BPMN spec)', () => {
+    it('中间事件应使用双圆（BPMN 规范）', () => {
       registerEventShapes()
       for (const name of throwEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -147,7 +151,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('should use blue/intermediate color', () => {
+    it('中间事件应使用蓝色配色', () => {
       registerEventShapes()
       for (const name of throwEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -157,7 +161,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('typed Intermediate Throw Events should have filled icons (throw = filled)', () => {
+    it('抛出事件图标应为实心（抛出 = 实心）', () => {
       registerEventShapes()
       const typedThrow = throwEventNames.filter(n => n !== BPMN_INTERMEDIATE_THROW_EVENT)
       for (const name of typedThrow) {
@@ -172,7 +176,7 @@ describe('registerEventShapes', () => {
 
   // ==================== Intermediate Catch Events (12) ====================
 
-  describe('Intermediate Catch Events', () => {
+  describe('中间捕获事件', () => {
     const catchEventNames = [
       BPMN_INTERMEDIATE_CATCH_EVENT, BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE,
       BPMN_INTERMEDIATE_CATCH_EVENT_TIMER, BPMN_INTERMEDIATE_CATCH_EVENT_ESCALATION,
@@ -182,14 +186,14 @@ describe('registerEventShapes', () => {
       BPMN_INTERMEDIATE_CATCH_EVENT_MULTIPLE, BPMN_INTERMEDIATE_CATCH_EVENT_PARALLEL_MULTIPLE,
     ]
 
-    it('should register all 12 Intermediate Catch Event types', () => {
+    it('应注册全部 12 种中间捕获事件', () => {
       registerEventShapes()
       for (const name of catchEventNames) {
         expect(registerNodeSpy).toHaveBeenCalledWith(name, expect.any(Object), true)
       }
     })
 
-    it('should use double circle for Intermediate Catch Events', () => {
+    it('中间捕获事件应使用双圆', () => {
       registerEventShapes()
       for (const name of catchEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -198,7 +202,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('typed Catch Events should have non-filled icons (catch = outline)', () => {
+    it('捕获事件图标应为空心（捕获 = 空心）', () => {
       registerEventShapes()
       const typedCatch = catchEventNames.filter(n => n !== BPMN_INTERMEDIATE_CATCH_EVENT)
       for (const name of typedCatch) {
@@ -213,7 +217,7 @@ describe('registerEventShapes', () => {
 
   // ==================== Boundary Events (12) ====================
 
-  describe('Boundary Events', () => {
+  describe('边界事件', () => {
     const boundaryEventNames = [
       BPMN_BOUNDARY_EVENT, BPMN_BOUNDARY_EVENT_MESSAGE, BPMN_BOUNDARY_EVENT_TIMER,
       BPMN_BOUNDARY_EVENT_ESCALATION, BPMN_BOUNDARY_EVENT_CONDITIONAL,
@@ -223,14 +227,14 @@ describe('registerEventShapes', () => {
       BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
     ]
 
-    it('should register all 12 Boundary Event types', () => {
+    it('应注册全部 12 种边界事件', () => {
       registerEventShapes()
       for (const name of boundaryEventNames) {
         expect(registerNodeSpy).toHaveBeenCalledWith(name, expect.any(Object), true)
       }
     })
 
-    it('should use double circle for Boundary Events', () => {
+    it('边界事件应使用双圆', () => {
       registerEventShapes()
       for (const name of boundaryEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -239,7 +243,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('should use orange/boundary color', () => {
+    it('边界事件应使用橙色配色', () => {
       registerEventShapes()
       for (const name of boundaryEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -249,7 +253,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('Non-Interrupting Boundary Event should use dashed circle', () => {
+    it('非中断边界事件应使用虚线圆', () => {
       registerEventShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_BOUNDARY_EVENT_NON_INTERRUPTING)!
       const config = call[1] as any
@@ -257,7 +261,7 @@ describe('registerEventShapes', () => {
       expect(config.attrs.innerCircle.strokeDasharray).toBeDefined()
     })
 
-    it('Interrupting Boundary Events should NOT be dashed', () => {
+    it('中断边界事件边框不应为虚线', () => {
       registerEventShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_BOUNDARY_EVENT)!
       const config = call[1] as any
@@ -267,21 +271,21 @@ describe('registerEventShapes', () => {
 
   // ==================== End Events (9) ====================
 
-  describe('End Events', () => {
+  describe('结束事件', () => {
     const endEventNames = [
       BPMN_END_EVENT, BPMN_END_EVENT_MESSAGE, BPMN_END_EVENT_ESCALATION,
       BPMN_END_EVENT_ERROR, BPMN_END_EVENT_CANCEL, BPMN_END_EVENT_COMPENSATION,
       BPMN_END_EVENT_SIGNAL, BPMN_END_EVENT_TERMINATE, BPMN_END_EVENT_MULTIPLE,
     ]
 
-    it('should register all 9 End Event types', () => {
+    it('应注册全部 9 种结束事件', () => {
       registerEventShapes()
       for (const name of endEventNames) {
         expect(registerNodeSpy).toHaveBeenCalledWith(name, expect.any(Object), true)
       }
     })
 
-    it('should use thick circle (strokeWidth 3) for End Events per BPMN spec', () => {
+    it('结束事件应使用粗圆（strokeWidth 3，BPMN 规范）', () => {
       registerEventShapes()
       for (const name of endEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -290,7 +294,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('should use red color for End Events', () => {
+    it('结束事件应使用红色', () => {
       registerEventShapes()
       for (const name of endEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -300,7 +304,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('End Event should NOT have double circle (single thick)', () => {
+    it('结束事件不应有双圆（单粗圆）', () => {
       registerEventShapes()
       for (const name of endEventNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -309,7 +313,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('typed End Events should have filled icons', () => {
+    it('带类型的结束事件图标应为实心', () => {
       registerEventShapes()
       const typedEnd = endEventNames.filter(n => n !== BPMN_END_EVENT)
       for (const name of typedEnd) {
@@ -323,8 +327,8 @@ describe('registerEventShapes', () => {
 
   // ==================== General Event Properties ====================
 
-  describe('General Event Properties', () => {
-    it('all events should inherit from ellipse', () => {
+  describe('事件图形通用属性', () => {
+    it('所有事件图形应继承自 ellipse', () => {
       registerEventShapes()
       for (const call of registerNodeSpy.mock.calls) {
         const config = call[1] as any
@@ -332,7 +336,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('all events should have a label selector in markup', () => {
+    it('所有事件的 markup 应包含 label 选择器', () => {
       registerEventShapes()
       for (const call of registerNodeSpy.mock.calls) {
         const config = call[1] as any
@@ -341,7 +345,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('all events should have body ellipse selector', () => {
+    it('所有事件的 markup 应包含 body 椭圆选择器', () => {
       registerEventShapes()
       for (const call of registerNodeSpy.mock.calls) {
         const config = call[1] as any
@@ -350,7 +354,7 @@ describe('registerEventShapes', () => {
       }
     })
 
-    it('all events should be passed with overwrite=true', () => {
+    it('所有事件注册时 overwrite 参数应为 true', () => {
       registerEventShapes()
       for (const call of registerNodeSpy.mock.calls) {
         expect(call[2]).toBe(true)

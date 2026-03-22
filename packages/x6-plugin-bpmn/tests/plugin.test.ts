@@ -4,7 +4,11 @@ import { Graph } from '@antv/x6'
 // We need to handle the `registered` state. Since it's a module-level variable,
 // we re-import fresh each time via dynamic imports or reset via forceRegisterBpmnShapes.
 
-describe('Plugin Entry Point', () => {
+/**
+ * 插件入口测试（Plugin Entry Point）
+ * 验证 registerBpmnShapes 幂等性、选项择一注册、强制重新注册及导出项的正确性。
+ */
+describe('插件入口（Plugin Entry Point）', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let registerNodeSpy: any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,8 +23,8 @@ describe('Plugin Entry Point', () => {
     vi.restoreAllMocks()
   })
 
-  describe('registerBpmnShapes', () => {
-    it('should register all shapes when called with defaults', async () => {
+  describe('registerBpmnShapes —— 图形批量注册', () => {
+    it('默认参数调用时应注册全部图形', async () => {
       // Use forceRegisterBpmnShapes to ensure fresh registration
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes()
@@ -31,7 +35,7 @@ describe('Plugin Entry Point', () => {
       expect(registerEdgeSpy).toHaveBeenCalledTimes(7)
     })
 
-    it('should not register twice (idempotent guard)', async () => {
+    it('多次调用应幂等（只注册一次）', async () => {
       const { registerBpmnShapes, forceRegisterBpmnShapes } = await import('../src/index')
       // First force a fresh state
       forceRegisterBpmnShapes()
@@ -42,7 +46,7 @@ describe('Plugin Entry Point', () => {
       expect(registerNodeSpy).toHaveBeenCalledTimes(firstCallCount)
     })
 
-    it('should only register events when events=true, others=false', async () => {
+    it('仅 events=true 时只注册事件图形', async () => {
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes({
         events: true,
@@ -57,7 +61,7 @@ describe('Plugin Entry Point', () => {
       expect(registerEdgeSpy).not.toHaveBeenCalled()
     })
 
-    it('should only register activities when activities=true, others=false', async () => {
+    it('仅 activities=true 时只注册活动图形', async () => {
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes({
         events: false,
@@ -72,7 +76,7 @@ describe('Plugin Entry Point', () => {
       expect(registerEdgeSpy).not.toHaveBeenCalled()
     })
 
-    it('should only register gateways when gateways=true, others=false', async () => {
+    it('仅 gateways=true 时只注册网关图形', async () => {
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes({
         events: false,
@@ -87,7 +91,7 @@ describe('Plugin Entry Point', () => {
       expect(registerEdgeSpy).not.toHaveBeenCalled()
     })
 
-    it('should only register data shapes when data=true, others=false', async () => {
+    it('仅 data=true 时只注册数据图形', async () => {
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes({
         events: false,
@@ -102,7 +106,7 @@ describe('Plugin Entry Point', () => {
       expect(registerEdgeSpy).not.toHaveBeenCalled()
     })
 
-    it('should only register artifacts when artifacts=true, others=false', async () => {
+    it('仅 artifacts=true 时只注册工件图形', async () => {
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes({
         events: false,
@@ -117,7 +121,7 @@ describe('Plugin Entry Point', () => {
       expect(registerEdgeSpy).not.toHaveBeenCalled()
     })
 
-    it('should only register swimlanes when swimlanes=true, others=false', async () => {
+    it('仅 swimlanes=true 时只注册泳道图形', async () => {
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes({
         events: false,
@@ -132,7 +136,7 @@ describe('Plugin Entry Point', () => {
       expect(registerEdgeSpy).not.toHaveBeenCalled()
     })
 
-    it('should only register connections when connections=true, others=false', async () => {
+    it('仅 connections=true 时只注册连接线图形', async () => {
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes({
         events: false,
@@ -147,7 +151,7 @@ describe('Plugin Entry Point', () => {
       expect(registerEdgeSpy).toHaveBeenCalledTimes(7)
     })
 
-    it('should register nothing when all options are false', async () => {
+    it('所有选项为 false 时不注册任何图形', async () => {
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes({
         events: false,
@@ -163,8 +167,8 @@ describe('Plugin Entry Point', () => {
     })
   })
 
-  describe('forceRegisterBpmnShapes', () => {
-    it('should re-register even after registerBpmnShapes was called', async () => {
+  describe('forceRegisterBpmnShapes —— 强制重新注册', () => {
+    it('即便已注册过也应强制重新注册', async () => {
       const { registerBpmnShapes, forceRegisterBpmnShapes } = await import('../src/index')
 
       // Force initial registration
@@ -180,25 +184,25 @@ describe('Plugin Entry Point', () => {
       expect(registerNodeSpy).toHaveBeenCalledTimes(firstCount * 2)
     })
 
-    it('should accept options parameter', async () => {
+    it('应接受 options 参数', async () => {
       const { forceRegisterBpmnShapes } = await import('../src/index')
       forceRegisterBpmnShapes({ events: true, activities: false, gateways: false, data: false, artifacts: false, swimlanes: false, connections: false })
       expect(registerNodeSpy).toHaveBeenCalledTimes(47)
     })
   })
 
-  describe('Exports', () => {
-    it('should export registerBpmnShapes function', async () => {
+  describe('插件导出项校验', () => {
+    it('应导出 registerBpmnShapes 函数', async () => {
       const mod = await import('../src/index')
       expect(typeof mod.registerBpmnShapes).toBe('function')
     })
 
-    it('should export forceRegisterBpmnShapes function', async () => {
+    it('应导出 forceRegisterBpmnShapes 函数', async () => {
       const mod = await import('../src/index')
       expect(typeof mod.forceRegisterBpmnShapes).toBe('function')
     })
 
-    it('should re-export shape registrar functions', async () => {
+    it('应重新导出各类图形注册函数', async () => {
       const mod = await import('../src/index')
       expect(typeof mod.registerEventShapes).toBe('function')
       expect(typeof mod.registerActivityShapes).toBe('function')
@@ -209,7 +213,7 @@ describe('Plugin Entry Point', () => {
       expect(typeof mod.registerConnectionShapes).toBe('function')
     })
 
-    it('should re-export all constants', async () => {
+    it('应重新导出所有常量', async () => {
       const mod = await import('../src/index')
       expect(mod.BPMN_START_EVENT).toBeDefined()
       expect(mod.BPMN_TASK).toBeDefined()

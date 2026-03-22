@@ -55,8 +55,12 @@ import type {
 // Constants — Shape names
 // ============================================================================
 
-describe('BPMN Shape Name Constants', () => {
-  it('should define all Start Event shape names', () => {
+/**
+ * BPMN 图形名称常量、颜色配置、图标路径、TypeScript 类型测试
+ * 验证常量模块导出的全部内容正确、唯一且符合 BPMN 2.0 规范。
+ */
+describe('BPMN 图形名称常量', () => {
+  it('应定义全部开始事件图形名称', () => {
     const startEvents = [
       BPMN_START_EVENT, BPMN_START_EVENT_MESSAGE, BPMN_START_EVENT_TIMER,
       BPMN_START_EVENT_CONDITIONAL, BPMN_START_EVENT_SIGNAL,
@@ -68,7 +72,7 @@ describe('BPMN Shape Name Constants', () => {
     }
   })
 
-  it('should define all Intermediate Throw Event shape names', () => {
+  it('应定义全部中间抛出事件图形名称', () => {
     const throwEvents = [
       BPMN_INTERMEDIATE_THROW_EVENT, BPMN_INTERMEDIATE_THROW_EVENT_MESSAGE,
       BPMN_INTERMEDIATE_THROW_EVENT_ESCALATION, BPMN_INTERMEDIATE_THROW_EVENT_LINK,
@@ -81,7 +85,7 @@ describe('BPMN Shape Name Constants', () => {
     }
   })
 
-  it('should define all Intermediate Catch Event shape names', () => {
+  it('应定义全部中间捕获事件图形名称', () => {
     const catchEvents = [
       BPMN_INTERMEDIATE_CATCH_EVENT, BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE,
       BPMN_INTERMEDIATE_CATCH_EVENT_TIMER, BPMN_INTERMEDIATE_CATCH_EVENT_ESCALATION,
@@ -96,7 +100,7 @@ describe('BPMN Shape Name Constants', () => {
     }
   })
 
-  it('should define all Boundary Event shape names', () => {
+  it('应定义全部边界事件图形名称', () => {
     const boundaryEvents = [
       BPMN_BOUNDARY_EVENT, BPMN_BOUNDARY_EVENT_MESSAGE, BPMN_BOUNDARY_EVENT_TIMER,
       BPMN_BOUNDARY_EVENT_ESCALATION, BPMN_BOUNDARY_EVENT_CONDITIONAL,
@@ -111,7 +115,7 @@ describe('BPMN Shape Name Constants', () => {
     }
   })
 
-  it('should define all End Event shape names', () => {
+  it('应定义全部结束事件图形名称', () => {
     const endEvents = [
       BPMN_END_EVENT, BPMN_END_EVENT_MESSAGE, BPMN_END_EVENT_ESCALATION,
       BPMN_END_EVENT_ERROR, BPMN_END_EVENT_CANCEL, BPMN_END_EVENT_COMPENSATION,
@@ -123,7 +127,7 @@ describe('BPMN Shape Name Constants', () => {
     }
   })
 
-  it('should define all Activity shape names (8 tasks + 5 sub-process types)', () => {
+  it('应定义全部活动图形名称（8 种任务 + 5 种子流程变体）', () => {
     const activities = [
       BPMN_TASK, BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_SCRIPT_TASK,
       BPMN_BUSINESS_RULE_TASK, BPMN_SEND_TASK, BPMN_RECEIVE_TASK, BPMN_MANUAL_TASK,
@@ -136,7 +140,7 @@ describe('BPMN Shape Name Constants', () => {
     }
   })
 
-  it('should define all Gateway shape names', () => {
+  it('应定义全部网关图形名称', () => {
     const gateways = [
       BPMN_EXCLUSIVE_GATEWAY, BPMN_PARALLEL_GATEWAY, BPMN_INCLUSIVE_GATEWAY,
       BPMN_COMPLEX_GATEWAY, BPMN_EVENT_BASED_GATEWAY, BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY,
@@ -147,7 +151,7 @@ describe('BPMN Shape Name Constants', () => {
     }
   })
 
-  it('should define all Data shape names', () => {
+  it('应定义全部数据元素图形名称', () => {
     const data = [BPMN_DATA_OBJECT, BPMN_DATA_INPUT, BPMN_DATA_OUTPUT, BPMN_DATA_STORE]
     expect(data).toHaveLength(4)
     for (const name of data) {
@@ -155,17 +159,17 @@ describe('BPMN Shape Name Constants', () => {
     }
   })
 
-  it('should define all Artifact shape names', () => {
+  it('应定义全部工件图形名称', () => {
     expect(BPMN_TEXT_ANNOTATION).toBe('bpmn-text-annotation')
     expect(BPMN_GROUP).toBe('bpmn-group')
   })
 
-  it('should define all Swimlane shape names', () => {
+  it('应定义全部泳道图形名称', () => {
     expect(BPMN_POOL).toBe('bpmn-pool')
     expect(BPMN_LANE).toBe('bpmn-lane')
   })
 
-  it('should define all Connection shape names', () => {
+  it('应定义全部连接线图形名称', () => {
     const connections = [
       BPMN_SEQUENCE_FLOW, BPMN_CONDITIONAL_FLOW, BPMN_DEFAULT_FLOW,
       BPMN_MESSAGE_FLOW, BPMN_ASSOCIATION, BPMN_DIRECTED_ASSOCIATION,
@@ -177,7 +181,7 @@ describe('BPMN Shape Name Constants', () => {
     }
   })
 
-  it('should have unique shape names (no duplicates)', () => {
+  it('所有图形名称应唯一，无重复', () => {
     const allNames = [
       BPMN_START_EVENT, BPMN_START_EVENT_MESSAGE, BPMN_START_EVENT_TIMER,
       BPMN_START_EVENT_CONDITIONAL, BPMN_START_EVENT_SIGNAL,
@@ -222,8 +226,8 @@ describe('BPMN Shape Name Constants', () => {
 // Constants — BPMN Colors
 // ============================================================================
 
-describe('BPMN Colors', () => {
-  it('should define event colors with stroke and fill', () => {
+describe('BPMN 颜色配置', () => {
+  it('应为各类事件定义描边和填充颜色', () => {
     expect(BPMN_COLORS.startEvent).toHaveProperty('stroke')
     expect(BPMN_COLORS.startEvent).toHaveProperty('fill')
     expect(BPMN_COLORS.intermediateEvent).toHaveProperty('stroke')
@@ -234,45 +238,45 @@ describe('BPMN Colors', () => {
     expect(BPMN_COLORS.boundaryEvent).toHaveProperty('fill')
   })
 
-  it('should use green for Start Events per BPMN convention', () => {
+  it('开始事件应使用绿色（BPMN 惯例）', () => {
     expect(BPMN_COLORS.startEvent.stroke).toBe('#43a047')
   })
 
-  it('should use blue for Intermediate Events per BPMN convention', () => {
+  it('中间事件应使用蓝色（BPMN 惯例）', () => {
     expect(BPMN_COLORS.intermediateEvent.stroke).toBe('#1e88e5')
   })
 
-  it('should use red for End Events per BPMN convention', () => {
+  it('结束事件应使用红色（BPMN 惯例）', () => {
     expect(BPMN_COLORS.endEvent.stroke).toBe('#e53935')
   })
 
-  it('should use orange for Boundary Events per BPMN convention', () => {
+  it('边界事件应使用橙色（BPMN 惯例）', () => {
     expect(BPMN_COLORS.boundaryEvent.stroke).toBe('#fb8c00')
   })
 
-  it('should define task colors with stroke, fill, and headerFill', () => {
+  it('任务应定义描边、填充和 headerFill 颜色', () => {
     expect(BPMN_COLORS.task).toHaveProperty('stroke')
     expect(BPMN_COLORS.task).toHaveProperty('fill')
     expect(BPMN_COLORS.task).toHaveProperty('headerFill')
   })
 
-  it('should define subProcess colors', () => {
+  it('应定义子流程配色', () => {
     expect(BPMN_COLORS.subProcess).toHaveProperty('stroke')
     expect(BPMN_COLORS.subProcess).toHaveProperty('fill')
   })
 
-  it('should define callActivity colors', () => {
+  it('应定义调用活动配色', () => {
     expect(BPMN_COLORS.callActivity).toHaveProperty('stroke')
     expect(BPMN_COLORS.callActivity).toHaveProperty('fill')
   })
 
-  it('should define gateway colors (yellow)', () => {
+  it('网关应使用黄色配色', () => {
     expect(BPMN_COLORS.gateway).toHaveProperty('stroke')
     expect(BPMN_COLORS.gateway).toHaveProperty('fill')
     expect(BPMN_COLORS.gateway.stroke).toBe('#f9a825')
   })
 
-  it('should define data, annotation, and group colors', () => {
+  it('应定义数据元素、注释和分组的颜色', () => {
     expect(BPMN_COLORS.data).toHaveProperty('stroke')
     expect(BPMN_COLORS.data).toHaveProperty('fill')
     expect(BPMN_COLORS.annotation).toHaveProperty('stroke')
@@ -281,7 +285,7 @@ describe('BPMN Colors', () => {
     expect(BPMN_COLORS.group.fill).toBe('transparent')
   })
 
-  it('should define pool and lane colors', () => {
+  it('应定义池和泳道颜色', () => {
     expect(BPMN_COLORS.pool).toHaveProperty('stroke')
     expect(BPMN_COLORS.pool).toHaveProperty('fill')
     expect(BPMN_COLORS.pool).toHaveProperty('headerFill')
@@ -289,7 +293,7 @@ describe('BPMN Colors', () => {
     expect(BPMN_COLORS.lane).toHaveProperty('fill')
   })
 
-  it('should define connection colors as strings', () => {
+  it('连接线颜色应为字符串类型', () => {
     expect(typeof BPMN_COLORS.sequenceFlow).toBe('string')
     expect(typeof BPMN_COLORS.messageFlow).toBe('string')
     expect(typeof BPMN_COLORS.association).toBe('string')
@@ -300,7 +304,7 @@ describe('BPMN Colors', () => {
 // Constants — BPMN Icons
 // ============================================================================
 
-describe('BPMN Icons', () => {
+describe('BPMN 图标 SVG 路径', () => {
   const allIconKeys = [
     'message', 'messageFilled', 'timer', 'signal', 'signalFilled',
     'error', 'escalation', 'escalationFilled', 'cancel', 'cancelFilled',
@@ -312,7 +316,7 @@ describe('BPMN Icons', () => {
     'dataInput', 'dataOutput', 'collapse',
   ] as const
 
-  it('should define all required icon SVG paths', () => {
+  it('应定义全部所需的图标 SVG 路径', () => {
     for (const key of allIconKeys) {
       expect(BPMN_ICONS).toHaveProperty(key)
       expect(typeof BPMN_ICONS[key]).toBe('string')
@@ -320,14 +324,14 @@ describe('BPMN Icons', () => {
     }
   })
 
-  it('should use SVG path commands (M, L, A, C, Z)', () => {
+  it('图标路径应使用 SVG 路径命令（M/L/A/C/Z）', () => {
     for (const key of allIconKeys) {
       // All SVG paths should start with M (moveto)
       expect(BPMN_ICONS[key]).toMatch(/^M\s/)
     }
   })
 
-  it('should have 37 icon definitions for complete BPMN 2.0 coverage', () => {
+  it('应有 37 个图标定义以完整覆盖 BPMN 2.0', () => {
     expect(allIconKeys).toHaveLength(37)
   })
 })
@@ -336,8 +340,8 @@ describe('BPMN Icons', () => {
 // Constants — Types
 // ============================================================================
 
-describe('BPMN Types', () => {
-  it('BpmnEventType should be a valid type union', () => {
+describe('BPMN TypeScript 类型', () => {
+  it('BpmnEventType 应为有效的联合类型', () => {
     const eventTypes: BpmnEventType[] = [
       'none', 'message', 'timer', 'conditional', 'signal',
       'escalation', 'error', 'cancel', 'compensation', 'link',
@@ -346,7 +350,7 @@ describe('BPMN Types', () => {
     expect(eventTypes).toHaveLength(13)
   })
 
-  it('BpmnTaskType should be a valid type union', () => {
+  it('BpmnTaskType 应为有效的联合类型', () => {
     const taskTypes: BpmnTaskType[] = [
       'task', 'user', 'service', 'script', 'businessRule',
       'send', 'receive', 'manual',
@@ -354,7 +358,7 @@ describe('BPMN Types', () => {
     expect(taskTypes).toHaveLength(8)
   })
 
-  it('BpmnGatewayType should be a valid type union', () => {
+  it('BpmnGatewayType 应为有效的联合类型', () => {
     const gwTypes: BpmnGatewayType[] = [
       'exclusive', 'parallel', 'inclusive', 'complex',
       'eventBased', 'exclusiveEventBased',
@@ -362,14 +366,14 @@ describe('BPMN Types', () => {
     expect(gwTypes).toHaveLength(6)
   })
 
-  it('BpmnMarkerType should be a valid type union', () => {
+  it('BpmnMarkerType 应为有效的联合类型', () => {
     const markerTypes: BpmnMarkerType[] = [
       'loop', 'miParallel', 'miSequential', 'compensation', 'adHoc',
     ]
     expect(markerTypes).toHaveLength(5)
   })
 
-  it('BpmnFlowType should be a valid type union', () => {
+  it('BpmnFlowType 应为有效的联合类型', () => {
     const flowTypes: BpmnFlowType[] = [
       'sequence', 'conditional', 'default', 'message',
       'association', 'directedAssociation', 'dataAssociation',
@@ -377,7 +381,7 @@ describe('BPMN Types', () => {
     expect(flowTypes).toHaveLength(7)
   })
 
-  it('BpmnNodeData should accept all properties', () => {
+  it('BpmnNodeData 接口应接受所有属性', () => {
     const data: BpmnNodeData = {
       bpmnType: 'start-event',
       eventType: 'message',
@@ -396,7 +400,7 @@ describe('BPMN Types', () => {
     expect(data.label).toBe('Test Node')
   })
 
-  it('BpmnNodeData should allow optional properties', () => {
+  it('BpmnNodeData 应允许可选属性', () => {
     const data: BpmnNodeData = { bpmnType: 'task' }
     expect(data.bpmnType).toBe('task')
     expect(data.eventType).toBeUndefined()

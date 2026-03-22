@@ -7,7 +7,11 @@ import {
   BPMN_LANE,
 } from '../src/utils/constants'
 
-describe('registerSwimlaneShapes', () => {
+/**
+ * 泳道图形注册测试（registerSwimlaneShapes）
+ * 验证池（Pool）和泳道（Lane）图形的尺寸、标题条、颜色和层级配置。
+ */
+describe('泳道图形注册（registerSwimlaneShapes）', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let registerNodeSpy: any
 
@@ -15,31 +19,31 @@ describe('registerSwimlaneShapes', () => {
     registerNodeSpy = vi.spyOn(Graph, 'registerNode').mockImplementation(() => undefined as any)
   })
 
-  it('should call registerSwimlaneShapes without errors', () => {
+  it('调用不应抛出异常', () => {
     expect(() => registerSwimlaneShapes()).not.toThrow()
   })
 
-  it('should register exactly 2 swimlane shapes', () => {
+  it('应注册恰好 2 种泳道图形', () => {
     registerSwimlaneShapes()
     expect(registerNodeSpy).toHaveBeenCalledTimes(2)
   })
 
   // ==================== Pool ====================
 
-  describe('Pool', () => {
-    it('should register Pool', () => {
+  describe('池（Pool）', () => {
+    it('应注册池图形', () => {
       registerSwimlaneShapes()
       expect(registerNodeSpy).toHaveBeenCalledWith(BPMN_POOL, expect.any(Object), true)
     })
 
-    it('Pool should inherit from rect', () => {
+    it('池应继承自 rect', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_POOL)!
       const config = call[1] as any
       expect(config.inherit).toBe('rect')
     })
 
-    it('Pool should have large default size (600x250)', () => {
+    it('池默认尺寸应为 600×250', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_POOL)!
       const config = call[1] as any
@@ -47,7 +51,7 @@ describe('registerSwimlaneShapes', () => {
       expect(config.height).toBe(250)
     })
 
-    it('Pool should have header band', () => {
+    it('池应有标题条', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_POOL)!
       const config = call[1] as any
@@ -57,14 +61,14 @@ describe('registerSwimlaneShapes', () => {
       expect(hasHeaderLabel).toBe(true)
     })
 
-    it('Pool header should use pool header fill color', () => {
+    it('池标题条应使用 pool.headerFill 颜色', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_POOL)!
       const config = call[1] as any
       expect(config.attrs.header.fill).toBe(BPMN_COLORS.pool.headerFill)
     })
 
-    it('Pool should use pool colors', () => {
+    it('池应使用 pool 配色', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_POOL)!
       const config = call[1] as any
@@ -72,28 +76,28 @@ describe('registerSwimlaneShapes', () => {
       expect(config.attrs.body.stroke).toBe(BPMN_COLORS.pool.stroke)
     })
 
-    it('Pool header label should be rotated -90° (vertical text)', () => {
+    it('池标题文字应逆时针旋转 90°（竖排显示）', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_POOL)!
       const config = call[1] as any
       expect(config.attrs.headerLabel.transform).toBe('rotate(-90)')
     })
 
-    it('Pool header label should be bold', () => {
+    it('池标题文字应加粗', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_POOL)!
       const config = call[1] as any
       expect(config.attrs.headerLabel.fontWeight).toBe('bold')
     })
 
-    it('Pool should have very low zIndex (background)', () => {
+    it('池的 zIndex 应很低（渲染在最底层）', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_POOL)!
       const config = call[1] as any
       expect(config.zIndex).toBe(-2)
     })
 
-    it('Pool header should be 30px wide', () => {
+    it('池标题条宽度应为 30px', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_POOL)!
       const config = call[1] as any
@@ -103,20 +107,20 @@ describe('registerSwimlaneShapes', () => {
 
   // ==================== Lane ====================
 
-  describe('Lane', () => {
-    it('should register Lane', () => {
+  describe('泳道（Lane）', () => {
+    it('应注册泳道图形', () => {
       registerSwimlaneShapes()
       expect(registerNodeSpy).toHaveBeenCalledWith(BPMN_LANE, expect.any(Object), true)
     })
 
-    it('Lane should inherit from rect', () => {
+    it('泳道应继承自 rect', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_LANE)!
       const config = call[1] as any
       expect(config.inherit).toBe('rect')
     })
 
-    it('Lane should be 570x125 (fits inside Pool)', () => {
+    it('泳道默认尺寸应为 570×125（内嵌于池内）', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_LANE)!
       const config = call[1] as any
@@ -124,7 +128,7 @@ describe('registerSwimlaneShapes', () => {
       expect(config.height).toBe(125)
     })
 
-    it('Lane should have header band', () => {
+    it('泳道应有标题条', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_LANE)!
       const config = call[1] as any
@@ -134,7 +138,7 @@ describe('registerSwimlaneShapes', () => {
       expect(hasHeaderLabel).toBe(true)
     })
 
-    it('Lane should use lane colors', () => {
+    it('泳道应使用 lane 配色', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_LANE)!
       const config = call[1] as any
@@ -142,21 +146,21 @@ describe('registerSwimlaneShapes', () => {
       expect(config.attrs.body.stroke).toBe(BPMN_COLORS.lane.stroke)
     })
 
-    it('Lane header label should be rotated -90°', () => {
+    it('泳道标题文字应逆时针旋转 90°', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_LANE)!
       const config = call[1] as any
       expect(config.attrs.headerLabel.transform).toBe('rotate(-90)')
     })
 
-    it('Lane should have zIndex -1', () => {
+    it('泳道 zIndex 应为 -1', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_LANE)!
       const config = call[1] as any
       expect(config.zIndex).toBe(-1)
     })
 
-    it('Lane header should be 30px wide', () => {
+    it('泳道标题条宽度应为 30px', () => {
       registerSwimlaneShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_LANE)!
       const config = call[1] as any
@@ -166,15 +170,15 @@ describe('registerSwimlaneShapes', () => {
 
   // ==================== General Swimlane Properties ====================
 
-  describe('General Swimlane Properties', () => {
-    it('all swimlanes should be passed with overwrite=true', () => {
+  describe('泳道图形通用属性', () => {
+    it('所有泳道注册时 overwrite 参数应为 true', () => {
       registerSwimlaneShapes()
       for (const call of registerNodeSpy.mock.calls) {
         expect(call[2]).toBe(true)
       }
     })
 
-    it('all swimlanes should have body, header, headerLabel markup', () => {
+    it('所有泳道的 markup 应包含 body、header、headerLabel', () => {
       registerSwimlaneShapes()
       for (const call of registerNodeSpy.mock.calls) {
         const config = call[1] as any

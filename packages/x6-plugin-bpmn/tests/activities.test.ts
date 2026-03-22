@@ -10,7 +10,11 @@ import {
   BPMN_AD_HOC_SUB_PROCESS, BPMN_CALL_ACTIVITY,
 } from '../src/utils/constants'
 
-describe('registerActivityShapes', () => {
+/**
+ * 活动图形注册测试（registerActivityShapes）
+ * 验证 13 种 BPMN 2.0 活动图形的注册参数、配色、尺寸、端口和图标。
+ */
+describe('活动图形注册（registerActivityShapes）', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let registerNodeSpy: any
 
@@ -18,31 +22,31 @@ describe('registerActivityShapes', () => {
     registerNodeSpy = vi.spyOn(Graph, 'registerNode').mockImplementation(() => undefined as any)
   })
 
-  it('should call registerActivityShapes without errors', () => {
+  it('调用不应抛出异常', () => {
     expect(() => registerActivityShapes()).not.toThrow()
   })
 
-  it('should register exactly 13 activity shapes', () => {
+  it('应注册恰好 13 个活动图形', () => {
     registerActivityShapes()
     expect(registerNodeSpy).toHaveBeenCalledTimes(13)
   })
 
   // ==================== Tasks (8) ====================
 
-  describe('Tasks', () => {
+  describe('任务图形（8 种）', () => {
     const taskNames = [
       BPMN_TASK, BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_SCRIPT_TASK,
       BPMN_BUSINESS_RULE_TASK, BPMN_SEND_TASK, BPMN_RECEIVE_TASK, BPMN_MANUAL_TASK,
     ]
 
-    it('should register all 8 task types', () => {
+    it('应注册全部 8 种任务类型', () => {
       registerActivityShapes()
       for (const name of taskNames) {
         expect(registerNodeSpy).toHaveBeenCalledWith(name, expect.any(Object), true)
       }
     })
 
-    it('all tasks should inherit from rect', () => {
+    it('所有任务图形应继承自 rect', () => {
       registerActivityShapes()
       for (const name of taskNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -51,7 +55,7 @@ describe('registerActivityShapes', () => {
       }
     })
 
-    it('all tasks should have rounded corners (rx=8, ry=8)', () => {
+    it('所有任务图形应有圆角 (rx=8, ry=8)', () => {
       registerActivityShapes()
       for (const name of taskNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -61,7 +65,7 @@ describe('registerActivityShapes', () => {
       }
     })
 
-    it('all tasks should use task colors', () => {
+    it('所有任务图形应使用任务配色', () => {
       registerActivityShapes()
       for (const name of taskNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -71,7 +75,7 @@ describe('registerActivityShapes', () => {
       }
     })
 
-    it('tasks should be 100x60', () => {
+    it('任务图形默认尺寸应为 100×60', () => {
       registerActivityShapes()
       for (const name of taskNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -81,7 +85,7 @@ describe('registerActivityShapes', () => {
       }
     })
 
-    it('all tasks should have 4 ports', () => {
+    it('所有任务图形应有 4 个连接端口', () => {
       registerActivityShapes()
       for (const name of taskNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -94,14 +98,14 @@ describe('registerActivityShapes', () => {
       }
     })
 
-    it('plain Task should not have icon', () => {
+    it('普通任务（Task）不应有图标', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_TASK)!
       const config = call[1] as any
       expect(config.attrs.icon).toBeUndefined()
     })
 
-    it('User Task should have user icon', () => {
+    it('用户任务（User Task）应有用户图标', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_USER_TASK)!
       const config = call[1] as any
@@ -109,49 +113,49 @@ describe('registerActivityShapes', () => {
       expect(config.attrs.icon.d).toBe(BPMN_ICONS.user)
     })
 
-    it('Service Task should have service icon', () => {
+    it('服务任务（Service Task）应有服务图标', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_SERVICE_TASK)!
       const config = call[1] as any
       expect(config.attrs.icon.d).toBe(BPMN_ICONS.service)
     })
 
-    it('Script Task should have script icon', () => {
+    it('脚本任务（Script Task）应有脚本图标', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_SCRIPT_TASK)!
       const config = call[1] as any
       expect(config.attrs.icon.d).toBe(BPMN_ICONS.script)
     })
 
-    it('Business Rule Task should have businessRule icon', () => {
+    it('业务规则任务应有业务规则图标', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_BUSINESS_RULE_TASK)!
       const config = call[1] as any
       expect(config.attrs.icon.d).toBe(BPMN_ICONS.businessRule)
     })
 
-    it('Send Task should have send icon', () => {
+    it('发送任务（Send Task）应有发送图标', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_SEND_TASK)!
       const config = call[1] as any
       expect(config.attrs.icon.d).toBe(BPMN_ICONS.send)
     })
 
-    it('Receive Task should have receive icon', () => {
+    it('接收任务（Receive Task）应有接收图标', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_RECEIVE_TASK)!
       const config = call[1] as any
       expect(config.attrs.icon.d).toBe(BPMN_ICONS.receive)
     })
 
-    it('Manual Task should have manual icon', () => {
+    it('手工任务（Manual Task）应有手工图标', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_MANUAL_TASK)!
       const config = call[1] as any
       expect(config.attrs.icon.d).toBe(BPMN_ICONS.manual)
     })
 
-    it('all tasks should have label text in attrs', () => {
+    it('所有任务的 attrs.label.text 应有默认文字', () => {
       registerActivityShapes()
       for (const name of taskNames) {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -163,8 +167,8 @@ describe('registerActivityShapes', () => {
 
   // ==================== Sub-Process ====================
 
-  describe('Sub-Process', () => {
-    it('should register Sub-Process with correct size', () => {
+  describe('子流程（Sub-Process）', () => {
+    it('应注册子流程并校验默认尺寸', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_SUB_PROCESS)!
       const config = call[1] as any
@@ -173,7 +177,7 @@ describe('registerActivityShapes', () => {
       expect(config.height).toBe(120)
     })
 
-    it('Sub-Process should use subProcess colors', () => {
+    it('子流程应使用 subProcess 配色', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_SUB_PROCESS)!
       const config = call[1] as any
@@ -181,7 +185,7 @@ describe('registerActivityShapes', () => {
       expect(config.attrs.body.stroke).toBe(BPMN_COLORS.subProcess.stroke)
     })
 
-    it('Sub-Process should have collapse marker', () => {
+    it('子流程应有折叠标记图标', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_SUB_PROCESS)!
       const config = call[1] as any
@@ -189,7 +193,7 @@ describe('registerActivityShapes', () => {
       expect(config.attrs.marker.d).toBe(BPMN_ICONS.collapse)
     })
 
-    it('Sub-Process should NOT be dashed', () => {
+    it('子流程边框不应为虚线', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_SUB_PROCESS)!
       const config = call[1] as any
@@ -199,20 +203,20 @@ describe('registerActivityShapes', () => {
 
   // ==================== Event Sub-Process ====================
 
-  describe('Event Sub-Process', () => {
-    it('should register Event Sub-Process', () => {
+  describe('事件子流程（Event Sub-Process）', () => {
+    it('应注册事件子流程图形', () => {
       registerActivityShapes()
       expect(registerNodeSpy).toHaveBeenCalledWith(BPMN_EVENT_SUB_PROCESS, expect.any(Object), true)
     })
 
-    it('Event Sub-Process should be dashed (BPMN spec)', () => {
+    it('事件子流程边框应为虚线（BPMN 规范）', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_EVENT_SUB_PROCESS)!
       const config = call[1] as any
       expect(config.attrs.body.strokeDasharray).toBe('8,4')
     })
 
-    it('Event Sub-Process size should match Sub-Process', () => {
+    it('事件子流程尺寸应与子流程相同', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_EVENT_SUB_PROCESS)!
       const config = call[1] as any
@@ -223,13 +227,13 @@ describe('registerActivityShapes', () => {
 
   // ==================== Transaction ====================
 
-  describe('Transaction', () => {
-    it('should register Transaction', () => {
+  describe('事务（Transaction）', () => {
+    it('应注册事务图形', () => {
       registerActivityShapes()
       expect(registerNodeSpy).toHaveBeenCalledWith(BPMN_TRANSACTION, expect.any(Object), true)
     })
 
-    it('Transaction should have double border (innerRect)', () => {
+    it('事务应有双边框（innerRect）', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_TRANSACTION)!
       const config = call[1] as any
@@ -238,7 +242,7 @@ describe('registerActivityShapes', () => {
       expect(config.attrs.innerRect).toBeDefined()
     })
 
-    it('Transaction should use subProcess colors', () => {
+    it('事务应使用 subProcess 配色', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_TRANSACTION)!
       const config = call[1] as any
@@ -249,13 +253,13 @@ describe('registerActivityShapes', () => {
 
   // ==================== Ad-Hoc Sub-Process ====================
 
-  describe('Ad-Hoc Sub-Process', () => {
-    it('should register Ad-Hoc Sub-Process', () => {
+  describe('自由子流程（Ad-Hoc Sub-Process）', () => {
+    it('应注册自由子流程图形', () => {
       registerActivityShapes()
       expect(registerNodeSpy).toHaveBeenCalledWith(BPMN_AD_HOC_SUB_PROCESS, expect.any(Object), true)
     })
 
-    it('Ad-Hoc Sub-Process should have ad-hoc marker (~)', () => {
+    it('自由子流程应有波浪号标记（~）', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_AD_HOC_SUB_PROCESS)!
       const config = call[1] as any
@@ -266,20 +270,20 @@ describe('registerActivityShapes', () => {
 
   // ==================== Call Activity ====================
 
-  describe('Call Activity', () => {
-    it('should register Call Activity', () => {
+  describe('调用活动（Call Activity）', () => {
+    it('应注册调用活动图形', () => {
       registerActivityShapes()
       expect(registerNodeSpy).toHaveBeenCalledWith(BPMN_CALL_ACTIVITY, expect.any(Object), true)
     })
 
-    it('Call Activity should have thick border (strokeWidth 4)', () => {
+    it('调用活动应有粗边框（strokeWidth 4）', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_CALL_ACTIVITY)!
       const config = call[1] as any
       expect(config.attrs.body.strokeWidth).toBe(4)
     })
 
-    it('Call Activity should use callActivity colors', () => {
+    it('调用活动应使用 callActivity 配色', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_CALL_ACTIVITY)!
       const config = call[1] as any
@@ -287,7 +291,7 @@ describe('registerActivityShapes', () => {
       expect(config.attrs.body.stroke).toBe(BPMN_COLORS.callActivity.stroke)
     })
 
-    it('Call Activity should be 100x60 (same as task)', () => {
+    it('调用活动尺寸应为 100×60（与任务相同）', () => {
       registerActivityShapes()
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_CALL_ACTIVITY)!
       const config = call[1] as any
@@ -298,15 +302,15 @@ describe('registerActivityShapes', () => {
 
   // ==================== General Activity Properties ====================
 
-  describe('General Activity Properties', () => {
-    it('all activities should be passed with overwrite=true', () => {
+  describe('活动图形通用属性', () => {
+    it('所有活动注册时 overwrite 参数应为 true', () => {
       registerActivityShapes()
       for (const call of registerNodeSpy.mock.calls) {
         expect(call[2]).toBe(true)
       }
     })
 
-    it('all activities should have body and label selectors in markup', () => {
+    it('所有活动的 markup 应包含 body 和 label 选择器', () => {
       registerActivityShapes()
       for (const call of registerNodeSpy.mock.calls) {
         const config = call[1] as any

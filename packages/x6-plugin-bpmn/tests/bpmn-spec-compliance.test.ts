@@ -1,5 +1,5 @@
 /**
- * BPMN 2.0 Specification Compliance Tests
+ * BPMN 2.0 规范合规性验证
  *
  * Validates that all element types defined in the BPMN 2.0 standard (OMG BPMN 2.0.2)
  * are fully covered by the plugin implementation.
@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Graph } from '@antv/x6'
 import * as allExports from '../src/index'
 
-describe('BPMN 2.0 Specification Compliance', () => {
+describe('BPMN 2.0 规范合规性验证', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let registerNodeSpy: any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,7 +25,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
   // §10.4 - Events (BPMN 2.0 Spec)
   // ============================================================================
 
-  describe('§10.4 Events — Complete coverage per BPMN 2.0', () => {
+  describe('§10.4 事件 —— BPMN 2.0 完整覆盖', () => {
     /**
      * BPMN 2.0 defines the following event categories:
      * - Start Events (None + 6 types = 7)
@@ -36,7 +36,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
      * Total: 47 event variants
      */
 
-    it('should implement all 7 Start Event types per §10.4.2', () => {
+    it('应实现 §10.4.2 规定的全部 7 种开始事件', () => {
       const startEvents = [
         'bpmn-start-event',                    // None
         'bpmn-start-event-message',            // Message
@@ -54,7 +54,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
       expect(startEvents).toHaveLength(7)
     })
 
-    it('should implement all 7 Intermediate Throw Event types per §10.4.3', () => {
+    it('应实现 §10.4.3 规定的全部 7 种中间抛出事件', () => {
       const throwEvents = [
         'bpmn-intermediate-throw-event',              // None
         'bpmn-intermediate-throw-event-message',      // Message
@@ -69,7 +69,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
       expect(allExports.BPMN_INTERMEDIATE_THROW_EVENT_MULTIPLE).toBeDefined()
     })
 
-    it('should implement all 12 Intermediate Catch Event types per §10.4.4', () => {
+    it('应实现 §10.4.4 规定的全部 12 种中间捕获事件', () => {
       const catchEvents = [
         allExports.BPMN_INTERMEDIATE_CATCH_EVENT,
         allExports.BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE,
@@ -90,7 +90,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
       }
     })
 
-    it('should implement all 12 Boundary Event types per §10.4.5', () => {
+    it('应实现 §10.4.5 规定的全部 12 种边界事件', () => {
       const boundaryEvents = [
         allExports.BPMN_BOUNDARY_EVENT,
         allExports.BPMN_BOUNDARY_EVENT_MESSAGE,
@@ -111,7 +111,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
       }
     })
 
-    it('should implement all 9 End Event types per §10.4.6', () => {
+    it('应实现 §10.4.6 规定的全部 9 种结束事件', () => {
       const endEvents = [
         allExports.BPMN_END_EVENT,
         allExports.BPMN_END_EVENT_MESSAGE,
@@ -129,7 +129,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
       }
     })
 
-    it('should have 47 total events registered', () => {
+    it('应共注册 47 个事件图形', () => {
       allExports.forceRegisterBpmnShapes({
         events: true,
         activities: false,
@@ -147,7 +147,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
   // §10.2 / §10.3 - Activities (BPMN 2.0 Spec)
   // ============================================================================
 
-  describe('§10.2/§10.3 Activities — Complete coverage per BPMN 2.0', () => {
+  describe('§10.2/§10.3 活动 —— BPMN 2.0 完整覆盖', () => {
     /**
      * BPMN 2.0 defines:
      * - Task (abstract) + 7 specialized task types = 8
@@ -159,7 +159,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
      * Total: 13 activity elements
      */
 
-    it('should implement all 8 task types per §10.2.4', () => {
+    it('应实现 §10.2.4 规定的全部 8 种任务', () => {
       expect(allExports.BPMN_TASK).toBe('bpmn-task')
       expect(allExports.BPMN_USER_TASK).toBe('bpmn-user-task')
       expect(allExports.BPMN_SERVICE_TASK).toBe('bpmn-service-task')
@@ -170,27 +170,27 @@ describe('BPMN 2.0 Specification Compliance', () => {
       expect(allExports.BPMN_MANUAL_TASK).toBe('bpmn-manual-task')
     })
 
-    it('should implement Sub-Process per §10.2.5', () => {
+    it('应实现 §10.2.5 规定的子流程', () => {
       expect(allExports.BPMN_SUB_PROCESS).toBe('bpmn-sub-process')
     })
 
-    it('should implement Event Sub-Process per §10.2.5', () => {
+    it('应实现 §10.2.5 规定的事件子流程', () => {
       expect(allExports.BPMN_EVENT_SUB_PROCESS).toBe('bpmn-event-sub-process')
     })
 
-    it('should implement Transaction per §10.2.5', () => {
+    it('应实现 §10.2.5 规定的事务', () => {
       expect(allExports.BPMN_TRANSACTION).toBe('bpmn-transaction')
     })
 
-    it('should implement Ad-Hoc Sub-Process per §10.2.5', () => {
+    it('应实现 §10.2.5 规定的自由子流程', () => {
       expect(allExports.BPMN_AD_HOC_SUB_PROCESS).toBe('bpmn-ad-hoc-sub-process')
     })
 
-    it('should implement Call Activity per §10.2.6', () => {
+    it('应实现 §10.2.6 规定的调用活动', () => {
       expect(allExports.BPMN_CALL_ACTIVITY).toBe('bpmn-call-activity')
     })
 
-    it('should have 13 total activity shapes registered', () => {
+    it('应共注册 13 个活动图形', () => {
       allExports.forceRegisterBpmnShapes({
         events: false,
         activities: true,
@@ -208,7 +208,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
   // §10.5 - Gateways (BPMN 2.0 Spec)
   // ============================================================================
 
-  describe('§10.5 Gateways — Complete coverage per BPMN 2.0', () => {
+  describe('§10.5 网关 —— BPMN 2.0 完整覆盖', () => {
     /**
      * BPMN 2.0 defines 6 gateway types:
      * - Exclusive (XOR)
@@ -219,7 +219,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
      * - Exclusive Event-Based (Instantiate)
      */
 
-    it('should implement all 6 gateway types per §10.5', () => {
+    it('应实现 §10.5 规定的全部 6 种网关', () => {
       expect(allExports.BPMN_EXCLUSIVE_GATEWAY).toBe('bpmn-exclusive-gateway')
       expect(allExports.BPMN_PARALLEL_GATEWAY).toBe('bpmn-parallel-gateway')
       expect(allExports.BPMN_INCLUSIVE_GATEWAY).toBe('bpmn-inclusive-gateway')
@@ -228,7 +228,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
       expect(allExports.BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY).toBe('bpmn-exclusive-event-based-gateway')
     })
 
-    it('should have 6 total gateway shapes registered', () => {
+    it('应共注册 6 个网关图形', () => {
       allExports.forceRegisterBpmnShapes({
         events: false,
         activities: false,
@@ -246,7 +246,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
   // §10.6 - Data Objects (BPMN 2.0 Spec)
   // ============================================================================
 
-  describe('§10.6 Data — Complete coverage per BPMN 2.0', () => {
+  describe('§10.6 数据元素 —— BPMN 2.0 完整覆盖', () => {
     /**
      * BPMN 2.0 defines 4 data shapes:
      * - Data Object
@@ -255,14 +255,14 @@ describe('BPMN 2.0 Specification Compliance', () => {
      * - Data Store
      */
 
-    it('should implement all 4 data element types per §10.6', () => {
+    it('应实现 §10.6 规定的全部 4 种数据元素', () => {
       expect(allExports.BPMN_DATA_OBJECT).toBe('bpmn-data-object')
       expect(allExports.BPMN_DATA_INPUT).toBe('bpmn-data-input')
       expect(allExports.BPMN_DATA_OUTPUT).toBe('bpmn-data-output')
       expect(allExports.BPMN_DATA_STORE).toBe('bpmn-data-store')
     })
 
-    it('should have 4 total data shapes registered', () => {
+    it('应共注册 4 个数据图形', () => {
       allExports.forceRegisterBpmnShapes({
         events: false,
         activities: false,
@@ -280,19 +280,19 @@ describe('BPMN 2.0 Specification Compliance', () => {
   // §10.7 - Artifacts (BPMN 2.0 Spec)
   // ============================================================================
 
-  describe('§10.7 Artifacts — Complete coverage per BPMN 2.0', () => {
+  describe('§10.7 工件 —— BPMN 2.0 完整覆盖', () => {
     /**
      * BPMN 2.0 defines 2 standard artifact types:
      * - Text Annotation
      * - Group
      */
 
-    it('should implement both artifact types per §10.7', () => {
+    it('应实现 §10.7 规定的 2 种工件', () => {
       expect(allExports.BPMN_TEXT_ANNOTATION).toBe('bpmn-text-annotation')
       expect(allExports.BPMN_GROUP).toBe('bpmn-group')
     })
 
-    it('should have 2 total artifact shapes registered', () => {
+    it('应共注册 2 个工件图形', () => {
       allExports.forceRegisterBpmnShapes({
         events: false,
         activities: false,
@@ -310,19 +310,19 @@ describe('BPMN 2.0 Specification Compliance', () => {
   // §9.3/§9.4 - Swimlanes (BPMN 2.0 Spec)
   // ============================================================================
 
-  describe('§9.3/§9.4 Swimlanes — Complete coverage per BPMN 2.0', () => {
+  describe('§9.3/§9.4 泳道 —— BPMN 2.0 完整覆盖', () => {
     /**
      * BPMN 2.0 defines 2 swimlane structures:
      * - Pool (Participant)
      * - Lane
      */
 
-    it('should implement both swimlane types per §9.3-9.4', () => {
+    it('应实现 §9.3-9.4 规定的 2 种泳道', () => {
       expect(allExports.BPMN_POOL).toBe('bpmn-pool')
       expect(allExports.BPMN_LANE).toBe('bpmn-lane')
     })
 
-    it('should have 2 total swimlane shapes registered', () => {
+    it('应共注册 2 个泳道图形', () => {
       allExports.forceRegisterBpmnShapes({
         events: false,
         activities: false,
@@ -340,7 +340,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
   // §10.1/§7.5 - Connecting Objects (BPMN 2.0 Spec)
   // ============================================================================
 
-  describe('§10.1/§7.5 Connecting Objects — Complete coverage per BPMN 2.0', () => {
+  describe('§10.1/§7.5 连接对象 —— BPMN 2.0 完整覆盖', () => {
     /**
      * BPMN 2.0 defines 7 flow/connection types:
      * - Sequence Flow (solid, filled arrow)
@@ -352,7 +352,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
      * - Data Association (dashed, open arrow)
      */
 
-    it('should implement all 7 connection types per §7.5', () => {
+    it('应实现 §7.5 规定的全部 7 种连接线', () => {
       expect(allExports.BPMN_SEQUENCE_FLOW).toBe('bpmn-sequence-flow')
       expect(allExports.BPMN_CONDITIONAL_FLOW).toBe('bpmn-conditional-flow')
       expect(allExports.BPMN_DEFAULT_FLOW).toBe('bpmn-default-flow')
@@ -362,7 +362,7 @@ describe('BPMN 2.0 Specification Compliance', () => {
       expect(allExports.BPMN_DATA_ASSOCIATION).toBe('bpmn-data-association')
     })
 
-    it('should have 7 total connection shapes registered', () => {
+    it('应共注册 7 个连接线图形', () => {
       allExports.forceRegisterBpmnShapes({
         events: false,
         activities: false,
@@ -380,84 +380,84 @@ describe('BPMN 2.0 Specification Compliance', () => {
   // BPMN 2.0 Visual Specification Compliance
   // ============================================================================
 
-  describe('Visual Specification Compliance', () => {
+  describe('视觉规范合规性', () => {
     beforeEach(() => {
       allExports.forceRegisterBpmnShapes()
     })
 
-    it('Start Events should use single thin circle (BPMN spec: single line)', () => {
+    it('开始事件应使用单细圆（BPMN 规范：单线）', () => {
       const startCall = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_START_EVENT)!
       const config = startCall[1] as any
       expect(config.attrs.body.strokeWidth).toBe(2)
       expect(config.attrs.innerCircle).toBeUndefined()
     })
 
-    it('Intermediate Events should use double circle (BPMN spec: double line)', () => {
+    it('中间事件应使用双圆（BPMN 规范：双线）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_INTERMEDIATE_CATCH_EVENT)!
       const config = call[1] as any
       expect(config.attrs.innerCircle).toBeDefined()
     })
 
-    it('End Events should use thick single circle (BPMN spec: thick line)', () => {
+    it('结束事件应使用粗单圆（BPMN 规范：粗线）', () => {
       const endCall = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_END_EVENT)!
       const config = endCall[1] as any
       expect(config.attrs.body.strokeWidth).toBe(3)
       expect(config.attrs.innerCircle).toBeUndefined()
     })
 
-    it('Gateways should use diamond/rhombus shape', () => {
+    it('网关应使用菱形', () => {
       const gwCall = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_EXCLUSIVE_GATEWAY)!
       const config = gwCall[1] as any
       expect(config.attrs.body.refPoints).toContain('0,0.5')
     })
 
-    it('Tasks should use rounded rectangles', () => {
+    it('任务应使用圆角矩形', () => {
       const taskCall = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_TASK)!
       const config = taskCall[1] as any
       expect(config.attrs.body.rx).toBeGreaterThan(0)
       expect(config.attrs.body.ry).toBeGreaterThan(0)
     })
 
-    it('Call Activity should have thick border (BPMN spec)', () => {
+    it('调用活动应有粗边框（BPMN 规范）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_CALL_ACTIVITY)!
       const config = call[1] as any
       expect(config.attrs.body.strokeWidth).toBe(4)
     })
 
-    it('Event Sub-Process should have dashed border (BPMN spec)', () => {
+    it('事件子流程应有虚线边框（BPMN 规范）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_EVENT_SUB_PROCESS)!
       const config = call[1] as any
       expect(config.attrs.body.strokeDasharray).toBeTruthy()
     })
 
-    it('Transaction should have double border (BPMN spec)', () => {
+    it('事务应有双边框（BPMN 规范）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_TRANSACTION)!
       const config = call[1] as any
       const hasInnerRect = config.markup.some((m: any) => m.selector === 'innerRect')
       expect(hasInnerRect).toBe(true)
     })
 
-    it('Non-Interrupting Boundary should have dashed border (BPMN spec)', () => {
+    it('非中断边界应有虚线边框（BPMN 规范）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_BOUNDARY_EVENT_NON_INTERRUPTING)!
       const config = call[1] as any
       expect(config.attrs.body.strokeDasharray).toBeTruthy()
     })
 
-    it('Data Object should have folded corner (page shape per BPMN spec)', () => {
+    it('数据对象应有折角（BPMN 规范页面形状）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_DATA_OBJECT)!
       const config = call[1] as any
       const hasFold = config.markup.some((m: any) => m.selector === 'fold')
       expect(hasFold).toBe(true)
     })
 
-    it('Sequence Flow should be solid with filled arrow (BPMN spec)', () => {
+    it('顺序流应为实线带实心箭头（BPMN 规范）', () => {
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_SEQUENCE_FLOW)!
       const config = call[1] as any
       expect(config.attrs.line.strokeDasharray).toBeUndefined()
       expect(config.attrs.line.targetMarker.name).toBe('block')
     })
 
-    it('Message Flow should be dashed with circle source and open arrow (BPMN spec)', () => {
+    it('消息流应为虚线带圆形起点和空心箭头（BPMN 规范）', () => {
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_MESSAGE_FLOW)!
       const config = call[1] as any
       expect(config.attrs.line.strokeDasharray).toBeTruthy()
@@ -465,27 +465,27 @@ describe('BPMN 2.0 Specification Compliance', () => {
       expect(config.attrs.line.targetMarker.open).toBe(true)
     })
 
-    it('Association should be dotted with no arrowhead (BPMN spec)', () => {
+    it('关联应为虹线无箭头（BPMN 规范）', () => {
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_ASSOCIATION)!
       const config = call[1] as any
       expect(config.attrs.line.strokeDasharray).toBeTruthy()
       expect(config.attrs.line.targetMarker).toBeNull()
     })
 
-    it('Conditional Flow should have diamond source marker (BPMN spec)', () => {
+    it('条件流应有菱形起点标记（BPMN 规范）', () => {
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_CONDITIONAL_FLOW)!
       const config = call[1] as any
       expect(config.attrs.line.sourceMarker.name).toBe('diamond')
     })
 
-    it('Group should have dashed rounded rectangle (BPMN spec)', () => {
+    it('分组应有虚线圆角矩形（BPMN 规范）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_GROUP)!
       const config = call[1] as any
       expect(config.attrs.body.strokeDasharray).toBeTruthy()
       expect(config.attrs.body.rx).toBeGreaterThan(0)
     })
 
-    it('Text Annotation should have left bracket only (BPMN spec)', () => {
+    it('文本注释应只有左括号（BPMN 规范）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_TEXT_ANNOTATION)!
       const config = call[1] as any
       expect(config.attrs.body.stroke).toBe('none')
@@ -497,14 +497,14 @@ describe('BPMN 2.0 Specification Compliance', () => {
   // Total Element Count Verification
   // ============================================================================
 
-  describe('Total Element Count', () => {
-    it('should register 81 total elements (74 nodes + 7 edges)', () => {
+  describe('图形总数验证', () => {
+    it('应注册 81 个元素（74 个节点 + 7 个连接线）', () => {
       allExports.forceRegisterBpmnShapes()
       expect(registerNodeSpy).toHaveBeenCalledTimes(74)
       expect(registerEdgeSpy).toHaveBeenCalledTimes(7)
     })
 
-    it('shape count breakdown: 47 events + 13 activities + 6 gateways + 4 data + 2 artifacts + 2 swimlanes = 74', () => {
+    it('图形数量明细：47 事件 + 13 活动 + 6 网关 + 4 数据 + 2 工件 + 2 泳道 = 74', () => {
       expect(47 + 13 + 6 + 4 + 2 + 2).toBe(74)
     })
   })

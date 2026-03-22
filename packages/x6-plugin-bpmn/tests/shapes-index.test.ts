@@ -10,42 +10,46 @@ import {
 import * as utilsBarrel from '../src/utils/index'
 import * as layoutBarrel from '../src/layout/index'
 
-describe('shapes/index barrel export', () => {
-  it('should export registerEventShapes', () => {
+/**
+ * 模块桶导出测试
+ * 验证 shapes、utils、layout 各入口文件正确导出所需函数和常量。
+ */
+describe('shapes/index 桶导出', () => {
+  it('应导出 registerEventShapes 函数', () => {
     expect(typeof registerEventShapes).toBe('function')
   })
 
-  it('should export registerActivityShapes', () => {
+  it('应导出 registerActivityShapes 函数', () => {
     expect(typeof registerActivityShapes).toBe('function')
   })
 
-  it('should export registerGatewayShapes', () => {
+  it('应导出 registerGatewayShapes 函数', () => {
     expect(typeof registerGatewayShapes).toBe('function')
   })
 
-  it('should export registerDataShapes', () => {
+  it('应导出 registerDataShapes 函数', () => {
     expect(typeof registerDataShapes).toBe('function')
   })
 
-  it('should export registerArtifactShapes', () => {
+  it('应导出 registerArtifactShapes 函数', () => {
     expect(typeof registerArtifactShapes).toBe('function')
   })
 
-  it('should export registerSwimlaneShapes', () => {
+  it('应导出 registerSwimlaneShapes 函数', () => {
     expect(typeof registerSwimlaneShapes).toBe('function')
   })
 })
 
-describe('utils/index barrel export', () => {
-  it('should re-export constants', () => {
+describe('utils/index 桶导出', () => {
+  it('应重导出各项常量', () => {
     expect(utilsBarrel).toHaveProperty('BPMN_START_EVENT')
     expect(utilsBarrel).toHaveProperty('BPMN_COLORS')
     expect(utilsBarrel).toHaveProperty('BPMN_ICONS')
   })
 })
 
-describe('layout/index placeholder', () => {
-  it('should export empty module (placeholder for future)', () => {
+describe('layout/index 占位模块', () => {
+  it('应导出空模块（留给未来布局功能使用）', () => {
     expect(layoutBarrel).toBeDefined()
     expect(typeof layoutBarrel).toBe('object')
   })

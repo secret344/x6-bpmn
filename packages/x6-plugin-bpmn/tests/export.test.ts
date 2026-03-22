@@ -138,9 +138,13 @@ function createTestGraph(): Graph {
 // BPMN Mapping Tests
 // ============================================================================
 
-describe('BPMN Mapping', () => {
-  describe('NODE_MAPPING', () => {
-    it('should have mappings for all event shapes', () => {
+/**
+ * BPMN 映射表、XML 导出、XML 导入测试
+ * 验证节点 / 连接线映射表、辅助判断函数及导入导出的完整性和正确性。
+ */
+describe('BPMN 映射表（bpmn-mapping）', () => {
+  describe('NODE_MAPPING —— 节点图形映射', () => {
+    it('应为所有事件图形提供映射', () => {
       const eventShapes = [
         BPMN_START_EVENT, BPMN_START_EVENT_MESSAGE, BPMN_START_EVENT_TIMER,
         BPMN_START_EVENT_CONDITIONAL, BPMN_START_EVENT_SIGNAL,
@@ -171,7 +175,7 @@ describe('BPMN Mapping', () => {
       }
     })
 
-    it('should have mappings for all activity shapes', () => {
+    it('应为所有活动图形提供映射', () => {
       const activityShapes = [
         BPMN_TASK, BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_SCRIPT_TASK,
         BPMN_SEND_TASK, BPMN_RECEIVE_TASK, BPMN_MANUAL_TASK, BPMN_BUSINESS_RULE_TASK,
@@ -183,7 +187,7 @@ describe('BPMN Mapping', () => {
       }
     })
 
-    it('should have correct BPMN tags for tasks', () => {
+    it('任务图形应映射到正确的 BPMN 标签', () => {
       expect(NODE_MAPPING[BPMN_TASK].tag).toBe('task')
       expect(NODE_MAPPING[BPMN_USER_TASK].tag).toBe('userTask')
       expect(NODE_MAPPING[BPMN_SERVICE_TASK].tag).toBe('serviceTask')
@@ -194,7 +198,7 @@ describe('BPMN Mapping', () => {
       expect(NODE_MAPPING[BPMN_BUSINESS_RULE_TASK].tag).toBe('businessRuleTask')
     })
 
-    it('should have mappings for all gateway shapes', () => {
+    it('应为所有网关图形提供映射', () => {
       expect(NODE_MAPPING[BPMN_EXCLUSIVE_GATEWAY].tag).toBe('exclusiveGateway')
       expect(NODE_MAPPING[BPMN_PARALLEL_GATEWAY].tag).toBe('parallelGateway')
       expect(NODE_MAPPING[BPMN_INCLUSIVE_GATEWAY].tag).toBe('inclusiveGateway')
@@ -203,7 +207,7 @@ describe('BPMN Mapping', () => {
       expect(NODE_MAPPING[BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY].tag).toBe('eventBasedGateway')
     })
 
-    it('should have mappings for data and artifact shapes', () => {
+    it('应为数据元素和工件提供映射', () => {
       expect(NODE_MAPPING[BPMN_DATA_OBJECT].tag).toBe('dataObjectReference')
       expect(NODE_MAPPING[BPMN_DATA_INPUT].tag).toBe('dataObjectReference')
       expect(NODE_MAPPING[BPMN_DATA_OUTPUT].tag).toBe('dataObjectReference')
@@ -212,12 +216,12 @@ describe('BPMN Mapping', () => {
       expect(NODE_MAPPING[BPMN_GROUP].tag).toBe('group')
     })
 
-    it('should have mappings for swimlane shapes', () => {
+    it('应为泳道图形提供映射', () => {
       expect(NODE_MAPPING[BPMN_POOL].tag).toBe('participant')
       expect(NODE_MAPPING[BPMN_LANE].tag).toBe('lane')
     })
 
-    it('should set event definitions for typed events', () => {
+    it('带类型的事件应设置 eventDefinition', () => {
       expect(NODE_MAPPING[BPMN_START_EVENT_MESSAGE].eventDefinition).toBe('messageEventDefinition')
       expect(NODE_MAPPING[BPMN_START_EVENT_TIMER].eventDefinition).toBe('timerEventDefinition')
       expect(NODE_MAPPING[BPMN_START_EVENT_CONDITIONAL].eventDefinition).toBe('conditionalEventDefinition')
@@ -232,14 +236,14 @@ describe('BPMN Mapping', () => {
       expect(NODE_MAPPING[BPMN_END_EVENT_MESSAGE].eventDefinition).toBe('messageEventDefinition')
     })
 
-    it('should have no event definition for plain events', () => {
+    it('普通事件不应有 eventDefinition', () => {
       expect(NODE_MAPPING[BPMN_START_EVENT].eventDefinition).toBeUndefined()
       expect(NODE_MAPPING[BPMN_END_EVENT].eventDefinition).toBeUndefined()
       expect(NODE_MAPPING[BPMN_INTERMEDIATE_THROW_EVENT].eventDefinition).toBeUndefined()
       expect(NODE_MAPPING[BPMN_INTERMEDIATE_CATCH_EVENT].eventDefinition).toBeUndefined()
     })
 
-    it('should set extra attrs for special shapes', () => {
+    it('特殊图形应设置额外属性', () => {
       expect(NODE_MAPPING[BPMN_EVENT_SUB_PROCESS].attrs?.triggeredByEvent).toBe('true')
       expect(NODE_MAPPING[BPMN_BOUNDARY_EVENT].attrs?.cancelActivity).toBe('true')
       expect(NODE_MAPPING[BPMN_BOUNDARY_EVENT_NON_INTERRUPTING].attrs?.cancelActivity).toBe('false')
@@ -248,13 +252,13 @@ describe('BPMN Mapping', () => {
       expect(NODE_MAPPING[BPMN_START_EVENT_PARALLEL_MULTIPLE].attrs?.parallelMultiple).toBe('true')
     })
 
-    it('should cover all 74+ node shapes in NODE_MAPPING', () => {
+    it('NODE_MAPPING 应覆盖全部 74+ 个节点图形', () => {
       expect(Object.keys(NODE_MAPPING).length).toBeGreaterThanOrEqual(74)
     })
   })
 
-  describe('EDGE_MAPPING', () => {
-    it('should have mappings for all edge shapes', () => {
+  describe('EDGE_MAPPING —— 连接线图形映射', () => {
+    it('应为所有连接线图形提供映射', () => {
       const edgeShapes = [
         BPMN_SEQUENCE_FLOW, BPMN_CONDITIONAL_FLOW, BPMN_DEFAULT_FLOW,
         BPMN_MESSAGE_FLOW, BPMN_ASSOCIATION, BPMN_DIRECTED_ASSOCIATION,
@@ -265,7 +269,7 @@ describe('BPMN Mapping', () => {
       }
     })
 
-    it('should have correct tags', () => {
+    it('连接线应映射到正确的 BPMN 标签', () => {
       expect(EDGE_MAPPING[BPMN_SEQUENCE_FLOW].tag).toBe('sequenceFlow')
       expect(EDGE_MAPPING[BPMN_CONDITIONAL_FLOW].tag).toBe('sequenceFlow')
       expect(EDGE_MAPPING[BPMN_DEFAULT_FLOW].tag).toBe('sequenceFlow')
@@ -275,60 +279,60 @@ describe('BPMN Mapping', () => {
       expect(EDGE_MAPPING[BPMN_DATA_ASSOCIATION].tag).toBe('dataInputAssociation')
     })
 
-    it('should mark message flow as collaboration', () => {
+    it('消息流应标记为 collaboration 类型', () => {
       expect(EDGE_MAPPING[BPMN_MESSAGE_FLOW].isCollaboration).toBe(true)
     })
 
-    it('should mark associations as artifact', () => {
+    it('关联应标记为 artifact 类型', () => {
       expect(EDGE_MAPPING[BPMN_ASSOCIATION].isArtifact).toBe(true)
       expect(EDGE_MAPPING[BPMN_DIRECTED_ASSOCIATION].isArtifact).toBe(true)
       expect(EDGE_MAPPING[BPMN_DATA_ASSOCIATION].isArtifact).toBe(true)
     })
 
-    it('should have exactly 7 edge mappings', () => {
+    it('EDGE_MAPPING 应有恰好 7 个映射', () => {
       expect(Object.keys(EDGE_MAPPING).length).toBe(7)
     })
   })
 
-  describe('Helper functions', () => {
-    it('isPoolShape', () => {
+  describe('辅助判断函数', () => {
+    it('isPoolShape —— 判断是否为池图形', () => {
       expect(isPoolShape(BPMN_POOL)).toBe(true)
       expect(isPoolShape(BPMN_LANE)).toBe(false)
       expect(isPoolShape(BPMN_TASK)).toBe(false)
     })
 
-    it('isLaneShape', () => {
+    it('isLaneShape —— 判断是否为泳道图形', () => {
       expect(isLaneShape(BPMN_LANE)).toBe(true)
       expect(isLaneShape(BPMN_POOL)).toBe(false)
       expect(isLaneShape(BPMN_TASK)).toBe(false)
     })
 
-    it('isSwimlaneShape', () => {
+    it('isSwimlaneShape —— 判断是否为泳道容器', () => {
       expect(isSwimlaneShape(BPMN_POOL)).toBe(true)
       expect(isSwimlaneShape(BPMN_LANE)).toBe(true)
       expect(isSwimlaneShape(BPMN_TASK)).toBe(false)
     })
 
-    it('isArtifactShape', () => {
+    it('isArtifactShape —— 判断是否为工件', () => {
       expect(isArtifactShape(BPMN_TEXT_ANNOTATION)).toBe(true)
       expect(isArtifactShape(BPMN_GROUP)).toBe(true)
       expect(isArtifactShape(BPMN_TASK)).toBe(false)
     })
 
-    it('isBoundaryShape', () => {
+    it('isBoundaryShape —— 判断是否为边界事件', () => {
       expect(isBoundaryShape(BPMN_BOUNDARY_EVENT)).toBe(true)
       expect(isBoundaryShape(BPMN_BOUNDARY_EVENT_TIMER)).toBe(true)
       expect(isBoundaryShape(BPMN_BOUNDARY_EVENT_NON_INTERRUPTING)).toBe(true)
       expect(isBoundaryShape(BPMN_START_EVENT)).toBe(false)
     })
 
-    it('isDefaultFlow', () => {
+    it('isDefaultFlow —— 判断是否为默认流', () => {
       expect(isDefaultFlow(BPMN_DEFAULT_FLOW)).toBe(true)
       expect(isDefaultFlow(BPMN_SEQUENCE_FLOW)).toBe(false)
       expect(isDefaultFlow(BPMN_CONDITIONAL_FLOW)).toBe(false)
     })
 
-    it('isConditionalFlow', () => {
+    it('isConditionalFlow —— 判断是否为条件流', () => {
       expect(isConditionalFlow(BPMN_CONDITIONAL_FLOW)).toBe(true)
       expect(isConditionalFlow(BPMN_SEQUENCE_FLOW)).toBe(false)
       expect(isConditionalFlow(BPMN_DEFAULT_FLOW)).toBe(false)
@@ -340,15 +344,15 @@ describe('BPMN Mapping', () => {
 // Exporter Tests
 // ============================================================================
 
-describe('BPMN XML Export', () => {
-  it('should produce valid XML with declaration', async () => {
+describe('BPMN XML 导出（exportBpmnXml）', () => {
+  it('应生成包含 XML 声明的有效 XML', async () => {
     const graph = createTestGraph()
     const xml = await exportBpmnXml(graph)
     expect(xml).toMatch(/^<\?xml version="1\.0" encoding="UTF-8"\?>/)
     graph.dispose()
   })
 
-  it('should contain bpmn:definitions with namespaces', async () => {
+  it('应包含带命名空间的 bpmn:definitions', async () => {
     const graph = createTestGraph()
     const xml = await exportBpmnXml(graph)
     expect(xml).toContain('xmlns:bpmn=')
@@ -358,7 +362,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should contain bpmn:process element', async () => {
+  it('应包含 bpmn:process 元素', async () => {
     const graph = createTestGraph()
     const xml = await exportBpmnXml(graph)
     expect(xml).toContain('<bpmn:process')
@@ -366,7 +370,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should use custom process id and name', async () => {
+  it('应使用自定义 processId 和 processName', async () => {
     const graph = createTestGraph()
     const xml = await exportBpmnXml(graph, { processId: 'MyProc', processName: '测试' })
     expect(xml).toContain('id="MyProc"')
@@ -374,7 +378,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export nodes as BPMN elements', async () => {
+  it('应将节点导出为 BPMN 元素', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_START_EVENT, x: 100, y: 100, width: 36, height: 36, attrs: { label: { text: '开始' } } })
     graph.addNode({ shape: BPMN_USER_TASK, x: 200, y: 100, width: 100, height: 60, attrs: { label: { text: '审批' } } })
@@ -390,7 +394,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export sequence flows with source/target refs', async () => {
+  it('顺序流应包含 sourceRef 和 targetRef', async () => {
     const graph = createTestGraph()
     const n1 = graph.addNode({ shape: BPMN_START_EVENT, x: 100, y: 100 })
     const n2 = graph.addNode({ shape: BPMN_END_EVENT, x: 300, y: 100 })
@@ -401,7 +405,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should generate incoming/outgoing refs', async () => {
+  it('应生成 incoming/outgoing 引用', async () => {
     const graph = createTestGraph()
     const n1 = graph.addNode({ shape: BPMN_START_EVENT, x: 100, y: 100 })
     const n2 = graph.addNode({ shape: BPMN_USER_TASK, x: 200, y: 100 })
@@ -413,7 +417,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export event definitions for typed events', async () => {
+  it('带类型的事件应导出 eventDefinition', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_START_EVENT_MESSAGE, x: 100, y: 100 })
     graph.addNode({ shape: BPMN_END_EVENT_TERMINATE, x: 300, y: 100 })
@@ -424,7 +428,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export pools as collaboration participants', async () => {
+  it('池应导出为 collaboration 中的 participant', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_POOL, x: 40, y: 40, width: 800, height: 400, attrs: { headerLabel: { text: '测试池' } } })
 
@@ -435,7 +439,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export lanes with flowNodeRefs', async () => {
+  it('泳道应导出并包含 flowNodeRef', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_LANE, x: 70, y: 40, width: 700, height: 200, attrs: { headerLabel: { text: '泳道1' } } })
     graph.addNode({ shape: BPMN_USER_TASK, x: 200, y: 100, width: 100, height: 60, attrs: { label: { text: '任务' } } })
@@ -447,7 +451,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export text annotations', async () => {
+  it('文本注释应正确导出', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_TEXT_ANNOTATION, x: 100, y: 50, attrs: { label: { text: '注释内容' } } })
 
@@ -458,7 +462,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export groups', async () => {
+  it('分组应正确导出', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_GROUP, x: 100, y: 100, width: 200, height: 150 })
 
@@ -467,7 +471,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export associations', async () => {
+  it('关联应正确导出', async () => {
     const graph = createTestGraph()
     const ann = graph.addNode({ shape: BPMN_TEXT_ANNOTATION, x: 100, y: 50 })
     const task = graph.addNode({ shape: BPMN_USER_TASK, x: 200, y: 100 })
@@ -478,7 +482,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export directed associations with direction', async () => {
+  it('有向关联应包含 direction 属性', async () => {
     const graph = createTestGraph()
     const n1 = graph.addNode({ shape: BPMN_USER_TASK, x: 100, y: 100 })
     const n2 = graph.addNode({ shape: BPMN_DATA_OBJECT, x: 200, y: 200 })
@@ -489,7 +493,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export data associations', async () => {
+  it('应导出数据关联', async () => {
     const graph = createTestGraph()
     const task = graph.addNode({ shape: BPMN_SERVICE_TASK, x: 100, y: 100 })
     const ds = graph.addNode({ shape: BPMN_DATA_STORE, x: 200, y: 200 })
@@ -501,7 +505,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export message flows under collaboration', async () => {
+  it('消息流应在 collaboration 下导出', async () => {
     const graph = createTestGraph()
     const pool1 = graph.addNode({ shape: BPMN_POOL, x: 40, y: 40, width: 400, height: 200 })
     const pool2 = graph.addNode({ shape: BPMN_POOL, x: 40, y: 300, width: 400, height: 200 })
@@ -512,7 +516,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export default flow with default attribute on gateway', async () => {
+  it('默认流应在网关上设置 default 属性', async () => {
     const graph = createTestGraph()
     const gw = graph.addNode({ shape: BPMN_EXCLUSIVE_GATEWAY, x: 200, y: 100, width: 50, height: 50 })
     const t1 = graph.addNode({ shape: BPMN_USER_TASK, x: 300, y: 50, width: 100, height: 60 })
@@ -526,7 +530,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export conditional flow with conditionExpression', async () => {
+  it('条件流应包含 conditionExpression', async () => {
     const graph = createTestGraph()
     const n1 = graph.addNode({ shape: BPMN_EXCLUSIVE_GATEWAY, x: 100, y: 100, width: 50, height: 50 })
     const n2 = graph.addNode({ shape: BPMN_USER_TASK, x: 300, y: 100, width: 100, height: 60 })
@@ -543,7 +547,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export BPMNDiagram with shapes and edges', async () => {
+  it('应导出包含图形和连接线的 BPMNDiagram', async () => {
     const graph = createTestGraph()
     const n1 = graph.addNode({ shape: BPMN_START_EVENT, x: 100, y: 100, width: 36, height: 36 })
     const n2 = graph.addNode({ shape: BPMN_END_EVENT, x: 300, y: 100, width: 36, height: 36 })
@@ -559,7 +563,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should handle nodes with newline labels', async () => {
+  it('应处理包含换行符的节点标签', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_USER_TASK, x: 100, y: 100, width: 100, height: 60, attrs: { label: { text: '多行\n标签' } } })
 
@@ -568,7 +572,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should handle empty graph', async () => {
+  it('应处理空画布', async () => {
     const graph = createTestGraph()
     const xml = await exportBpmnXml(graph)
     expect(xml).toContain('bpmn:definitions')
@@ -577,7 +581,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should handle edge labels', async () => {
+  it('应处理连接线标签', async () => {
     const graph = createTestGraph()
     const n1 = graph.addNode({ shape: BPMN_EXCLUSIVE_GATEWAY, x: 100, y: 100, width: 50, height: 50 })
     const n2 = graph.addNode({ shape: BPMN_USER_TASK, x: 300, y: 100, width: 100, height: 60 })
@@ -593,7 +597,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should handle node with data but no label attrs', async () => {
+  it('应处理有 data 属性但无 label attrs 的节点', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_USER_TASK, x: 100, y: 100, width: 100, height: 60, data: { label: '数据标签' } })
 
@@ -602,7 +606,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export pool shapes with isHorizontal', async () => {
+  it('池图形应导出 isHorizontal 属性', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_POOL, x: 40, y: 40, width: 800, height: 400, attrs: { headerLabel: { text: '池' } } })
 
@@ -611,7 +615,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export gateways correctly', async () => {
+  it('应正确导出网关', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_EXCLUSIVE_GATEWAY, x: 100, y: 100, width: 50, height: 50 })
     graph.addNode({ shape: BPMN_PARALLEL_GATEWAY, x: 200, y: 100, width: 50, height: 50 })
@@ -624,7 +628,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export all intermediate event types', async () => {
+  it('应导出所有中间事件类型', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_INTERMEDIATE_THROW_EVENT_MESSAGE, x: 100, y: 100 })
     graph.addNode({ shape: BPMN_INTERMEDIATE_CATCH_EVENT_TIMER, x: 200, y: 100 })
@@ -637,7 +641,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export data objects and stores', async () => {
+  it('应导出数据对象和数据存储', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_DATA_OBJECT, x: 100, y: 100, width: 40, height: 50 })
     graph.addNode({ shape: BPMN_DATA_STORE, x: 200, y: 100, width: 50, height: 50 })
@@ -648,7 +652,7 @@ describe('BPMN XML Export', () => {
     graph.dispose()
   })
 
-  it('should export subprocess types', async () => {
+  it('应导出子流程类型', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_SUB_PROCESS, x: 100, y: 100, width: 200, height: 120 })
     graph.addNode({ shape: BPMN_CALL_ACTIVITY, x: 350, y: 100, width: 100, height: 60 })
@@ -664,7 +668,7 @@ describe('BPMN XML Export', () => {
 // Importer Tests
 // ============================================================================
 
-describe('BPMN XML Import', () => {
+describe('BPMN XML 导入（importBpmnXml）', () => {
   const SIMPLE_BPMN = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -708,14 +712,14 @@ describe('BPMN XML Import', () => {
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`
 
-  it('should import nodes from BPMN XML', async () => {
+  it('应从 BPMN XML 中导入节点', async () => {
     const graph = createTestGraph()
     await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
     expect(graph.getNodes().length).toBe(3)
     graph.dispose()
   })
 
-  it('should create correct shapes from BPMN tags', async () => {
+  it('应从 BPMN 标签创建正确的图形', async () => {
     const graph = createTestGraph()
     await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
 
@@ -725,14 +729,14 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import edges from BPMN XML', async () => {
+  it('应从 BPMN XML 中导入连接线', async () => {
     const graph = createTestGraph()
     await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
     expect(graph.getEdges().length).toBe(2)
     graph.dispose()
   })
 
-  it('should set node positions from DI', async () => {
+  it('应从 DI 设置节点位置', async () => {
     const graph = createTestGraph()
     await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
 
@@ -743,7 +747,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should set node sizes from DI', async () => {
+  it('应从 DI 设置节点尺寸', async () => {
     const graph = createTestGraph()
     await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
 
@@ -754,7 +758,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should clear graph before import by default', async () => {
+  it('默认应在导入前清空画布', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: 'rect', x: 0, y: 0, width: 50, height: 50 })
     expect(graph.getNodes().length).toBe(1)
@@ -764,7 +768,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should not clear graph when clearGraph=false', async () => {
+  it('clearGraph=false 时不应清空画布', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: 'rect', x: 0, y: 0, width: 50, height: 50 })
 
@@ -773,13 +777,13 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should throw on invalid root element', async () => {
+  it('无效根元素时应抛出错误', async () => {
     const graph = createTestGraph()
     await expect(importBpmnXml(graph, '<not-definitions />', { zoomToFit: false })).rejects.toThrow('Invalid BPMN XML')
     graph.dispose()
   })
 
-  it('should import event with event definitions', async () => {
+  it('应导入带 eventDefinition 的事件', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -813,7 +817,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import pools and lanes', async () => {
+  it('应导入池和泳道', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -847,7 +851,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import gateways', async () => {
+  it('应导入网关', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -876,7 +880,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import text annotations and associations', async () => {
+  it('应导入文本注释和关联', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -911,7 +915,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import data objects and stores', async () => {
+  it('应导入数据对象和数据存储', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -937,7 +941,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import default flows', async () => {
+  it('应导入默认流', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -970,7 +974,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import conditional flows', async () => {
+  it('应导入条件流', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1001,7 +1005,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import directed associations', async () => {
+  it('应导入有向关联', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1029,7 +1033,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle XML without DI diagram', async () => {
+  it('应处理无 DI 图表的 XML', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -1044,7 +1048,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle XML without process', async () => {
+  it('应处理无 process 元素的 XML', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -1056,7 +1060,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import all task types correctly', async () => {
+  it('应正确导入所有任务类型', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1095,7 +1099,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import subprocess types', async () => {
+  it('应导入子流程类型', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1127,7 +1131,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import message flows', async () => {
+  it('应导入消息流', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1156,7 +1160,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle intermediate waypoints in edges', async () => {
+  it('应处理连接线中间路径点', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1189,7 +1193,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle boundary events with attachedToRef', async () => {
+  it('应处理带 attachedToRef 的边界事件', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1221,7 +1225,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import conditional flows with conditionExpression', async () => {
+  it('应导入带 conditionExpression 的条件流', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1253,7 +1257,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import message flows with intermediate waypoints', async () => {
+  it('应导入带中间路径点的消息流', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1292,7 +1296,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import data associations inside tasks', async () => {
+  it('应导入任务内部的数据关联', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1328,7 +1332,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should apply zoomToFit by default', async () => {
+  it('默认应执行 zoomToFit', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1351,7 +1355,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle XML without process (collaboration-only)', async () => {
+  it('应处理无 process 的 XML（仅 collaboration）', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1375,7 +1379,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle XML without BPMNDiagram (no DI)', async () => {
+  it('应处理无 BPMNDiagram（无 DI）的 XML', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -1393,7 +1397,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle associations without direction', async () => {
+  it('应处理无方向的关联', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1425,7 +1429,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle data associations without id (skip them)', async () => {
+  it('应跳过无 id 的数据关联', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1453,7 +1457,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle data associations with missing sourceRef or targetRef', async () => {
+  it('应处理缺少 sourceRef 或 targetRef 的数据关联', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1480,7 +1484,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import BPMNDiagram without BPMNPlane', async () => {
+  it('应导入无 BPMNPlane 的 BPMNDiagram', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1499,7 +1503,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle nodes without DI shape info (use defaults)', async () => {
+  it('无 DI Shape 信息的节点应使用默认尺寸', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -1525,7 +1529,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle event with eventDefinition but attrs not matching', async () => {
+  it('应处理 eventDefinition 与 attrs 不匹配的事件', async () => {
     // This tests the resolveNodeShape branch where candidate has eventDefinition AND attrs but attrs don't match
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -1566,7 +1570,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle unknown BPMN tags gracefully', async () => {
+  it('应优雅处理未知 BPMN 标签', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -1582,7 +1586,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import isHorizontal attribute on BPMNShape', async () => {
+  it('应导入 BPMNShape 上的 isHorizontal 属性', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1614,7 +1618,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle sequence flow with named label', async () => {
+  it('应处理带标签的顺序流', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1641,21 +1645,21 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should throw on non-definitions root element', async () => {
+  it('非 definitions 根元素应抛出错误', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><process id="P1" />`
     const graph = createTestGraph()
     await expect(importBpmnXml(graph, xml, { zoomToFit: false })).rejects.toThrow('root element must be <definitions>')
     graph.dispose()
   })
 
-  it('should throw on malformed XML', async () => {
+  it('应在用 XML 格式错误时抛出错误', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?><broken><unclosed>`
     const graph = createTestGraph()
     await expect(importBpmnXml(graph, xml, { zoomToFit: false })).rejects.toThrow('Invalid BPMN XML')
     graph.dispose()
   })
 
-  it('should handle clearGraph=false option', async () => {
+  it('应处理 clearGraph=false 选项', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_TASK, id: 'pre_existing', x: 50, y: 50, width: 100, height: 60 })
 
@@ -1675,7 +1679,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle BPMNShape with missing Bounds attributes (use fallbacks)', async () => {
+  it('BPMNShape Bounds 属性缺失时应使用回退默认値', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1698,7 +1702,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle participants without DI shapes (use defaults)', async () => {
+  it('无 DI Shape 的 participant 应使用默认尺寸', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -1717,7 +1721,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle lanes without DI shapes (use defaults)', async () => {
+  it('无 DI Shape 的泳道应使用默认尺寸', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -1737,7 +1741,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle sequence flow without named label (no labels array)', async () => {
+  it('无标签的顺序流不应生成 labels 数组', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -1754,7 +1758,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle edge with only 2 waypoints (no intermediate vertices)', async () => {
+  it('仅有 2 个路径点的连接线不应有中间顶点', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1781,7 +1785,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle message flow without label', async () => {
+  it('无标签的消息流应正确处理', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1811,7 +1815,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle text annotation with text child element', async () => {
+  it('应处理带 text 子元素的文本注释', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1835,7 +1839,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle BPMNShape without bpmnElement attribute', async () => {
+  it('无 bpmnElement 属性的 BPMNShape 应被跳过', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1858,7 +1862,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle waypoint with missing attributes (uses 0 fallback)', async () => {
+  it('路径点缺少属性时应使用 0 作为回退属性', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1884,7 +1888,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should handle resolveNodeShape with event element having no matching event def', async () => {
+  it('resolveNodeShape 应处理无匹配 eventDef 的事件元素', async () => {
     // An intermediateThrowEvent with an unknown/unregistered event definition
     // should fall back to the generic shape
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1906,7 +1910,7 @@ describe('BPMN XML Import', () => {
     graph.dispose()
   })
 
-  it('should import flowNodeRef with empty text content', async () => {
+  it('应导入内容为空的 flowNodeRef', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -1933,7 +1937,7 @@ describe('BPMN XML Import', () => {
 // ============================================================================
 
 describe('BPMN Export Additional Coverage', () => {
-  it('should export boundary event with parent attachment', async () => {
+  it('应导出带父节点关联的边界事件', async () => {
     const graph = createTestGraph()
     const task = graph.addNode({ shape: BPMN_TASK, id: 'task1', x: 200, y: 100, width: 100, height: 60, attrs: { label: { text: '任务' } } })
     const boundary = graph.addNode({ shape: BPMN_BOUNDARY_EVENT_TIMER, id: 'be1', x: 250, y: 142, width: 36, height: 36, attrs: { label: { text: '' } } })
@@ -1947,7 +1951,7 @@ describe('BPMN Export Additional Coverage', () => {
     graph.dispose()
   })
 
-  it('should export boundary event without parent (no attachedToRef)', async () => {
+  it('无父节点的边界事件不应包含 attachedToRef', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_BOUNDARY_EVENT, id: 'be_orphan', x: 100, y: 100, width: 36, height: 36, attrs: { label: { text: '' } } })
 
@@ -1958,7 +1962,7 @@ describe('BPMN Export Additional Coverage', () => {
     graph.dispose()
   })
 
-  it('should export edge with vertices as intermediate waypoints in DI', async () => {
+  it('连接线顶点应作为 DI 中的中间路径点导出', async () => {
     const graph = createTestGraph()
     const n1 = graph.addNode({ shape: BPMN_START_EVENT, id: 'start', x: 100, y: 100, width: 36, height: 36, attrs: { label: { text: '开始' } } })
     const n2 = graph.addNode({ shape: BPMN_END_EVENT, id: 'end', x: 400, y: 100, width: 36, height: 36, attrs: { label: { text: '结束' } } })
@@ -1979,7 +1983,7 @@ describe('BPMN Export Additional Coverage', () => {
     graph.dispose()
   })
 
-  it('should handle conditional flow with no label (uses "condition" as default)', async () => {
+  it('无标签的条件流应使用 "condition" 作为默认值', async () => {
     const graph = createTestGraph()
     const n1 = graph.addNode({ shape: BPMN_EXCLUSIVE_GATEWAY, id: 'gw1', x: 100, y: 100, width: 50, height: 50, attrs: { label: { text: '判断' } } })
     const n2 = graph.addNode({ shape: BPMN_TASK, id: 'task1', x: 300, y: 100, width: 100, height: 60, attrs: { label: { text: '任务' } } })
@@ -1996,7 +2000,7 @@ describe('BPMN Export Additional Coverage', () => {
     graph.dispose()
   })
 
-  it('should handle group node export (not textAnnotation artifact)', async () => {
+  it('应处理分组节点导出（非 textAnnotation 工件）', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_GROUP, id: 'grp1', x: 100, y: 100, width: 200, height: 150, attrs: { label: { text: '分组' } } })
 
@@ -2006,7 +2010,7 @@ describe('BPMN Export Additional Coverage', () => {
     graph.dispose()
   })
 
-  it('should export node with data.label when attrs.label.text is empty', async () => {
+  it('attrs.label.text 为空时应使用 data.label 导出节点', async () => {
     const graph = createTestGraph()
     const node = graph.addNode({ shape: BPMN_TASK, id: 'task_dl', x: 100, y: 100, width: 100, height: 60, attrs: { label: { text: '' } } })
     node.setData({ label: '来自数据' })
@@ -2016,7 +2020,7 @@ describe('BPMN Export Additional Coverage', () => {
     graph.dispose()
   })
 
-  it('should skip nodes with unknown/unmapped shapes in export', async () => {
+  it('导出时应跳过未映射图形的节点', async () => {
     const graph = createTestGraph()
     // Register and add an unknown shape that won't be in NODE_MAPPING
     try { Graph.registerNode('test-unknown-shape', { inherit: 'rect' }, true) } catch { /* ok */ }
@@ -2035,7 +2039,7 @@ describe('BPMN Export Additional Coverage', () => {
     graph.dispose()
   })
 
-  it('should skip edges with unknown/unmapped shapes in export', async () => {
+  it('导出时应跳过未映射图形的连接线', async () => {
     const graph = createTestGraph()
     try { Graph.registerEdge('test-unknown-edge', { inherit: 'edge' }, true) } catch { /* ok */ }
     const n1 = graph.addNode({ shape: BPMN_START_EVENT, id: 'start', x: 100, y: 100, width: 36, height: 36, attrs: { label: { text: '' } } })
@@ -2053,7 +2057,7 @@ describe('BPMN Export Additional Coverage', () => {
 // ============================================================================
 
 describe('BPMN Round-trip (Export → Import)', () => {
-  it('should preserve node and edge counts after round-trip', async () => {
+  it('往返小机后应保留节点和连接线数量', async () => {
     const graph1 = createTestGraph()
     const n1 = graph1.addNode({ shape: BPMN_START_EVENT, x: 100, y: 100, width: 36, height: 36, attrs: { label: { text: '开始' } } })
     const n2 = graph1.addNode({ shape: BPMN_USER_TASK, x: 200, y: 90, width: 100, height: 60, attrs: { label: { text: '审批' } } })
@@ -2076,7 +2080,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
     graph2.dispose()
   })
 
-  it('should preserve shape types after round-trip', async () => {
+  it('往返小机后应保留图形类型', async () => {
     const graph1 = createTestGraph()
     graph1.addNode({ shape: BPMN_START_EVENT_MESSAGE, id: 'SE', x: 100, y: 100, width: 36, height: 36 })
     graph1.addNode({ shape: BPMN_USER_TASK, id: 'UT', x: 200, y: 100, width: 100, height: 60 })
@@ -2096,7 +2100,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
     graph2.dispose()
   })
 
-  it('should round-trip a complex process', async () => {
+  it('应对复杂流程进行往返小机', async () => {
     const graph1 = createTestGraph()
 
     // Build a mini workflow
@@ -2140,7 +2144,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
     graph2.dispose()
   })
 
-  it('should preserve all 16 edges in full demo process round-trip (员工请假审批)', async () => {
+  it('完整 demo 流程往返小机应保留全部 16 条连接线（员工请假审批）', async () => {
     const graph1 = createTestGraph()
 
     // ========== 泳池与泳道 ==========
@@ -2233,7 +2237,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
     graph2.dispose()
   })
 
-  it('should export and re-import XML with all sequence flow connections intact', async () => {
+  it('导出并重新导入的 XML 应保留全部顺序流连接', async () => {
     const graph1 = createTestGraph()
 
     const start = graph1.addNode({ shape: BPMN_START_EVENT, id: 'start', x: 100, y: 100, width: 36, height: 36, attrs: { label: { text: '开始' } } })

@@ -12,7 +12,11 @@ import {
   BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY,
 } from '../src/utils/constants'
 
-describe('registerGatewayShapes', () => {
+/**
+ * 网关图形注册测试（registerGatewayShapes）
+ * 验证 6 种 BPMN 2.0 网关图形的形状、标记、配色和端口。
+ */
+describe('网关图形注册（registerGatewayShapes）', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let registerNodeSpy: any
 
@@ -20,11 +24,11 @@ describe('registerGatewayShapes', () => {
     registerNodeSpy = vi.spyOn(Graph, 'registerNode').mockImplementation(() => undefined as any)
   })
 
-  it('should call registerGatewayShapes without errors', () => {
+  it('调用不应抛出异常', () => {
     expect(() => registerGatewayShapes()).not.toThrow()
   })
 
-  it('should register exactly 6 gateway shapes', () => {
+  it('应注册恰好 6 种网关图形', () => {
     registerGatewayShapes()
     expect(registerNodeSpy).toHaveBeenCalledTimes(6)
   })
@@ -34,14 +38,14 @@ describe('registerGatewayShapes', () => {
     BPMN_COMPLEX_GATEWAY, BPMN_EVENT_BASED_GATEWAY, BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY,
   ]
 
-  it('should register all 6 gateway types', () => {
+  it('应注册全部 6 种网关类型', () => {
     registerGatewayShapes()
     for (const name of gatewayNames) {
       expect(registerNodeSpy).toHaveBeenCalledWith(name, expect.any(Object), true)
     }
   })
 
-  it('all gateways should inherit from polygon (diamond shape)', () => {
+  it('所有网关应继承自 polygon（菱形）', () => {
     registerGatewayShapes()
     for (const name of gatewayNames) {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -50,7 +54,7 @@ describe('registerGatewayShapes', () => {
     }
   })
 
-  it('all gateways should use diamond refPoints', () => {
+  it('所有网关应使用菱形顶点坐标', () => {
     registerGatewayShapes()
     for (const name of gatewayNames) {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -59,7 +63,7 @@ describe('registerGatewayShapes', () => {
     }
   })
 
-  it('all gateways should be 50x50', () => {
+  it('所有网关默认尺寸应为 50×50', () => {
     registerGatewayShapes()
     for (const name of gatewayNames) {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -69,7 +73,7 @@ describe('registerGatewayShapes', () => {
     }
   })
 
-  it('all gateways should use gateway colors (yellow/gold)', () => {
+  it('所有网关应使用网关配色（黄金色）', () => {
     registerGatewayShapes()
     for (const name of gatewayNames) {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -79,7 +83,7 @@ describe('registerGatewayShapes', () => {
     }
   })
 
-  it('all gateways should have 4 ports', () => {
+  it('所有网关应有 4 个连接端口', () => {
     registerGatewayShapes()
     for (const name of gatewayNames) {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -92,7 +96,7 @@ describe('registerGatewayShapes', () => {
     }
   })
 
-  it('all gateways should have marker path', () => {
+  it('所有网关应有标记图标路径', () => {
     registerGatewayShapes()
     for (const name of gatewayNames) {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
@@ -104,35 +108,35 @@ describe('registerGatewayShapes', () => {
 
   // ==================== Specific Gateway Markers ====================
 
-  it('Exclusive Gateway should use X marker', () => {
+  it('排他网关应使用 X 标记', () => {
     registerGatewayShapes()
     const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_EXCLUSIVE_GATEWAY)!
     const config = call[1] as any
     expect(config.attrs.marker.d).toBe(BPMN_ICONS.exclusiveX)
   })
 
-  it('Parallel Gateway should use + marker', () => {
+  it('并行网关应使用 + 标记', () => {
     registerGatewayShapes()
     const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_PARALLEL_GATEWAY)!
     const config = call[1] as any
     expect(config.attrs.marker.d).toBe(BPMN_ICONS.parallelPlus)
   })
 
-  it('Inclusive Gateway should use O marker', () => {
+  it('包容网关应使用 O 标记', () => {
     registerGatewayShapes()
     const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_INCLUSIVE_GATEWAY)!
     const config = call[1] as any
     expect(config.attrs.marker.d).toBe(BPMN_ICONS.inclusiveO)
   })
 
-  it('Complex Gateway should use * marker', () => {
+  it('复杂网关应使用 * 标记', () => {
     registerGatewayShapes()
     const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_COMPLEX_GATEWAY)!
     const config = call[1] as any
     expect(config.attrs.marker.d).toBe(BPMN_ICONS.complex)
   })
 
-  it('Event-Based Gateway should use event-based marker and outer circles', () => {
+  it('事件网关应有事件标记和外圈', () => {
     registerGatewayShapes()
     const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_EVENT_BASED_GATEWAY)!
     const config = call[1] as any
@@ -141,7 +145,7 @@ describe('registerGatewayShapes', () => {
     expect(config.attrs.innerCircle).toBeDefined()
   })
 
-  it('Exclusive Event-Based Gateway should have outer circles', () => {
+  it('排他事件网关应有外圈', () => {
     registerGatewayShapes()
     const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY)!
     const config = call[1] as any
@@ -150,7 +154,7 @@ describe('registerGatewayShapes', () => {
     expect(config.attrs.marker.d).toBe(BPMN_ICONS.eventBased)
   })
 
-  it('Non-event-based gateways should NOT have outer circles', () => {
+  it('非事件网关不应有外圈', () => {
     registerGatewayShapes()
     const nonEventGateways = [BPMN_EXCLUSIVE_GATEWAY, BPMN_PARALLEL_GATEWAY, BPMN_INCLUSIVE_GATEWAY, BPMN_COMPLEX_GATEWAY]
     for (const name of nonEventGateways) {
@@ -161,14 +165,14 @@ describe('registerGatewayShapes', () => {
     }
   })
 
-  it('all gateways should be passed with overwrite=true', () => {
+  it('所有网关注册时 overwrite 参数应为 true', () => {
     registerGatewayShapes()
     for (const call of registerNodeSpy.mock.calls) {
       expect(call[2]).toBe(true)
     }
   })
 
-  it('all gateways should have label selector', () => {
+  it('所有网关的 markup 应包含 label 选择器', () => {
     registerGatewayShapes()
     for (const call of registerNodeSpy.mock.calls) {
       const config = call[1] as any
