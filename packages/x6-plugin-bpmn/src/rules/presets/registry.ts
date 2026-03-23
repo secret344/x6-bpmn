@@ -11,6 +11,9 @@ import type {
   ResolvedBpmnRulePreset,
   NodePropertyDefinition,
   BpmnCustomValidator,
+  SerializationAdapter,
+  SerializationExportContext,
+  SerializationImportContext,
 } from './types'
 
 // ============================================================================
@@ -144,6 +147,11 @@ export function resolvePreset(name: string): ResolvedBpmnRulePreset {
     validators: [],
     shapeCategoryOverrides: {},
     shapeLabelOverrides: {},
+    nodeDefinitions: {},
+    edgeDefinitions: {},
+    availableNodes: [],
+    availableEdges: [],
+    serializationAdapter: {},
   }
 
   for (const preset of chain) {
@@ -216,6 +224,79 @@ function mergePresetInto(target: ResolvedBpmnRulePreset, source: BpmnRulePreset)
   // 合并标签覆盖
   if (source.shapeLabelOverrides) {
     Object.assign(target.shapeLabelOverrides, source.shapeLabelOverrides)
+  }
+
+  // 合并节点外观定义（逐 shape 合并，子预设字段覆盖父预设）
+  if (source.nodeDefinitions) {
+    for (const [shape, def] of Object.entries(source.nodeDefinitions)) {
+      target.nodeDefinitions[shape] = {
+        ...target.nodeDefinitions[shape],
+        ...def,
+      }
+    }
+  }
+
+  // 合并连线外观定义
+  if (source.edgeDefinitions) {
+    for (const [shape, def] of Object.entries(source.edgeDefinitions)) {
+      target.edgeDefinitions[shape] = {
+        ...target.edgeDefinitions[shape],
+        ...def,
+      }
+    }
+  }
+
+  // 合并可用节点白名单（子预设覆盖父预设的白名单）
+  if (source.availableNodes && source.availableNodes.length > 0) {
+    target.availableNodes = [...source.availableNodes]
+  }
+
+  // 合并可用连线白名单
+  if (source.availableEdges && source.availableEdges.length > 0) {
+    target.availableEdges = [...source.availableEdges]
+  }
+
+  // 合并序列化适配器
+  if (source.serializationAdapter) {
+    mergeSerializationAdapter(target, source.serializationAdapter)
+  }
+}
+
+/**
+ * 合并序列化适配器
+ *
+ * 命名空间合并（追加），钩子函数形成链式调用。
+ */
+function mergeSerializationAdapter(
+  target: ResolvedBpmnRulePreset,
+  source: SerializationAdapter,
+): void {
+  const existing = target.serializationAdapter
+
+  // 合并命名空间
+  if (source.namespaces) {
+    existing.namespaces = {
+      ...existing.namespaces,
+      ...source.namespaces,
+    }
+  }
+
+  // 链式合并 onExportElement
+  if (source.onExportElement) {
+    const prev = existing.onExportElement
+    const next = source.onExportElement
+    existing.onExportElement = prev
+      ? (ctx: SerializationExportContext) => { prev(ctx); next(ctx) }
+      : next
+  }
+
+  // 链式合并 onImportElement
+  if (source.onImportElement) {
+    const prev = existing.onImportElement
+    const next = source.onImportElement
+    existing.onImportElement = prev
+      ? (ctx: SerializationImportContext) => ({ ...prev(ctx), ...next(ctx) })
+      : next
   }
 }
 

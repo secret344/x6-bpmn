@@ -16,7 +16,7 @@
  * @see https://github.com/alibaba/SmartEngine/wiki
  */
 
-import type { BpmnRulePreset, NodePropertyDefinition, BpmnCustomValidator } from './types'
+import type { BpmnRulePreset, NodePropertyDefinition, BpmnCustomValidator, SerializationAdapter } from './types'
 import type { BpmnValidationResult } from '../connection-rules'
 
 // ============================================================================
@@ -125,6 +125,78 @@ const conditionExpressionValidator: BpmnCustomValidator = {
 }
 
 // ============================================================================
+// SmartEngine 序列化适配器
+// ============================================================================
+
+/** SmartEngine 命名空间 URI */
+const SMART_NS = 'http://smartengine.io/schema'
+
+/**
+ * SmartEngine 序列化适配器
+ *
+ * 在 BPMN 2.0 XML 导入/导出时处理 SmartEngine 特有的 smart: 命名空间属性：
+ * - smart:class — 委托实现类
+ * - smart:properties — 扩展属性（JSON）
+ * - smart:executionListener — 执行监听器
+ * - MVEL 条件表达式
+ */
+const smartSerializationAdapter: SerializationAdapter = {
+  namespaces: {
+    smart: SMART_NS,
+  },
+
+  onExportElement: (ctx) => {
+    const { data, element } = ctx
+    const attrs = element as Record<string, unknown>
+
+    // 映射 implementation → smart:class
+    if (data.implementationType === 'class' && data.implementation) {
+      attrs['smart:class'] = data.implementation
+    }
+
+    // 映射 smartProperties → smart:properties
+    if (data.smartProperties) {
+      attrs['smart:properties'] = data.smartProperties
+    }
+
+    // 映射 executionListener → smart:executionListener
+    if (data.executionListener) {
+      attrs['smart:executionListener'] = data.executionListener
+    }
+
+    // MVEL 条件表达式保持为 conditionExpression 标准字段
+    // （SmartEngine 使用标准 BPMN conditionExpression 元素，语法为 MVEL）
+  },
+
+  onImportElement: (ctx) => {
+    const el = ctx.element as Record<string, unknown>
+    const attrs = (el.$attrs ?? {}) as Record<string, unknown>
+    const result: Record<string, unknown> = {}
+
+    // 提取 smart:class
+    const smartClass = attrs['smart:class']
+    if (typeof smartClass === 'string' && smartClass) {
+      result.implementationType = 'class'
+      result.implementation = smartClass
+    }
+
+    // 提取 smart:properties
+    const smartProps = attrs['smart:properties']
+    if (typeof smartProps === 'string' && smartProps) {
+      result.smartProperties = smartProps
+    }
+
+    // 提取 smart:executionListener
+    const listener = attrs['smart:executionListener']
+    if (typeof listener === 'string' && listener) {
+      result.executionListener = listener
+    }
+
+    return result
+  },
+}
+
+// ============================================================================
 // SmartEngine 预设
 // ============================================================================
 
@@ -166,4 +238,7 @@ export const SMARTENGINE_PRESET: BpmnRulePreset = {
   },
 
   validators: [singleStartEventValidator, conditionExpressionValidator],
+
+  // SmartEngine 序列化适配器（处理 smart: 命名空间属性）
+  serializationAdapter: smartSerializationAdapter,
 }

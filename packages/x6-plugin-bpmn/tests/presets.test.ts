@@ -25,6 +25,9 @@ import {
   type BpmnRulePreset,
   type ResolvedBpmnRulePreset,
   type NodePropertyDefinition,
+  type SerializationAdapter,
+  type NodeDefinitionOverride,
+  type EdgeDefinitionOverride,
 } from '../src/rules/presets'
 import { DEFAULT_CONNECTION_RULES } from '../src/rules/connection-rules'
 import { validateBpmnConnection } from '../src/rules/validator'
@@ -546,6 +549,464 @@ describe('规则预设系统', () => {
       // 不应报错
       const resolved = resolvePreset('bpmn2')
       expect(resolved.name).toBe('bpmn2')
+    })
+  })
+
+  // ==========================================================================
+  // 节点/连线外观定义
+  // ==========================================================================
+
+  describe('节点外观定义 (nodeDefinitions)', () => {
+    it('应能在预设中定义节点外观', () => {
+      const nodeDef: NodeDefinitionOverride = {
+        defaultSize: { width: 120, height: 80 },
+        hidden: false,
+        label: '自定义用户任务',
+        tooltip: '用于审批流程',
+      }
+      createExtendedPreset('with-node-defs', 'bpmn2', {
+        nodeDefinitions: {
+          'bpmn-user-task': nodeDef,
+        },
+      })
+      const resolved = resolvePreset('with-node-defs')
+      expect(resolved.nodeDefinitions['bpmn-user-task']).toBeDefined()
+      expect(resolved.nodeDefinitions['bpmn-user-task'].defaultSize).toEqual({ width: 120, height: 80 })
+      expect(resolved.nodeDefinitions['bpmn-user-task'].label).toBe('自定义用户任务')
+      expect(resolved.nodeDefinitions['bpmn-user-task'].tooltip).toBe('用于审批流程')
+      expect(resolved.nodeDefinitions['bpmn-user-task'].hidden).toBe(false)
+    })
+
+    it('子预设节点定义应覆盖父预设', () => {
+      createExtendedPreset('parent-defs', 'bpmn2', {
+        nodeDefinitions: {
+          'bpmn-user-task': { defaultSize: { width: 100, height: 60 }, label: '父标签' },
+        },
+      })
+      createExtendedPreset('child-defs', 'parent-defs', {
+        nodeDefinitions: {
+          'bpmn-user-task': { label: '子标签' },
+        },
+      })
+      const resolved = resolvePreset('child-defs')
+      // 子预设的 label 覆盖父预设
+      expect(resolved.nodeDefinitions['bpmn-user-task'].label).toBe('子标签')
+      // 父预设的 defaultSize 被保留
+      expect(resolved.nodeDefinitions['bpmn-user-task'].defaultSize).toEqual({ width: 100, height: 60 })
+    })
+
+    it('默认解析结果应有空的 nodeDefinitions', () => {
+      const resolved = resolvePreset('bpmn2')
+      expect(resolved.nodeDefinitions).toBeDefined()
+      expect(typeof resolved.nodeDefinitions).toBe('object')
+    })
+  })
+
+  describe('连线外观定义 (edgeDefinitions)', () => {
+    it('应能在预设中定义连线外观', () => {
+      const edgeDef: EdgeDefinitionOverride = {
+        hidden: true,
+        label: '自定义顺序流',
+      }
+      createExtendedPreset('with-edge-defs', 'bpmn2', {
+        edgeDefinitions: {
+          'bpmn-sequence-flow': edgeDef,
+        },
+      })
+      const resolved = resolvePreset('with-edge-defs')
+      expect(resolved.edgeDefinitions['bpmn-sequence-flow']).toBeDefined()
+      expect(resolved.edgeDefinitions['bpmn-sequence-flow'].hidden).toBe(true)
+      expect(resolved.edgeDefinitions['bpmn-sequence-flow'].label).toBe('自定义顺序流')
+    })
+
+    it('子预设连线定义应覆盖父预设', () => {
+      createExtendedPreset('parent-edge', 'bpmn2', {
+        edgeDefinitions: {
+          'bpmn-sequence-flow': { label: '父标签', hidden: false },
+        },
+      })
+      createExtendedPreset('child-edge', 'parent-edge', {
+        edgeDefinitions: {
+          'bpmn-sequence-flow': { label: '子标签' },
+        },
+      })
+      const resolved = resolvePreset('child-edge')
+      expect(resolved.edgeDefinitions['bpmn-sequence-flow'].label).toBe('子标签')
+      expect(resolved.edgeDefinitions['bpmn-sequence-flow'].hidden).toBe(false)
+    })
+
+    it('默认解析结果应有空的 edgeDefinitions', () => {
+      const resolved = resolvePreset('bpmn2')
+      expect(resolved.edgeDefinitions).toBeDefined()
+      expect(typeof resolved.edgeDefinitions).toBe('object')
+    })
+  })
+
+  // ==========================================================================
+  // 可用节点/连线白名单
+  // ==========================================================================
+
+  describe('可用节点白名单 (availableNodes)', () => {
+    it('应能设置可用节点白名单', () => {
+      createExtendedPreset('limited-nodes', 'bpmn2', {
+        availableNodes: ['bpmn-start-event', 'bpmn-end-event', 'bpmn-user-task'],
+      })
+      const resolved = resolvePreset('limited-nodes')
+      expect(resolved.availableNodes).toEqual(['bpmn-start-event', 'bpmn-end-event', 'bpmn-user-task'])
+    })
+
+    it('子预设的白名单应覆盖父预设', () => {
+      createExtendedPreset('parent-nodes', 'bpmn2', {
+        availableNodes: ['bpmn-start-event', 'bpmn-end-event'],
+      })
+      createExtendedPreset('child-nodes', 'parent-nodes', {
+        availableNodes: ['bpmn-start-event', 'bpmn-user-task'],
+      })
+      const resolved = resolvePreset('child-nodes')
+      expect(resolved.availableNodes).toEqual(['bpmn-start-event', 'bpmn-user-task'])
+    })
+
+    it('默认解析结果应有空数组（不限制）', () => {
+      const resolved = resolvePreset('bpmn2')
+      expect(resolved.availableNodes).toEqual([])
+    })
+
+    it('空数组白名单不应覆盖父预设', () => {
+      createExtendedPreset('parent-av', 'bpmn2', {
+        availableNodes: ['bpmn-start-event'],
+      })
+      createExtendedPreset('child-av', 'parent-av', {
+        availableNodes: [],
+      })
+      const resolved = resolvePreset('child-av')
+      // 空数组不覆盖，保留父预设的白名单
+      expect(resolved.availableNodes).toEqual(['bpmn-start-event'])
+    })
+  })
+
+  describe('可用连线白名单 (availableEdges)', () => {
+    it('应能设置可用连线白名单', () => {
+      createExtendedPreset('limited-edges', 'bpmn2', {
+        availableEdges: ['bpmn-sequence-flow'],
+      })
+      const resolved = resolvePreset('limited-edges')
+      expect(resolved.availableEdges).toEqual(['bpmn-sequence-flow'])
+    })
+
+    it('子预设的白名单应覆盖父预设', () => {
+      createExtendedPreset('parent-edges', 'bpmn2', {
+        availableEdges: ['bpmn-sequence-flow'],
+      })
+      createExtendedPreset('child-edges', 'parent-edges', {
+        availableEdges: ['bpmn-sequence-flow', 'bpmn-message-flow'],
+      })
+      const resolved = resolvePreset('child-edges')
+      expect(resolved.availableEdges).toEqual(['bpmn-sequence-flow', 'bpmn-message-flow'])
+    })
+
+    it('默认解析结果应有空数组（不限制）', () => {
+      const resolved = resolvePreset('bpmn2')
+      expect(resolved.availableEdges).toEqual([])
+    })
+  })
+
+  // ==========================================================================
+  // 序列化适配器
+  // ==========================================================================
+
+  describe('序列化适配器 (serializationAdapter)', () => {
+    it('应能在预设中定义序列化适配器', () => {
+      const adapter: SerializationAdapter = {
+        namespaces: { custom: 'http://custom.io/schema' },
+        onExportElement: (ctx) => {
+          const el = ctx.element as Record<string, unknown>
+          el['custom:key'] = ctx.data.myKey
+        },
+        onImportElement: (ctx) => {
+          const attrs = ((ctx.element as Record<string, unknown>).$attrs ?? {}) as Record<string, unknown>
+          return attrs['custom:key'] ? { myKey: attrs['custom:key'] } : {}
+        },
+      }
+      createExtendedPreset('with-adapter', 'bpmn2', {
+        serializationAdapter: adapter,
+      })
+      const resolved = resolvePreset('with-adapter')
+      expect(resolved.serializationAdapter).toBeDefined()
+      expect(resolved.serializationAdapter.namespaces).toEqual({ custom: 'http://custom.io/schema' })
+      expect(resolved.serializationAdapter.onExportElement).toBeDefined()
+      expect(resolved.serializationAdapter.onImportElement).toBeDefined()
+    })
+
+    it('命名空间应从父预设合并', () => {
+      createExtendedPreset('parent-ns', 'bpmn2', {
+        serializationAdapter: {
+          namespaces: { ns1: 'http://ns1.io' },
+        },
+      })
+      createExtendedPreset('child-ns', 'parent-ns', {
+        serializationAdapter: {
+          namespaces: { ns2: 'http://ns2.io' },
+        },
+      })
+      const resolved = resolvePreset('child-ns')
+      expect(resolved.serializationAdapter.namespaces).toEqual({
+        ns1: 'http://ns1.io',
+        ns2: 'http://ns2.io',
+      })
+    })
+
+    it('onExportElement 应链式合并', () => {
+      const log: string[] = []
+      createExtendedPreset('parent-export', 'bpmn2', {
+        serializationAdapter: {
+          onExportElement: () => { log.push('parent') },
+        },
+      })
+      createExtendedPreset('child-export', 'parent-export', {
+        serializationAdapter: {
+          onExportElement: () => { log.push('child') },
+        },
+      })
+      const resolved = resolvePreset('child-export')
+      resolved.serializationAdapter.onExportElement!({
+        shape: 'test',
+        data: {},
+        element: {},
+      })
+      expect(log).toEqual(['parent', 'child'])
+    })
+
+    it('onImportElement 应链式合并（结果合并）', () => {
+      createExtendedPreset('parent-import', 'bpmn2', {
+        serializationAdapter: {
+          onImportElement: () => ({ fromParent: 'yes' }),
+        },
+      })
+      createExtendedPreset('child-import', 'parent-import', {
+        serializationAdapter: {
+          onImportElement: () => ({ fromChild: 'yes' }),
+        },
+      })
+      const resolved = resolvePreset('child-import')
+      const result = resolved.serializationAdapter.onImportElement!({
+        element: {},
+        shape: 'test',
+      })
+      expect(result).toEqual({ fromParent: 'yes', fromChild: 'yes' })
+    })
+
+    it('子预设导入结果应覆盖父预设同名键', () => {
+      createExtendedPreset('parent-overlap', 'bpmn2', {
+        serializationAdapter: {
+          onImportElement: () => ({ key: 'parent-value' }),
+        },
+      })
+      createExtendedPreset('child-overlap', 'parent-overlap', {
+        serializationAdapter: {
+          onImportElement: () => ({ key: 'child-value' }),
+        },
+      })
+      const resolved = resolvePreset('child-overlap')
+      const result = resolved.serializationAdapter.onImportElement!({
+        element: {},
+        shape: 'test',
+      })
+      expect(result.key).toBe('child-value')
+    })
+
+    it('默认解析结果应有空的 serializationAdapter', () => {
+      const resolved = resolvePreset('bpmn2')
+      expect(resolved.serializationAdapter).toBeDefined()
+      expect(typeof resolved.serializationAdapter).toBe('object')
+    })
+
+    it('只有 onExportElement 也应正常工作', () => {
+      const log: string[] = []
+      createExtendedPreset('export-only', 'bpmn2', {
+        serializationAdapter: {
+          onExportElement: () => { log.push('exported') },
+        },
+      })
+      const resolved = resolvePreset('export-only')
+      expect(resolved.serializationAdapter.onExportElement).toBeDefined()
+      expect(resolved.serializationAdapter.onImportElement).toBeUndefined()
+      resolved.serializationAdapter.onExportElement!({
+        shape: 'test',
+        data: {},
+        element: {},
+      })
+      expect(log).toEqual(['exported'])
+    })
+
+    it('只有 onImportElement 也应正常工作', () => {
+      createExtendedPreset('import-only', 'bpmn2', {
+        serializationAdapter: {
+          onImportElement: () => ({ key: 'value' }),
+        },
+      })
+      const resolved = resolvePreset('import-only')
+      expect(resolved.serializationAdapter.onImportElement).toBeDefined()
+      expect(resolved.serializationAdapter.onExportElement).toBeUndefined()
+    })
+  })
+
+  // ==========================================================================
+  // SmartEngine 序列化适配器
+  // ==========================================================================
+
+  describe('SmartEngine 序列化适配器', () => {
+    it('smartengine 预设应有序列化适配器', () => {
+      const resolved = resolvePreset('smartengine')
+      expect(resolved.serializationAdapter).toBeDefined()
+      expect(resolved.serializationAdapter.namespaces).toBeDefined()
+      expect(resolved.serializationAdapter.namespaces!.smart).toBe('http://smartengine.io/schema')
+    })
+
+    it('onExportElement 应将 implementation 映射到 smart:class', () => {
+      const resolved = resolvePreset('smartengine')
+      const element: Record<string, unknown> = {}
+      resolved.serializationAdapter.onExportElement!({
+        shape: 'bpmn-service-task',
+        data: { implementationType: 'class', implementation: 'com.example.MyDelegate' },
+        element,
+      })
+      expect(element['smart:class']).toBe('com.example.MyDelegate')
+    })
+
+    it('onExportElement 不应为非 class 类型设置 smart:class', () => {
+      const resolved = resolvePreset('smartengine')
+      const element: Record<string, unknown> = {}
+      resolved.serializationAdapter.onExportElement!({
+        shape: 'bpmn-service-task',
+        data: { implementationType: 'beanName', implementation: 'myBean' },
+        element,
+      })
+      expect(element['smart:class']).toBeUndefined()
+    })
+
+    it('onExportElement 应映射 smartProperties', () => {
+      const resolved = resolvePreset('smartengine')
+      const element: Record<string, unknown> = {}
+      resolved.serializationAdapter.onExportElement!({
+        shape: 'bpmn-service-task',
+        data: { smartProperties: '{"key":"value"}' },
+        element,
+      })
+      expect(element['smart:properties']).toBe('{"key":"value"}')
+    })
+
+    it('onExportElement 应映射 executionListener', () => {
+      const resolved = resolvePreset('smartengine')
+      const element: Record<string, unknown> = {}
+      resolved.serializationAdapter.onExportElement!({
+        shape: 'bpmn-service-task',
+        data: { executionListener: 'com.example.Listener' },
+        element,
+      })
+      expect(element['smart:executionListener']).toBe('com.example.Listener')
+    })
+
+    it('onImportElement 应提取 smart:class 属性', () => {
+      const resolved = resolvePreset('smartengine')
+      const result = resolved.serializationAdapter.onImportElement!({
+        element: {
+          $attrs: { 'smart:class': 'com.example.MyDelegate' },
+        },
+        shape: 'bpmn-service-task',
+      })
+      expect(result.implementationType).toBe('class')
+      expect(result.implementation).toBe('com.example.MyDelegate')
+    })
+
+    it('onImportElement 应提取 smart:properties', () => {
+      const resolved = resolvePreset('smartengine')
+      const result = resolved.serializationAdapter.onImportElement!({
+        element: {
+          $attrs: { 'smart:properties': '{"key":"value"}' },
+        },
+        shape: 'bpmn-service-task',
+      })
+      expect(result.smartProperties).toBe('{"key":"value"}')
+    })
+
+    it('onImportElement 应提取 smart:executionListener', () => {
+      const resolved = resolvePreset('smartengine')
+      const result = resolved.serializationAdapter.onImportElement!({
+        element: {
+          $attrs: { 'smart:executionListener': 'com.example.Listener' },
+        },
+        shape: 'bpmn-service-task',
+      })
+      expect(result.executionListener).toBe('com.example.Listener')
+    })
+
+    it('onImportElement 无 smart 属性时应返回空对象', () => {
+      const resolved = resolvePreset('smartengine')
+      const result = resolved.serializationAdapter.onImportElement!({
+        element: { $attrs: {} },
+        shape: 'bpmn-service-task',
+      })
+      expect(Object.keys(result)).toHaveLength(0)
+    })
+
+    it('onImportElement 无 $attrs 时应返回空对象', () => {
+      const resolved = resolvePreset('smartengine')
+      const result = resolved.serializationAdapter.onImportElement!({
+        element: {},
+        shape: 'bpmn-service-task',
+      })
+      expect(Object.keys(result)).toHaveLength(0)
+    })
+
+    it('SMARTENGINE_PRESET 应有 serializationAdapter 字段', () => {
+      expect(SMARTENGINE_PRESET.serializationAdapter).toBeDefined()
+      expect(SMARTENGINE_PRESET.serializationAdapter!.namespaces).toBeDefined()
+    })
+  })
+
+  // ==========================================================================
+  // 多层继承全字段综合测试
+  // ==========================================================================
+
+  describe('全字段多层继承', () => {
+    it('三级继承应正确合并所有新字段', () => {
+      createExtendedPreset('l2-full', 'smartengine', {
+        nodeDefinitions: {
+          'bpmn-user-task': { defaultSize: { width: 120, height: 80 } },
+        },
+        edgeDefinitions: {
+          'bpmn-sequence-flow': { label: '标准流' },
+        },
+        availableNodes: ['bpmn-start-event', 'bpmn-end-event', 'bpmn-user-task'],
+        availableEdges: ['bpmn-sequence-flow'],
+        serializationAdapter: {
+          namespaces: { ext: 'http://ext.io' },
+        },
+      })
+      createExtendedPreset('l3-full', 'l2-full', {
+        nodeDefinitions: {
+          'bpmn-service-task': { hidden: true },
+        },
+        connectionRules: {
+          task: { maxOutgoing: 3 },
+        },
+      })
+      const resolved = resolvePreset('l3-full')
+
+      // 从 smartengine 继承
+      expect(resolved.connectionRules.startEvent.maxOutgoing).toBe(1)
+      expect(resolved.serializationAdapter.namespaces!.smart).toBe('http://smartengine.io/schema')
+
+      // 从 l2-full 继承
+      expect(resolved.nodeDefinitions['bpmn-user-task'].defaultSize).toEqual({ width: 120, height: 80 })
+      expect(resolved.edgeDefinitions['bpmn-sequence-flow'].label).toBe('标准流')
+      expect(resolved.availableNodes).toEqual(['bpmn-start-event', 'bpmn-end-event', 'bpmn-user-task'])
+      expect(resolved.availableEdges).toEqual(['bpmn-sequence-flow'])
+      expect(resolved.serializationAdapter.namespaces!.ext).toBe('http://ext.io')
+
+      // 自身定义
+      expect(resolved.nodeDefinitions['bpmn-service-task'].hidden).toBe(true)
+      expect(resolved.connectionRules.task.maxOutgoing).toBe(3)
     })
   })
 })

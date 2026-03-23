@@ -29,6 +29,8 @@ import {
   BPMN_DIRECTED_ASSOCIATION,
   BPMN_DATA_ASSOCIATION,
 } from '../utils/constants'
+import { resolvePreset, getPreset } from '../rules/presets/registry'
+import type { SerializationAdapter } from '../rules/presets/types'
 
 // ============================================================================
 // 扩展命名空间（用于存储自定义属性）
@@ -146,6 +148,8 @@ export interface ExportBpmnOptions {
   processId?: string
   /** 流程名称，默认为空 */
   processName?: string
+  /** 使用指定的规则预设名称，激活预设的序列化适配器 */
+  preset?: string
 }
 
 /**
@@ -162,8 +166,15 @@ export interface ExportBpmnOptions {
  * @returns BPMN 2.0 XML 字符串
  */
 export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {}): Promise<string> {
-  const { processId = 'Process_1', processName = '' } = options
+  const { processId = 'Process_1', processName = '', preset: presetName } = options
   const moddle = new BpmnModdle()
+
+  // Resolve serialization adapter from preset (if specified)
+  let serializationAdapter: SerializationAdapter | undefined
+  if (presetName && getPreset(presetName)) {
+    const resolved = resolvePreset(presetName)
+    serializationAdapter = resolved.serializationAdapter
+  }
 
   const nodes = graph.getNodes()
   const edges = graph.getEdges()
@@ -343,6 +354,15 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
         const propsContainer = moddle.createAny('x6bpmn:properties', NS_X6BPMN, { $children: propChildren })
         element.extensionElements = moddle.create('bpmn:ExtensionElements', { values: [propsContainer] })
       }
+    }
+
+    // Invoke serialization adapter export hook
+    if (serializationAdapter?.onExportElement) {
+      serializationAdapter.onExportElement({
+        shape: node.shape,
+        data: (bpmnData ?? {}) as Record<string, unknown>,
+        element: element as unknown as Record<string, unknown>,
+      })
     }
 
     nodeElements.set(node.id, element)

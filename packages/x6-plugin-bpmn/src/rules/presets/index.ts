@@ -31,6 +31,11 @@ export type {
   BpmnCustomValidator,
   BpmnRulePreset,
   ResolvedBpmnRulePreset,
+  NodeDefinitionOverride,
+  EdgeDefinitionOverride,
+  SerializationAdapter,
+  SerializationExportContext,
+  SerializationImportContext,
 } from './types'
 
 // 注册中心

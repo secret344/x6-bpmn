@@ -21,6 +21,8 @@ import {
   BPMN_TEXT_ANNOTATION,
   BPMN_GROUP,
 } from '../utils/constants'
+import { resolvePreset, getPreset } from '../rules/presets/registry'
+import type { SerializationAdapter } from '../rules/presets/types'
 
 // ============================================================================
 // 反向映射：BPMN 标签（+ 可选事件定义）→ X6 图形名称
@@ -219,6 +221,8 @@ export interface ImportBpmnOptions {
   clearGraph?: boolean
   /** 导入后是否自动缩放适应，默认 true */
   zoomToFit?: boolean
+  /** 使用指定的规则预设名称，激活预设的序列化适配器 */
+  preset?: string
 }
 
 /**
@@ -237,9 +241,16 @@ export interface ImportBpmnOptions {
  * @param options — 可选配置
  */
 export async function importBpmnXml(graph: Graph, xml: string, options: ImportBpmnOptions = {}): Promise<void> {
-  const { clearGraph = true, zoomToFit = true } = options
+  const { clearGraph = true, zoomToFit = true, preset: presetName } = options
 
   const moddle = new BpmnModdle()
+
+  // Resolve serialization adapter from preset (if specified)
+  let serializationAdapter: SerializationAdapter | undefined
+  if (presetName && getPreset(presetName)) {
+    const resolved = resolvePreset(presetName)
+    serializationAdapter = resolved.serializationAdapter
+  }
 
   let definitions: ModdleElement
   try {
@@ -428,6 +439,22 @@ export async function importBpmnXml(graph: Graph, xml: string, options: ImportBp
         if (Object.keys(bpmn).length > 0) {
           node.setData({ ...(node.getData() || {}), bpmn }, { overwrite: true })
         }
+      }
+    }
+
+    // Invoke serialization adapter import hook
+    if (serializationAdapter?.onImportElement && shape) {
+      const adapterData = serializationAdapter.onImportElement({
+        element: element as unknown as Record<string, unknown>,
+        shape,
+      })
+      if (adapterData && Object.keys(adapterData).length > 0) {
+        const existingData = node.getData() || {}
+        const existingBpmn = (existingData as Record<string, any>).bpmn || {}
+        node.setData({
+          ...existingData,
+          bpmn: { ...existingBpmn, ...adapterData },
+        }, { overwrite: true })
       }
     }
 
