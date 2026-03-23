@@ -29,6 +29,8 @@ import {
   BPMN_DIRECTED_ASSOCIATION,
   BPMN_DATA_ASSOCIATION,
 } from '../utils/constants'
+import type { SerializationAdapter } from '../rules/presets/serialization-adapter'
+import { getSerializationAdapter } from '../rules/presets/serialization-adapter'
 
 // ============================================================================
 // 扩展命名空间（用于存储自定义属性）
@@ -146,6 +148,24 @@ export interface ExportBpmnOptions {
   processId?: string
   /** 流程名称，默认为空 */
   processName?: string
+  /**
+   * 序列化适配器名称或实例
+   *
+   * 用于处理特定规则预设的扩展属性和命名空间。
+   * - 如果传入字符串，将从注册中心查找对应的适配器
+   * - 如果传入适配器实例，直接使用
+   * - 如果不传，则使用标准 BPMN 2.0 格式（无扩展）
+   *
+   * @example
+   * ```ts
+   * // 使用注册的 SmartEngine 适配器
+   * exportBpmnXml(graph, { adapter: 'smartengine' })
+   *
+   * // 使用自定义适配器实例
+   * exportBpmnXml(graph, { adapter: myCustomAdapter })
+   * ```
+   */
+  adapter?: string | SerializationAdapter
 }
 
 /**
@@ -162,8 +182,24 @@ export interface ExportBpmnOptions {
  * @returns BPMN 2.0 XML 字符串
  */
 export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {}): Promise<string> {
-  const { processId = 'Process_1', processName = '' } = options
+  const { processId = 'Process_1', processName = '', adapter: adapterOption } = options
   const moddle = new BpmnModdle()
+
+  // Resolve serialization adapter
+  let adapter: SerializationAdapter | undefined
+  if (adapterOption) {
+    if (typeof adapterOption === 'string') {
+      adapter = getSerializationAdapter(adapterOption)
+      if (!adapter) {
+        console.warn(`序列化适配器 "${adapterOption}" 未找到，将使用标准 BPMN 2.0 格式`)
+      }
+    } else {
+      adapter = adapterOption
+    }
+  }
+
+  // Call adapter beforeExport hook
+  adapter?.beforeExport?.(moddle)
 
   const nodes = graph.getNodes()
   const edges = graph.getEdges()
@@ -345,6 +381,14 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       }
     }
 
+    // Call adapter onExportNode hook
+    adapter?.onExportNode?.({
+      moddle,
+      cell: node,
+      element,
+      nodeElements,
+    })
+
     nodeElements.set(node.id, element)
     flowElements.push(element)
   }
@@ -403,6 +447,14 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
         body: getEdgeLabel(edge) || 'condition',
       })
     }
+
+    // Call adapter onExportEdge hook
+    adapter?.onExportEdge?.({
+      moddle,
+      cell: edge,
+      element: seqFlow,
+      nodeElements,
+    })
 
     flowEdgeElements.set(edge.id, seqFlow)
     flowElements.push(seqFlow)
@@ -730,6 +782,13 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     targetNamespace: 'http://bpmn.io/schema/bpmn',
   })
 
+  // Add adapter namespaces to definitions
+  if (adapter?.namespaces) {
+    for (const [prefix, uri] of Object.entries(adapter.namespaces)) {
+      (definitions.$attrs as Record<string, any>)[`xmlns:${prefix}`] = uri
+    }
+  }
+
   const rootElements: ModdleElement[] = []
   if (collaboration) {
     rootElements.push(collaboration)
@@ -738,6 +797,13 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   definitions.rootElements = rootElements
   definitions.diagrams = [diagram]
 
-  const { xml } = await moddle.toXML(definitions, { format: true, preamble: true })
+  let { xml } = await moddle.toXML(definitions, { format: true, preamble: true })
+
+  // Call adapter afterExport hook
+  const modifiedXml = adapter?.afterExport?.(xml)
+  if (modifiedXml !== undefined) {
+    xml = modifiedXml
+  }
+
   return xml
 }

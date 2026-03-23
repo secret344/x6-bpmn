@@ -21,6 +21,8 @@ import {
   BPMN_TEXT_ANNOTATION,
   BPMN_GROUP,
 } from '../utils/constants'
+import type { SerializationAdapter } from '../rules/presets/serialization-adapter'
+import { getSerializationAdapter } from '../rules/presets/serialization-adapter'
 
 // ============================================================================
 // 反向映射：BPMN 标签（+ 可选事件定义）→ X6 图形名称
@@ -219,6 +221,24 @@ export interface ImportBpmnOptions {
   clearGraph?: boolean
   /** 导入后是否自动缩放适应，默认 true */
   zoomToFit?: boolean
+  /**
+   * 序列化适配器名称或实例
+   *
+   * 用于处理特定规则预设的扩展属性和命名空间。
+   * - 如果传入字符串，将从注册中心查找对应的适配器
+   * - 如果传入适配器实例，直接使用
+   * - 如果不传，则使用标准 BPMN 2.0 格式（无扩展）
+   *
+   * @example
+   * ```ts
+   * // 使用注册的 SmartEngine 适配器
+   * importBpmnXml(graph, xml, { adapter: 'smartengine' })
+   *
+   * // 使用自定义适配器实例
+   * importBpmnXml(graph, xml, { adapter: myCustomAdapter })
+   * ```
+   */
+  adapter?: string | SerializationAdapter
 }
 
 /**
@@ -237,9 +257,28 @@ export interface ImportBpmnOptions {
  * @param options — 可选配置
  */
 export async function importBpmnXml(graph: Graph, xml: string, options: ImportBpmnOptions = {}): Promise<void> {
-  const { clearGraph = true, zoomToFit = true } = options
+  const { clearGraph = true, zoomToFit = true, adapter: adapterOption } = options
 
   const moddle = new BpmnModdle()
+
+  // Resolve serialization adapter
+  let adapter: SerializationAdapter | undefined
+  if (adapterOption) {
+    if (typeof adapterOption === 'string') {
+      adapter = getSerializationAdapter(adapterOption)
+      if (!adapter) {
+        console.warn(`序列化适配器 "${adapterOption}" 未找到，将使用标准 BPMN 2.0 格式`)
+      }
+    } else {
+      adapter = adapterOption
+    }
+  }
+
+  // Call adapter beforeImport hook
+  const modifiedXml = adapter?.beforeImport?.(xml, moddle)
+  if (modifiedXml !== undefined) {
+    xml = modifiedXml
+  }
 
   let definitions: ModdleElement
   try {
@@ -402,6 +441,13 @@ export async function importBpmnXml(graph: Graph, xml: string, options: ImportBp
       }
     }
 
+    // Call adapter onImportNode hook
+    adapter?.onImportNode?.({
+      moddle,
+      element,
+      cellData: nodeConfig,
+    })
+
     const node = graph.addNode(nodeConfig)
     idMap.set(bpmnId, node.id)
 
@@ -467,14 +513,23 @@ export async function importBpmnXml(graph: Graph, xml: string, options: ImportBp
         ? diEdge.waypoints.slice(1, -1).map((wp: DiWaypoint) => ({ x: wp.x, y: wp.y }))
         : []
 
-    const edge = graph.addEdge({
+    const edgeConfig: Record<string, any> = {
       shape: edgeShape,
       id: bpmnId,
       source: sourceRef,
       target: targetRef,
       labels,
       vertices,
+    }
+
+    // Call adapter onImportEdge hook
+    adapter?.onImportEdge?.({
+      moddle,
+      element: sf,
+      cellData: edgeConfig,
     })
+
+    const edge = graph.addEdge(edgeConfig)
     idMap.set(bpmnId, edge.id)
   }
 
@@ -552,6 +607,9 @@ export async function importBpmnXml(graph: Graph, xml: string, options: ImportBp
       }
     }
   }
+
+  // Call adapter afterImport hook
+  adapter?.afterImport?.()
 
   // ---------- Zoom to fit ----------
   if (zoomToFit) {
