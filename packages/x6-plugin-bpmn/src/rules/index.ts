@@ -1,7 +1,7 @@
 /**
  * BPMN 2.0 连线规则模块
  *
- * 统一导出连线规则定义和验证器的所有公开 API。
+ * 统一导出连线规则定义、验证器和规则预设的所有公开 API。
  *
  * @example
  * ```ts
@@ -10,6 +10,8 @@
  *   createBpmnValidateConnection,
  *   getNodeCategory,
  *   DEFAULT_CONNECTION_RULES,
+ *   resolvePreset,
+ *   createExtendedPreset,
  * } from '@x6-bpmn2/plugin'
  * ```
  */
@@ -36,3 +38,6 @@ export {
   createBpmnValidateConnection,
   createBpmnValidateConnectionWithResult,
 } from './validator'
+
+// 规则预设
+export * from './presets'
