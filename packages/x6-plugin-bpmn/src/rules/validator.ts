@@ -21,8 +21,7 @@ import {
   type BpmnConnectionRule,
   type BpmnValidationResult,
 } from './connection-rules'
-import { resolvePreset } from './presets/registry'
-import { getPreset } from './presets/registry'
+import { resolvePreset, getPreset } from './presets/registry'
 import type { ResolvedBpmnRulePreset } from './presets/types'
 
 // ============================================================================
