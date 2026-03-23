@@ -21,6 +21,8 @@ import {
   BPMN_TEXT_ANNOTATION,
   BPMN_GROUP,
 } from '../utils/constants'
+import type { SerializationAdapter } from '../rules/presets/types'
+import { resolvePreset, getPreset } from '../rules/presets/registry'
 
 // ============================================================================
 // 反向映射：BPMN 标签（+ 可选事件定义）→ X6 图形名称
@@ -219,6 +221,8 @@ export interface ImportBpmnOptions {
   clearGraph?: boolean
   /** 导入后是否自动缩放适应，默认 true */
   zoomToFit?: boolean
+  /** 规则预设名称，用于应用预设的序列化适配器（如 'bpmn2'、'smartengine'） */
+  preset?: string
 }
 
 /**
@@ -237,7 +241,14 @@ export interface ImportBpmnOptions {
  * @param options — 可选配置
  */
 export async function importBpmnXml(graph: Graph, xml: string, options: ImportBpmnOptions = {}): Promise<void> {
-  const { clearGraph = true, zoomToFit = true } = options
+  const { clearGraph = true, zoomToFit = true, preset: presetName } = options
+
+  // 解析序列化适配器
+  let adapter: SerializationAdapter = {}
+  if (presetName && getPreset(presetName)) {
+    const resolved = resolvePreset(presetName)
+    adapter = resolved.serialization
+  }
 
   const moddle = new BpmnModdle()
 
@@ -431,6 +442,15 @@ export async function importBpmnXml(graph: Graph, xml: string, options: ImportBp
       }
     }
 
+    // 应用序列化适配器的节点导入转换
+    if (adapter.transformImportNode) {
+      const importNodeConfig: Record<string, any> = { data: node.getData() || {} }
+      adapter.transformImportNode(importNodeConfig, element)
+      if (importNodeConfig.data && Object.keys(importNodeConfig.data).length > 0) {
+        node.setData(importNodeConfig.data, { overwrite: true })
+      }
+    }
+
     // Track default flow
     const defaultRef = element.default
     if (defaultRef) {
@@ -467,14 +487,21 @@ export async function importBpmnXml(graph: Graph, xml: string, options: ImportBp
         ? diEdge.waypoints.slice(1, -1).map((wp: DiWaypoint) => ({ x: wp.x, y: wp.y }))
         : []
 
-    const edge = graph.addEdge({
+    const edgeConfig: Record<string, any> = {
       shape: edgeShape,
       id: bpmnId,
       source: sourceRef,
       target: targetRef,
       labels,
       vertices,
-    })
+    }
+
+    // 应用序列化适配器的连线导入转换
+    if (adapter.transformImportEdge) {
+      adapter.transformImportEdge(edgeConfig, sf)
+    }
+
+    const edge = graph.addEdge(edgeConfig)
     idMap.set(bpmnId, edge.id)
   }
 

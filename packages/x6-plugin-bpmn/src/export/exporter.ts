@@ -29,6 +29,8 @@ import {
   BPMN_DIRECTED_ASSOCIATION,
   BPMN_DATA_ASSOCIATION,
 } from '../utils/constants'
+import type { SerializationAdapter, ExportNodeContext, ExportEdgeContext } from '../rules/presets/types'
+import { resolvePreset, getPreset } from '../rules/presets/registry'
 
 // ============================================================================
 // 扩展命名空间（用于存储自定义属性）
@@ -146,6 +148,8 @@ export interface ExportBpmnOptions {
   processId?: string
   /** 流程名称，默认为空 */
   processName?: string
+  /** 规则预设名称，用于应用预设的序列化适配器（如 'bpmn2'、'smartengine'） */
+  preset?: string
 }
 
 /**
@@ -162,8 +166,15 @@ export interface ExportBpmnOptions {
  * @returns BPMN 2.0 XML 字符串
  */
 export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {}): Promise<string> {
-  const { processId = 'Process_1', processName = '' } = options
+  const { processId = 'Process_1', processName = '', preset: presetName } = options
   const moddle = new BpmnModdle()
+
+  // 解析序列化适配器
+  let adapter: SerializationAdapter = {}
+  if (presetName && getPreset(presetName)) {
+    const resolved = resolvePreset(presetName)
+    adapter = resolved.serialization
+  }
 
   const nodes = graph.getNodes()
   const edges = graph.getEdges()
@@ -345,6 +356,20 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       }
     }
 
+    // 应用序列化适配器的节点导出转换
+    if (adapter.transformExportNode) {
+      const context: ExportNodeContext = {
+        shape: node.shape,
+        tag: mapping.tag,
+        nodeId: node.id,
+        label: getNodeLabel(node),
+        bpmnData,
+        createAny: (type, ns, props) => moddle.createAny(type, ns, props),
+        createBpmnElement: (type, props) => moddle.create(type, props),
+      }
+      adapter.transformExportNode(element, context)
+    }
+
     nodeElements.set(node.id, element)
     flowElements.push(element)
   }
@@ -399,9 +424,27 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
     // Conditional flow → add conditionExpression
     if (isConditionalFlow(edge.shape)) {
-      seqFlow.conditionExpression = moddle.create('bpmn:FormalExpression', {
+      const condProps: Record<string, any> = {
         body: getEdgeLabel(edge) || 'condition',
-      })
+      }
+      if (adapter.conditionExpressionType) {
+        condProps.$attrs = { 'xsi:type': adapter.conditionExpressionType }
+      }
+      seqFlow.conditionExpression = moddle.create('bpmn:FormalExpression', condProps)
+    }
+
+    // 应用序列化适配器的连线导出转换
+    if (adapter.transformExportEdge) {
+      const context: ExportEdgeContext = {
+        shape: edge.shape,
+        tag: 'sequenceFlow',
+        edgeId: edge.id,
+        label: getEdgeLabel(edge),
+        isConditional: isConditionalFlow(edge.shape),
+        isDefault: isDefaultFlow(edge.shape),
+        createBpmnElement: (type, props) => moddle.create(type, props),
+      }
+      adapter.transformExportEdge(seqFlow, context)
     }
 
     flowEdgeElements.set(edge.id, seqFlow)
@@ -521,11 +564,16 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   }
 
   // ---- Build process ----
-  const process = moddle.create('bpmn:Process', {
+  const processProps: Record<string, any> = {
     id: processId,
     name: processName,
     isExecutable: false,
-  })
+  }
+  // 应用序列化适配器的流程属性
+  if (adapter.processAttributes) {
+    processProps.$attrs = { ...adapter.processAttributes }
+  }
+  const process = moddle.create('bpmn:Process', processProps)
 
   // Lanes
   if (lanes.length > 0) {
@@ -594,141 +642,155 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     })
   }
 
-  // ---- Build BPMNDiagram ----
-  const planeElements: ModdleElement[] = []
+  // ---- Build BPMNDiagram (仅在 includeDI !== false 时生成) ----
+  const shouldIncludeDI = adapter.includeDI !== false
+  let diagram: ModdleElement | null = null
 
-  // Pool shapes
-  for (const pool of pools) {
-    const pos = pool.getPosition()
-    const size = pool.getSize()
-    const shape = moddle.create('bpmndi:BPMNShape', {
-      id: `${toXmlId(pool.id)}_di`,
-      bpmnElement: nodeElements.get(pool.id) || { id: toXmlId(pool.id) },
-      isHorizontal: true,
-    })
-    shape.bounds = moddle.create('dc:Bounds', {
-      x: pos.x, y: pos.y, width: size.width, height: size.height,
-    })
-    planeElements.push(shape)
-  }
+  if (shouldIncludeDI) {
+    const planeElements: ModdleElement[] = []
 
-  // Lane shapes
-  for (const lane of lanes) {
-    const pos = lane.getPosition()
-    const size = lane.getSize()
-    const shape = moddle.create('bpmndi:BPMNShape', {
-      id: `${toXmlId(lane.id)}_di`,
-      bpmnElement: { id: toXmlId(lane.id) },
-      isHorizontal: true,
-    })
-    shape.bounds = moddle.create('dc:Bounds', {
-      x: pos.x, y: pos.y, width: size.width, height: size.height,
-    })
-    planeElements.push(shape)
-  }
-
-  // Flow node + artifact shapes
-  for (const node of [...flowNodes, ...artifactNodes]) {
-    if (!NODE_MAPPING[node.shape]) continue
-    const pos = node.getPosition()
-    const size = node.getSize()
-    const el = nodeElements.get(node.id)
-    const shape = moddle.create('bpmndi:BPMNShape', {
-      id: `${toXmlId(node.id)}_di`,
-      bpmnElement: el || { id: toXmlId(node.id) },
-    })
-    shape.bounds = moddle.create('dc:Bounds', {
-      x: pos.x, y: pos.y, width: size.width, height: size.height,
-    })
-    planeElements.push(shape)
-  }
-
-  // Edge shapes
-  for (const edge of [...sequenceFlows, ...messageFlows, ...artifactEdges]) {
-    const waypoints: ModdleElement[] = []
-    const vertices = edge.getVertices()
-    const srcTerminal = edge.getSource() as Record<string, any>
-    const tgtTerminal = edge.getTarget() as Record<string, any>
-    const srcCell = graph.getCellById(edge.getSourceCellId())
-    const tgtCell = graph.getCellById(edge.getTargetCellId())
-
-    if (srcCell && srcCell.isNode()) {
-      const srcNode = srcCell as Node
-      const dirPt = vertices.length > 0
-        ? vertices[0]
-        : tgtCell && tgtCell.isNode()
-          ? nodeCenter(tgtCell as Node)
-          : nodeCenter(srcNode)
-      const pt = computeConnectionPoint(srcNode, srcTerminal?.port, dirPt)
-      waypoints.push(moddle.create('dc:Point', { x: pt.x, y: pt.y }))
+    // Pool shapes
+    for (const pool of pools) {
+      const pos = pool.getPosition()
+      const size = pool.getSize()
+      const shape = moddle.create('bpmndi:BPMNShape', {
+        id: `${toXmlId(pool.id)}_di`,
+        bpmnElement: nodeElements.get(pool.id) || { id: toXmlId(pool.id) },
+        isHorizontal: true,
+      })
+      shape.bounds = moddle.create('dc:Bounds', {
+        x: pos.x, y: pos.y, width: size.width, height: size.height,
+      })
+      planeElements.push(shape)
     }
 
-    for (const v of vertices) {
-      waypoints.push(moddle.create('dc:Point', { x: v.x, y: v.y }))
+    // Lane shapes
+    for (const lane of lanes) {
+      const pos = lane.getPosition()
+      const size = lane.getSize()
+      const shape = moddle.create('bpmndi:BPMNShape', {
+        id: `${toXmlId(lane.id)}_di`,
+        bpmnElement: { id: toXmlId(lane.id) },
+        isHorizontal: true,
+      })
+      shape.bounds = moddle.create('dc:Bounds', {
+        x: pos.x, y: pos.y, width: size.width, height: size.height,
+      })
+      planeElements.push(shape)
     }
 
-    if (tgtCell && tgtCell.isNode()) {
-      const tgtNode = tgtCell as Node
-      const dirPt = vertices.length > 0
-        ? vertices[vertices.length - 1]
-        : srcCell && srcCell.isNode()
-          ? nodeCenter(srcCell as Node)
-          : nodeCenter(tgtNode)
-      const pt = computeConnectionPoint(tgtNode, tgtTerminal?.port, dirPt)
-      waypoints.push(moddle.create('dc:Point', { x: pt.x, y: pt.y }))
+    // Flow node + artifact shapes
+    for (const node of [...flowNodes, ...artifactNodes]) {
+      if (!NODE_MAPPING[node.shape]) continue
+      const pos = node.getPosition()
+      const size = node.getSize()
+      const el = nodeElements.get(node.id)
+      const shape = moddle.create('bpmndi:BPMNShape', {
+        id: `${toXmlId(node.id)}_di`,
+        bpmnElement: el || { id: toXmlId(node.id) },
+      })
+      shape.bounds = moddle.create('dc:Bounds', {
+        x: pos.x, y: pos.y, width: size.width, height: size.height,
+      })
+      planeElements.push(shape)
     }
 
-    const edgeEl = moddle.create('bpmndi:BPMNEdge', {
-      id: `${toXmlId(edge.id)}_di`,
-      bpmnElement: flowEdgeElements.get(edge.id) || { id: toXmlId(edge.id) },
+    // Edge shapes
+    for (const edge of [...sequenceFlows, ...messageFlows, ...artifactEdges]) {
+      const waypoints: ModdleElement[] = []
+      const vertices = edge.getVertices()
+      const srcTerminal = edge.getSource() as Record<string, any>
+      const tgtTerminal = edge.getTarget() as Record<string, any>
+      const srcCell = graph.getCellById(edge.getSourceCellId())
+      const tgtCell = graph.getCellById(edge.getTargetCellId())
+
+      if (srcCell && srcCell.isNode()) {
+        const srcNode = srcCell as Node
+        const dirPt = vertices.length > 0
+          ? vertices[0]
+          : tgtCell && tgtCell.isNode()
+            ? nodeCenter(tgtCell as Node)
+            : nodeCenter(srcNode)
+        const pt = computeConnectionPoint(srcNode, srcTerminal?.port, dirPt)
+        waypoints.push(moddle.create('dc:Point', { x: pt.x, y: pt.y }))
+      }
+
+      for (const v of vertices) {
+        waypoints.push(moddle.create('dc:Point', { x: v.x, y: v.y }))
+      }
+
+      if (tgtCell && tgtCell.isNode()) {
+        const tgtNode = tgtCell as Node
+        const dirPt = vertices.length > 0
+          ? vertices[vertices.length - 1]
+          : srcCell && srcCell.isNode()
+            ? nodeCenter(srcCell as Node)
+            : nodeCenter(tgtNode)
+        const pt = computeConnectionPoint(tgtNode, tgtTerminal?.port, dirPt)
+        waypoints.push(moddle.create('dc:Point', { x: pt.x, y: pt.y }))
+      }
+
+      const edgeEl = moddle.create('bpmndi:BPMNEdge', {
+        id: `${toXmlId(edge.id)}_di`,
+        bpmnElement: flowEdgeElements.get(edge.id) || { id: toXmlId(edge.id) },
+      })
+      edgeEl.waypoint = waypoints
+      planeElements.push(edgeEl)
+    }
+
+    // Bridge edge shapes
+    for (const be of bridgeEdges) {
+      const waypoints: ModdleElement[] = []
+      const srcCell = graph.getCellById(be.source)
+      const tgtCell = graph.getCellById(be.target)
+
+      if (srcCell && srcCell.isNode() && tgtCell && tgtCell.isNode()) {
+        const srcNode = srcCell as Node
+        const tgtNode = tgtCell as Node
+        const srcPos = srcNode.getPosition()
+        const srcSize = srcNode.getSize()
+        const tgtPos = tgtNode.getPosition()
+        const tgtSize = tgtNode.getSize()
+        const tgtCtr = nodeCenter(tgtNode)
+        const srcCtr = nodeCenter(srcNode)
+        const srcPt = boundaryPoint(srcPos.x, srcPos.y, srcSize.width, srcSize.height, tgtCtr.x, tgtCtr.y)
+        const tgtPt = boundaryPoint(tgtPos.x, tgtPos.y, tgtSize.width, tgtSize.height, srcCtr.x, srcCtr.y)
+        waypoints.push(moddle.create('dc:Point', { x: srcPt.x, y: srcPt.y }))
+        waypoints.push(moddle.create('dc:Point', { x: tgtPt.x, y: tgtPt.y }))
+      }
+
+      const edgeEl = moddle.create('bpmndi:BPMNEdge', {
+        id: `${toXmlId(be.id)}_di`,
+        bpmnElement: flowEdgeElements.get(be.id) || { id: toXmlId(be.id) },
+      })
+      edgeEl.waypoint = waypoints
+      planeElements.push(edgeEl)
+    }
+
+    const plane = moddle.create('bpmndi:BPMNPlane', {
+      id: 'BPMNPlane_1',
+      bpmnElement: hasCollaboration ? collaboration : process,
     })
-    edgeEl.waypoint = waypoints
-    planeElements.push(edgeEl)
+    plane.planeElement = planeElements
+
+    diagram = moddle.create('bpmndi:BPMNDiagram', { id: 'BPMNDiagram_1' })
+    diagram.plane = plane
   }
-
-  // Bridge edge shapes
-  for (const be of bridgeEdges) {
-    const waypoints: ModdleElement[] = []
-    const srcCell = graph.getCellById(be.source)
-    const tgtCell = graph.getCellById(be.target)
-
-    if (srcCell && srcCell.isNode() && tgtCell && tgtCell.isNode()) {
-      const srcNode = srcCell as Node
-      const tgtNode = tgtCell as Node
-      const srcPos = srcNode.getPosition()
-      const srcSize = srcNode.getSize()
-      const tgtPos = tgtNode.getPosition()
-      const tgtSize = tgtNode.getSize()
-      const tgtCtr = nodeCenter(tgtNode)
-      const srcCtr = nodeCenter(srcNode)
-      const srcPt = boundaryPoint(srcPos.x, srcPos.y, srcSize.width, srcSize.height, tgtCtr.x, tgtCtr.y)
-      const tgtPt = boundaryPoint(tgtPos.x, tgtPos.y, tgtSize.width, tgtSize.height, srcCtr.x, srcCtr.y)
-      waypoints.push(moddle.create('dc:Point', { x: srcPt.x, y: srcPt.y }))
-      waypoints.push(moddle.create('dc:Point', { x: tgtPt.x, y: tgtPt.y }))
-    }
-
-    const edgeEl = moddle.create('bpmndi:BPMNEdge', {
-      id: `${toXmlId(be.id)}_di`,
-      bpmnElement: flowEdgeElements.get(be.id) || { id: toXmlId(be.id) },
-    })
-    edgeEl.waypoint = waypoints
-    planeElements.push(edgeEl)
-  }
-
-  const plane = moddle.create('bpmndi:BPMNPlane', {
-    id: 'BPMNPlane_1',
-    bpmnElement: hasCollaboration ? collaboration : process,
-  })
-  plane.planeElement = planeElements
-
-  const diagram = moddle.create('bpmndi:BPMNDiagram', { id: 'BPMNDiagram_1' })
-  diagram.plane = plane
 
   // ---- Assemble definitions ----
+  const targetNamespace = adapter.targetNamespace || 'http://bpmn.io/schema/bpmn'
   const definitions = moddle.create('bpmn:Definitions', {
     id: 'Definitions_1',
-    targetNamespace: 'http://bpmn.io/schema/bpmn',
+    targetNamespace,
   })
+
+  // 应用序列化适配器的 XML 命名空间
+  if (adapter.xmlNamespaces) {
+    definitions.$attrs = definitions.$attrs || {}
+    for (const [prefix, uri] of Object.entries(adapter.xmlNamespaces)) {
+      definitions.$attrs[`xmlns:${prefix}`] = uri
+    }
+  }
 
   const rootElements: ModdleElement[] = []
   if (collaboration) {
@@ -736,7 +798,9 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   }
   rootElements.push(process)
   definitions.rootElements = rootElements
-  definitions.diagrams = [diagram]
+  if (diagram) {
+    definitions.diagrams = [diagram]
+  }
 
   const { xml } = await moddle.toXML(definitions, { format: true, preamble: true })
   return xml

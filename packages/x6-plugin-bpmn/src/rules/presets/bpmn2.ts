@@ -9,8 +9,23 @@
  * 该预设作为所有其他预设的基础。
  */
 
-import type { BpmnRulePreset, NodePropertyDefinition, BpmnCustomValidator } from './types'
+import type { BpmnRulePreset, NodePropertyDefinition, BpmnCustomValidator, SerializationAdapter } from './types'
 import type { BpmnValidationResult } from '../connection-rules'
+
+// ============================================================================
+// BPMN 2.0 序列化适配器
+// ============================================================================
+
+/**
+ * BPMN 2.0 标准序列化适配器
+ *
+ * 使用标准 BPMN 2.0 命名空间和 DI 图形交换信息，
+ * 自定义属性存储在 x6bpmn: 扩展命名空间中。
+ */
+const bpmn2Serialization: SerializationAdapter = {
+  targetNamespace: 'http://bpmn.io/schema/bpmn',
+  includeDI: true,
+}
 
 // ============================================================================
 // 节点属性定义
@@ -168,4 +183,6 @@ export const BPMN2_PRESET: BpmnRulePreset = {
   },
 
   validators: [noSelfConnectionValidator],
+
+  serialization: bpmn2Serialization,
 }
