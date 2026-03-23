@@ -73,82 +73,6 @@ export interface BpmnCustomValidator {
 }
 
 // ============================================================================
-// 序列化适配器（导入导出转换）
-// ============================================================================
-
-/**
- * 导出节点上下文
- *
- * 提供节点导出时的上下文信息，用于序列化适配器的 transformExportNode 钩子。
- */
-export interface ExportNodeContext {
-  /** X6 图形名称 */
-  shape: string
-  /** BPMN 标签名称 */
-  tag: string
-  /** 节点 ID */
-  nodeId: string
-  /** 节点标签文本 */
-  label: string
-  /** 节点的 bpmn 表单数据 */
-  bpmnData?: Record<string, any>
-  /** 创建任意 XML 元素的辅助函数 */
-  createAny: (type: string, ns: string, props: Record<string, any>) => any
-  /** 创建 BPMN 类型元素的辅助函数 */
-  createBpmnElement: (type: string, props: Record<string, any>) => any
-}
-
-/**
- * 导出连线上下文
- *
- * 提供连线导出时的上下文信息。
- */
-export interface ExportEdgeContext {
-  /** X6 图形名称 */
-  shape: string
-  /** BPMN 标签名称 */
-  tag: string
-  /** 连线 ID */
-  edgeId: string
-  /** 连线标签文本 */
-  label: string
-  /** 是否为条件流 */
-  isConditional: boolean
-  /** 是否为默认流 */
-  isDefault: boolean
-  /** 创建 BPMN 类型元素的辅助函数 */
-  createBpmnElement: (type: string, props: Record<string, any>) => any
-}
-
-/**
- * 序列化适配器
- *
- * 定义预设在导入/导出时的 XML 转换行为。
- * 不同引擎（BPMN 2.0、SmartEngine 等）通过各自的适配器
- * 定制 XML 命名空间、属性映射和扩展元素的处理方式。
- */
-export interface SerializationAdapter {
-  /** 附加到 definitions 元素的 XML 命名空间（前缀 → URI） */
-  xmlNamespaces?: Record<string, string>
-  /** definitions 元素的 targetNamespace */
-  targetNamespace?: string
-  /** 是否包含 BPMN DI 图形交换信息，默认 true */
-  includeDI?: boolean
-  /** 流程元素附加属性（如 SmartEngine 的 version） */
-  processAttributes?: Record<string, string>
-  /** 条件表达式类型属性值（如 SmartEngine 使用 "mvel"） */
-  conditionExpressionType?: string
-  /** 导出时节点元素转换钩子 */
-  transformExportNode?: (element: any, context: ExportNodeContext) => void
-  /** 导出时连线元素转换钩子 */
-  transformExportEdge?: (element: any, context: ExportEdgeContext) => void
-  /** 导入时节点配置转换钩子 */
-  transformImportNode?: (nodeConfig: Record<string, any>, element: any) => void
-  /** 导入时连线配置转换钩子 */
-  transformImportEdge?: (edgeConfig: Record<string, any>, element: any) => void
-}
-
-// ============================================================================
 // 规则预设定义
 // ============================================================================
 
@@ -156,7 +80,7 @@ export interface SerializationAdapter {
  * 规则预设
  *
  * 一个命名的、可继承的规则集合，包含连线规则、节点属性定义、
- * 自定义验证器、序列化适配器等。通过 extends 字段可继承另一个预设的所有规则，
+ * 自定义验证器等。通过 extends 字段可继承另一个预设的所有规则，
  * 并在此基础上进行覆盖或追加。
  *
  * @example
@@ -192,8 +116,6 @@ export interface BpmnRulePreset {
   shapeCategoryOverrides?: Record<string, BpmnNodeCategory>
   /** 节点标签覆盖（shape 名称 → 显示标签） */
   shapeLabelOverrides?: Record<string, string>
-  /** 序列化适配器，定义导入/导出时的 XML 转换行为 */
-  serialization?: SerializationAdapter
 }
 
 // ============================================================================
@@ -220,6 +142,4 @@ export interface ResolvedBpmnRulePreset {
   shapeCategoryOverrides: Record<string, BpmnNodeCategory>
   /** 完整的节点标签覆盖映射 */
   shapeLabelOverrides: Record<string, string>
-  /** 合并后的序列化适配器 */
-  serialization: SerializationAdapter
 }

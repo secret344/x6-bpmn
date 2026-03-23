@@ -11,7 +11,6 @@ import type {
   ResolvedBpmnRulePreset,
   NodePropertyDefinition,
   BpmnCustomValidator,
-  SerializationAdapter,
 } from './types'
 
 // ============================================================================
@@ -145,7 +144,6 @@ export function resolvePreset(name: string): ResolvedBpmnRulePreset {
     validators: [],
     shapeCategoryOverrides: {},
     shapeLabelOverrides: {},
-    serialization: {},
   }
 
   for (const preset of chain) {
@@ -219,31 +217,6 @@ function mergePresetInto(target: ResolvedBpmnRulePreset, source: BpmnRulePreset)
   if (source.shapeLabelOverrides) {
     Object.assign(target.shapeLabelOverrides, source.shapeLabelOverrides)
   }
-
-  // 合并序列化适配器（子预设的字段覆盖父预设，xmlNamespaces 合并）
-  if (source.serialization) {
-    mergeSerializationInto(target.serialization, source.serialization)
-  }
-}
-
-/**
- * 将序列化适配器合并到目标适配器中
- * xmlNamespaces 和 processAttributes 为合并模式，其他字段为覆盖模式
- */
-function mergeSerializationInto(target: SerializationAdapter, source: SerializationAdapter): void {
-  if (source.xmlNamespaces) {
-    target.xmlNamespaces = { ...(target.xmlNamespaces || {}), ...source.xmlNamespaces }
-  }
-  if (source.processAttributes) {
-    target.processAttributes = { ...(target.processAttributes || {}), ...source.processAttributes }
-  }
-  if (source.targetNamespace !== undefined) target.targetNamespace = source.targetNamespace
-  if (source.includeDI !== undefined) target.includeDI = source.includeDI
-  if (source.conditionExpressionType !== undefined) target.conditionExpressionType = source.conditionExpressionType
-  if (source.transformExportNode !== undefined) target.transformExportNode = source.transformExportNode
-  if (source.transformExportEdge !== undefined) target.transformExportEdge = source.transformExportEdge
-  if (source.transformImportNode !== undefined) target.transformImportNode = source.transformImportNode
-  if (source.transformImportEdge !== undefined) target.transformImportEdge = source.transformImportEdge
 }
 
 // ============================================================================

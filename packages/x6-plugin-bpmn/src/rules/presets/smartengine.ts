@@ -16,7 +16,7 @@
  * @see https://github.com/alibaba/SmartEngine/wiki
  */
 
-import type { BpmnRulePreset, NodePropertyDefinition, BpmnCustomValidator, SerializationAdapter, ExportNodeContext } from './types'
+import type { BpmnRulePreset, NodePropertyDefinition, BpmnCustomValidator } from './types'
 import type { BpmnValidationResult } from '../connection-rules'
 
 // ============================================================================
@@ -125,141 +125,6 @@ const conditionExpressionValidator: BpmnCustomValidator = {
 }
 
 // ============================================================================
-// SmartEngine 序列化适配器
-// ============================================================================
-
-/** SmartEngine 命名空间 URI */
-const NS_SMART = 'http://smartengine.org/schema/process'
-
-/** 支持 smart:class 属性的 BPMN 标签集合 */
-const SMART_CLASS_TAGS = new Set([
-  'serviceTask', 'receiveTask', 'exclusiveGateway',
-])
-
-/**
- * SmartEngine 序列化适配器
- *
- * 在标准 BPMN 2.0 XML 基础上增加 SmartEngine 特有的扩展：
- * - smart: 命名空间及 smart:class 属性
- * - MVEL 条件表达式类型
- * - smart:properties 和 smart:executionListener 扩展元素
- * - 不包含 BPMN DI 图形交换信息（SmartEngine 不使用）
- */
-const smartEngineSerialization: SerializationAdapter = {
-  xmlNamespaces: { smart: NS_SMART },
-  targetNamespace: 'Examples',
-  includeDI: false,
-  conditionExpressionType: 'mvel',
-
-  transformExportNode(element: any, context: ExportNodeContext): void {
-    const { bpmnData, tag } = context
-    if (!bpmnData) return
-
-    // 设置 smart:class 属性
-    if (SMART_CLASS_TAGS.has(tag) && bpmnData.implementation) {
-      element.$attrs['smart:class'] = bpmnData.implementation
-    }
-
-    // 构建 SmartEngine 扩展元素
-    const extensionChildren: any[] = []
-
-    // smart:properties
-    if (bpmnData.smartProperties) {
-      try {
-        const propsObj = typeof bpmnData.smartProperties === 'string'
-          ? JSON.parse(bpmnData.smartProperties)
-          : bpmnData.smartProperties
-
-        if (typeof propsObj === 'object' && propsObj !== null) {
-          const propChildren = Object.entries(propsObj).map(([name, value]) =>
-            context.createAny('smart:property', NS_SMART, { name, value: String(value) }),
-          )
-          if (propChildren.length > 0) {
-            extensionChildren.push(
-              context.createAny('smart:properties', NS_SMART, { $children: propChildren }),
-            )
-          }
-        }
-      } catch {
-        // 无效的 JSON 格式，跳过
-      }
-    }
-
-    // smart:executionListener
-    if (bpmnData.executionListener) {
-      extensionChildren.push(
-        context.createAny('smart:executionListener', NS_SMART, {
-          event: 'ACTIVITY_START,ACTIVITY_END',
-          class: bpmnData.executionListener,
-        }),
-      )
-    }
-
-    // 将扩展元素合并到已有的 extensionElements 中
-    if (extensionChildren.length > 0) {
-      if (element.extensionElements) {
-        element.extensionElements.values = [
-          ...(element.extensionElements.values || []),
-          ...extensionChildren,
-        ]
-      } else {
-        element.extensionElements = context.createBpmnElement('bpmn:ExtensionElements', {
-          values: extensionChildren,
-        })
-      }
-    }
-  },
-
-  transformImportNode(nodeConfig: Record<string, any>, element: any): void {
-    const attrs = element.$attrs || {}
-
-    // 提取 smart:class 属性
-    const smartClass = attrs['smart:class']
-    if (smartClass) {
-      nodeConfig.data = nodeConfig.data || {}
-      nodeConfig.data.bpmn = nodeConfig.data.bpmn || {}
-      nodeConfig.data.bpmn.implementation = smartClass
-      nodeConfig.data.bpmn.implementationType = 'class'
-    }
-
-    // 提取 smart:properties 和 smart:executionListener 扩展元素
-    const extElements = element.extensionElements
-    if (extElements) {
-      const values = (extElements.values || []) as any[]
-      for (const val of values) {
-        const type = val.$type || val.name || ''
-
-        // smart:properties
-        if (type.includes('smart:properties') || type === 'smart:properties') {
-          const children = (val.$children || []) as any[]
-          const propsObj: Record<string, string> = {}
-          for (const child of children) {
-            const propName = child.name || child.$attrs?.name
-            const propValue = child.value || child.$attrs?.value || ''
-            if (propName) propsObj[propName] = propValue
-          }
-          if (Object.keys(propsObj).length > 0) {
-            nodeConfig.data = nodeConfig.data || {}
-            nodeConfig.data.bpmn = nodeConfig.data.bpmn || {}
-            nodeConfig.data.bpmn.smartProperties = JSON.stringify(propsObj)
-          }
-        }
-
-        // smart:executionListener
-        if (type.includes('smart:executionListener') || type === 'smart:executionListener') {
-          const listenerClass = val.class || val.$attrs?.class
-          if (listenerClass) {
-            nodeConfig.data = nodeConfig.data || {}
-            nodeConfig.data.bpmn = nodeConfig.data.bpmn || {}
-            nodeConfig.data.bpmn.executionListener = listenerClass
-          }
-        }
-      }
-    }
-  },
-}
-
-// ============================================================================
 // SmartEngine 预设
 // ============================================================================
 
@@ -301,6 +166,4 @@ export const SMARTENGINE_PRESET: BpmnRulePreset = {
   },
 
   validators: [singleStartEventValidator, conditionExpressionValidator],
-
-  serialization: smartEngineSerialization,
 }

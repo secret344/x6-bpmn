@@ -89,12 +89,6 @@ describe('规则预设系统', () => {
       expect(BPMN2_PRESET.nodeProperties!['gateway']).toBeDefined()
     })
 
-    it('BPMN2_PRESET 应有序列化配置', () => {
-      expect(BPMN2_PRESET.serialization).toBeDefined()
-      expect(BPMN2_PRESET.serialization!.targetNamespace).toBe('http://bpmn.io/schema/bpmn')
-      expect(BPMN2_PRESET.serialization!.includeDI).toBe(true)
-    })
-
     it('SMARTENGINE_PRESET 应继承 bpmn2', () => {
       expect(SMARTENGINE_PRESET.extends).toBe('bpmn2')
     })
@@ -103,13 +97,6 @@ describe('规则预设系统', () => {
       expect(SMARTENGINE_PRESET.connectionRules).toBeDefined()
       expect(SMARTENGINE_PRESET.connectionRules!.startEvent).toBeDefined()
       expect(SMARTENGINE_PRESET.connectionRules!.startEvent!.maxOutgoing).toBe(1)
-    })
-
-    it('SMARTENGINE_PRESET 应有序列化配置', () => {
-      expect(SMARTENGINE_PRESET.serialization).toBeDefined()
-      expect(SMARTENGINE_PRESET.serialization!.xmlNamespaces?.smart).toBe('http://smartengine.org/schema/process')
-      expect(SMARTENGINE_PRESET.serialization!.includeDI).toBe(false)
-      expect(SMARTENGINE_PRESET.serialization!.conditionExpressionType).toBe('mvel')
     })
   })
 
@@ -201,24 +188,6 @@ describe('规则预设系统', () => {
       expect(validatorNames).toContain('bpmn2:no-self-connection')
       expect(validatorNames).toContain('smartengine:single-start-event')
       expect(validatorNames).toContain('smartengine:condition-expression')
-    })
-
-    it('解析 bpmn2 应包含序列化配置', () => {
-      const resolved = resolvePreset('bpmn2')
-      expect(resolved.serialization).toBeDefined()
-      expect(resolved.serialization.targetNamespace).toBe('http://bpmn.io/schema/bpmn')
-      expect(resolved.serialization.includeDI).toBe(true)
-    })
-
-    it('解析 smartengine 应合并序列化配置', () => {
-      const resolved = resolvePreset('smartengine')
-      expect(resolved.serialization).toBeDefined()
-      expect(resolved.serialization.xmlNamespaces?.smart).toBe('http://smartengine.org/schema/process')
-      expect(resolved.serialization.targetNamespace).toBe('Examples')
-      expect(resolved.serialization.includeDI).toBe(false)
-      expect(resolved.serialization.conditionExpressionType).toBe('mvel')
-      expect(typeof resolved.serialization.transformExportNode).toBe('function')
-      expect(typeof resolved.serialization.transformImportNode).toBe('function')
     })
 
     it('解析不存在的预设应抛出错误', () => {
