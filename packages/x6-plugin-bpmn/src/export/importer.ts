@@ -450,7 +450,7 @@ export async function importBpmnXml(graph: Graph, xml: string, options: ImportBp
       })
       if (adapterData && Object.keys(adapterData).length > 0) {
         const existingData = node.getData() || {}
-        const existingBpmn = (existingData as Record<string, any>).bpmn || {}
+        const existingBpmn = (existingData as Record<string, unknown>).bpmn as Record<string, unknown> || {}
         node.setData({
           ...existingData,
           bpmn: { ...existingBpmn, ...adapterData },
