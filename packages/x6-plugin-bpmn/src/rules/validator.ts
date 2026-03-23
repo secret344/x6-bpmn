@@ -21,6 +21,9 @@ import {
   type BpmnConnectionRule,
   type BpmnValidationResult,
 } from './connection-rules'
+import { resolvePreset } from './presets/registry'
+import { getPreset } from './presets/registry'
+import type { ResolvedBpmnRulePreset } from './presets/types'
 
 // ============================================================================
 // 验证参数
@@ -50,6 +53,18 @@ export interface BpmnValidateOptions {
   customRules?: Partial<Record<BpmnNodeCategory, BpmnConnectionRule>>
   /** 连线类型不匹配时是否放行（默认 false） */
   allowUnknownEdgeTypes?: boolean
+  /**
+   * 使用指定的规则预设名称
+   *
+   * 预设中的 connectionRules 将作为基础规则，customRules 会在此基础上进一步覆盖。
+   * 预设中的 validators 会在基础连线验证通过后依次执行。
+   *
+   * @example
+   * ```ts
+   * validateBpmnConnection(context, { preset: 'smartengine' })
+   * ```
+   */
+  preset?: string
 }
 
 // ============================================================================
@@ -57,18 +72,38 @@ export interface BpmnValidateOptions {
 // ============================================================================
 
 /**
- * 合并默认规则与自定义规则
+ * 合并默认规则与自定义规则，支持预设
  */
 function mergeRules(
-  customRules?: Partial<Record<BpmnNodeCategory, BpmnConnectionRule>>
+  customRules?: Partial<Record<BpmnNodeCategory, BpmnConnectionRule>>,
+  presetName?: string,
 ): Record<BpmnNodeCategory, BpmnConnectionRule> {
-  if (!customRules) return DEFAULT_CONNECTION_RULES
-  const merged = { ...DEFAULT_CONNECTION_RULES }
+  // 确定基础规则：有预设则用预设的，否则用默认规则
+  let base: Record<BpmnNodeCategory, BpmnConnectionRule>
+  if (presetName && getPreset(presetName)) {
+    const resolved = resolvePreset(presetName)
+    base = { ...resolved.connectionRules }
+  } else {
+    base = { ...DEFAULT_CONNECTION_RULES }
+  }
+
+  // 在基础规则之上叠加 customRules
+  if (!customRules) return base
+  const merged = { ...base }
   for (const [key, rule] of Object.entries(customRules)) {
     const category = key as BpmnNodeCategory
     merged[category] = { ...merged[category], ...rule }
   }
   return merged
+}
+
+/**
+ * 获取预设中的自定义验证器
+ */
+function getPresetValidators(presetName?: string): ResolvedBpmnRulePreset['validators'] {
+  if (!presetName || !getPreset(presetName)) return []
+  const resolved = resolvePreset(presetName)
+  return resolved.validators
 }
 
 /**
@@ -94,7 +129,7 @@ export function validateBpmnConnection(
   context: BpmnConnectionContext,
   options: BpmnValidateOptions = {},
 ): BpmnValidationResult {
-  const rules = mergeRules(options.customRules)
+  const rules = mergeRules(options.customRules, options.preset)
   const { sourceShape, targetShape, edgeShape, sourceOutgoingCount, targetIncomingCount } = context
 
   // 1. 获取源和目标的分类
@@ -202,6 +237,21 @@ export function validateBpmnConnection(
         valid: false,
         reason: `${targetCategory} 类型的节点入线数量已达上限 (${targetRule.maxIncoming})`,
       }
+    }
+  }
+
+  // 12. 执行预设中的自定义验证器
+  const presetValidators = getPresetValidators(options.preset)
+  for (const validator of presetValidators) {
+    const result = validator.validate({
+      sourceShape,
+      targetShape,
+      edgeShape,
+      sourceOutgoingCount,
+      targetIncomingCount,
+    })
+    if (!result.valid) {
+      return result
     }
   }
 
