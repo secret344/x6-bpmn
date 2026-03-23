@@ -424,13 +424,13 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
     // Conditional flow → add conditionExpression
     if (isConditionalFlow(edge.shape)) {
-      const condProps: Record<string, any> = {
+      const condExpr = moddle.create('bpmn:FormalExpression', {
         body: getEdgeLabel(edge) || 'condition',
-      }
+      })
       if (adapter.conditionExpressionType) {
-        condProps.$attrs = { 'xsi:type': adapter.conditionExpressionType }
+        condExpr.$attrs['type'] = adapter.conditionExpressionType
       }
-      seqFlow.conditionExpression = moddle.create('bpmn:FormalExpression', condProps)
+      seqFlow.conditionExpression = condExpr
     }
 
     // 应用序列化适配器的连线导出转换
@@ -569,11 +569,13 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     name: processName,
     isExecutable: false,
   }
+  const process = moddle.create('bpmn:Process', processProps)
   // 应用序列化适配器的流程属性
   if (adapter.processAttributes) {
-    processProps.$attrs = { ...adapter.processAttributes }
+    for (const [key, value] of Object.entries(adapter.processAttributes)) {
+      process.$attrs[key] = value
+    }
   }
-  const process = moddle.create('bpmn:Process', processProps)
 
   // Lanes
   if (lanes.length > 0) {
@@ -786,7 +788,6 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
   // 应用序列化适配器的 XML 命名空间
   if (adapter.xmlNamespaces) {
-    definitions.$attrs = definitions.$attrs || {}
     for (const [prefix, uri] of Object.entries(adapter.xmlNamespaces)) {
       definitions.$attrs[`xmlns:${prefix}`] = uri
     }

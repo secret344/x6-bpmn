@@ -157,7 +157,6 @@ const smartEngineSerialization: SerializationAdapter = {
 
     // 设置 smart:class 属性
     if (SMART_CLASS_TAGS.has(tag) && bpmnData.implementation) {
-      element.$attrs = element.$attrs || {}
       element.$attrs['smart:class'] = bpmnData.implementation
     }
 
