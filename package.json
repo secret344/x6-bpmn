@@ -8,8 +8,14 @@
     "build:plugin": "cd packages/x6-plugin-bpmn && npm run build",
     "build:example": "cd packages/example && npm run build",
     "build:approval": "cd packages/approval-flow && npm run build",
+    "build:dialect": "cd packages/dialect-demo && npm run build",
+    "build:smartengine": "cd packages/smartengine-demo && npm run build",
     "build": "npm run build:plugin && npm run build:example",
+    "test": "cd packages/x6-plugin-bpmn && npm run test",
+    "test:coverage": "cd packages/x6-plugin-bpmn && npm run test:coverage",
     "dev": "cd packages/example && npm run dev",
-    "dev:approval": "cd packages/approval-flow && npm run dev"
+    "dev:approval": "cd packages/approval-flow && npm run dev",
+    "dev:dialect": "cd packages/dialect-demo && npm run dev",
+    "dev:smartengine": "cd packages/smartengine-demo && npm run dev"
   }
 }

@@ -7,6 +7,8 @@
 
 import type { Cell, Node, Edge } from '@antv/x6'
 
+export { getBpmnShapeIcon } from './bpmn-icons'
+
 // ============================================================================
 // 图形名称 → 中文标签映射
 // ============================================================================
@@ -119,6 +121,10 @@ export function classifyShape(s: string): ShapeCategory {
   if (s === 'bpmn-sub-process' || s === 'bpmn-event-sub-process' || s === 'bpmn-transaction' || s === 'bpmn-ad-hoc-sub-process') return 'subProcess'
   // Gateways
   if (s.includes('gateway')) return 'gateway'
+  // Connections (must be checked before event-definition includes to avoid misclassification)
+  if (s === 'bpmn-sequence-flow' || s === 'bpmn-conditional-flow' || s === 'bpmn-default-flow') return 'sequenceFlow'
+  if (s === 'bpmn-message-flow') return 'messageFlow'
+  if (s === 'bpmn-association' || s === 'bpmn-directed-association' || s === 'bpmn-data-association') return 'association'
   // Events — by event definition type
   if (s.includes('-timer')) return 'timerEvent'
   if (s.includes('-message')) return 'messageEvent'
@@ -132,10 +138,6 @@ export function classifyShape(s: string): ShapeCategory {
   if (s.includes('-terminate')) return 'terminateEvent'
   if (s.includes('-multiple') || s.includes('-parallel-multiple')) return 'multipleEvent'
   if (s.includes('event')) return 'noneEvent'
-  // Connections
-  if (s === 'bpmn-sequence-flow' || s === 'bpmn-conditional-flow' || s === 'bpmn-default-flow') return 'sequenceFlow'
-  if (s === 'bpmn-message-flow') return 'messageFlow'
-  if (s === 'bpmn-association' || s === 'bpmn-directed-association' || s === 'bpmn-data-association') return 'association'
   // Data
   if (s === 'bpmn-data-object' || s === 'bpmn-data-input' || s === 'bpmn-data-output') return 'dataObject'
   if (s === 'bpmn-data-store') return 'dataStore'

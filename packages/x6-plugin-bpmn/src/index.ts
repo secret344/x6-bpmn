@@ -1,8 +1,12 @@
 /**
  * @x6-bpmn2/plugin 入口文件
  *
- * 提供 BPMN 2.0 图形注册和所有公开 API 的统一导出。
- * 调用 registerBpmnShapes() 即可将所有 BPMN 图形注册到 X6 全局注册表。
+ * 提供两套 API：
+ * 1. Legacy API — registerBpmnShapes() 等传统全局注册接口
+ * 2. Dialect API — ProfileRegistry / DialectManager 等方言系统接口
+ *
+ * 调用 registerBpmnShapes() 使用传统方式将所有 BPMN 图形注册到 X6 全局注册表。
+ * 使用方言系统时，通过 DialectManager.bind(graph, dialectId) 按需注册。
  */
 
 import {
@@ -15,7 +19,10 @@ import {
 } from './shapes'
 import { registerConnectionShapes } from './connections'
 
-// 重新导出所有子模块的公开 API
+// ============================================================================
+// Legacy API — 重新导出所有子模块的公开 API
+// ============================================================================
+
 export * from './utils/constants'
 export * from './shapes'
 export * from './connections'
@@ -23,6 +30,116 @@ export * from './export'
 export * from './config'
 export * from './rules'
 export * from './behaviors'
+
+// ============================================================================
+// Dialect API — 方言系统核心导出
+// ============================================================================
+
+// 核心类型
+export type {
+  NodeDefinition,
+  EdgeDefinition,
+  DefinitionsSet,
+  Availability,
+  AvailabilitySet,
+  ThemeTokens,
+  ShapeDefinition,
+  EdgeDefinitionConfig,
+  NodeRendererFactory,
+  EdgeRendererFactory,
+  RenderingSet,
+  ConstraintRule,
+  ConstraintValidateContext,
+  RuleSet,
+  FieldCapability,
+  FieldValidateContext,
+  DataModelSet,
+  SerializationSet,
+  DialectMeta,
+  RemoveMarker,
+  Profile,
+  ResolvedProfile,
+  ProfileContext,
+  ExporterAdapter,
+  ImporterAdapter,
+  DialectDetectorInterface,
+} from './core/dialect/types'
+export { isRemoveMarker } from './core/dialect/types'
+
+// Profile 注册表
+export { ProfileRegistry, createProfileRegistry } from './core/dialect/registry'
+
+// Profile 编译器
+export { compileProfile } from './core/dialect/compiler'
+
+// Profile 上下文与绑定
+export {
+  createProfileContext,
+  bindProfileToGraph,
+  getProfileContext,
+  unbindProfile,
+} from './core/dialect/context'
+
+// 方言合并工具
+export { mergeProfileLayers } from './core/dialect/merge'
+
+// 方言检测器
+export {
+  DialectDetector,
+  createDialectDetector,
+  smartEngineNamespaceRule,
+} from './core/dialect/detector'
+export type { DialectDetectRule } from './core/dialect/detector'
+
+// 渲染器工厂
+export { createBpmn2NodeRenderers } from './core/rendering/node-renderers'
+export { createBpmn2EdgeRenderers } from './core/rendering/edge-renderers'
+
+// 规则与约束
+export {
+  validateConnectionWithContext,
+  createContextValidateConnection,
+} from './core/rules/validator'
+export {
+  createStartEventLimit,
+  createEndEventLimit,
+  requireStartEvent,
+  requireEndEvent,
+  createForbiddenShapes,
+  validateConstraints,
+} from './core/rules/constraints'
+
+// 数据模型字段能力
+export {
+  getFieldDefaultValue,
+  normalizeFieldValue,
+  validateFieldValue,
+  serializeFieldValue,
+  deserializeFieldValue,
+  getFieldsForCategory,
+  getFieldsForShape,
+  buildDefaultData,
+  validateFields,
+} from './core/data-model/fields'
+
+// 内置 Profile
+export { bpmn2Profile } from './builtin/bpmn2'
+export { smartengineBaseProfile } from './builtin/smartengine-base'
+export { smartengineCustomProfile } from './builtin/smartengine-custom'
+export { smartengineDatabaseProfile } from './builtin/smartengine-database'
+
+// 适配器
+export { createBpmn2ExporterAdapter, createBpmn2ImporterAdapter } from './adapters/bpmn2'
+export {
+  createSmartEngineExporterAdapter,
+  createSmartEngineImporterAdapter,
+} from './adapters/smartengine'
+export type {
+  SmartEngineExportOptions,
+  SmartEngineImportOptions,
+} from './adapters/smartengine'
+export { DialectManager, createDialectManager } from './adapters/x6'
+export type { DialectManagerOptions } from './adapters/x6'
 
 // ============================================================================
 // BpmnPlugin — 统一注册所有 BPMN 2.0 图形的插件函数

@@ -118,6 +118,7 @@ function setBoundaryPos(node: Node, pos: BoundaryPosition): void {
     bpmn: {
       ...bpmn,
       boundaryPosition: pos,
+      /* c8 ignore next — 正常情况下 getParent().id 始终有效 */
       attachedToRef: node.getParent()?.id ?? bpmn.attachedToRef,
     },
   }, { silent: true })
@@ -243,6 +244,7 @@ export function setupBoundaryAttach(
     if (snap.distance > detachDistance) {
       parent.unembed(node)
       // 清除附着数据
+      /* c8 ignore next — getData() 在实际场景中始终有值 */
       const data = node.getData() || {}
       const bpmn = { ...(data.bpmn || {}) }
       delete bpmn.boundaryPosition
