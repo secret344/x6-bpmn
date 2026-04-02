@@ -4,6 +4,8 @@
 
 一行代码注册全部 BPMN 2.0 图形（事件 / 活动 / 网关 / 数据元素 / 工件 / 泳道 / 连接线），并内置 XML 导入导出，开箱即用。
 
+> 规范条款映射、逐步验证和最终全量验证流程见 [`../../docs/bpmn2-spec-rule-validation.md`](../../docs/bpmn2-spec-rule-validation.md)。
+
 ---
 
 ## 特性

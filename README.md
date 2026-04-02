@@ -13,12 +13,15 @@ x6-bpmn2/
 │   ├── example/           # 完整 BPMN 编辑器示例（Vue 3 + Vite）
 │   └── approval-flow/     # 审批流设计器示例（Vue 3 + Vite）
 └── docs/
-    └── custom-extension-guide.md  # 局部定制指南
+    ├── custom-extension-guide.md       # 局部定制指南
+    └── bpmn2-spec-rule-validation.md   # BPMN 2.0 规则落实与验证清单
 ```
 
 ## 核心包：@x6-bpmn2/plugin
 
 > 详细文档见 [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md)
+
+> 规范落实与验证流程见 [docs/bpmn2-spec-rule-validation.md](docs/bpmn2-spec-rule-validation.md)
 
 **功能：**
 - **78+ BPMN 图形**：覆盖 BPMN 2.0 全部节点和连接线（事件 / 活动 / 网关 / 数据元素 / 工件 / 泳道 / 连接线）
