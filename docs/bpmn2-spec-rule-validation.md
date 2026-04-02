@@ -3,6 +3,8 @@
 > 规范来源：<https://www.omg.org/spec/BPMN/2.0.2/PDF/>
 >
 > 本文档只做一件事：把仓库里已经落实的 BPMN 2.0 规则、对应代码落点、逐步验证方式，以及最终全量验证流程集中到一个独立文档中，方便按规范“边阅读边落实、边验证”。
+>
+> 同时，本文档也是项目内部的 BPMN 2.0 基准快照：后续如果规范落实范围、计数、代码落点或验证入口发生变化，需要先同步更新本文档，再继续扩展实现。
 
 ## 1. 落实原则
 
@@ -53,15 +55,15 @@
 
 | 规范主题 | 代码落点 | 自动验证 | 需要人工对照的点 |
 |---|---|---|---|
-| 事件 | `src/utils/constants.ts`、`src/shapes/events.ts`、`src/export/bpmn-mapping.ts` | `tests/bpmn2/shapes/events.test.ts`、`tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 事件种类数量、触发图标、开始/中间/结束事件边框样式 |
-| 活动 | `src/utils/constants.ts`、`src/shapes/activities.ts`、`src/export/bpmn-mapping.ts` | `tests/bpmn2/shapes/activities.test.ts`、`tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 任务类别、子流程/事件子流程/事务/调用活动的视觉差异 |
-| 网关 | `src/utils/constants.ts`、`src/shapes/gateways.ts`、`src/export/bpmn-mapping.ts` | `tests/bpmn2/shapes/gateways.test.ts`、`tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 菱形外观、内部标记、事件网关/排他事件网关区分 |
-| 数据元素 | `src/utils/constants.ts`、`src/shapes/data.ts`、`src/export/bpmn-mapping.ts` | `tests/bpmn2/shapes/data.test.ts`、`tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 数据对象折角、输入/输出标记、数据存储形状 |
-| 工件 | `src/utils/constants.ts`、`src/shapes/artifacts.ts`、`src/export/bpmn-mapping.ts` | `tests/bpmn2/shapes/artifacts.test.ts`、`tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 分组虚线圆角框、文本注释左侧括号 |
-| 泳道 | `src/utils/constants.ts`、`src/shapes/swimlanes.ts`、`src/export/bpmn-mapping.ts` | `tests/bpmn2/shapes/swimlanes.test.ts`、`tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | Pool / Lane 的容器关系与语义 |
-| 连接对象 | `src/connections/index.ts`、`src/export/bpmn-mapping.ts` | `tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 顺序流 / 消息流 / 关联的线型与箭头 |
-| 连线规则 | `src/rules/connection-rules.ts`、`src/rules/validator.ts` | `tests/bpmn2/rules/connection-rules.test.ts`、`tests/bpmn2/rules/connections.test.ts` | 开始事件不可入线、结束事件不可出线、数据/工件只允许特定连接 |
-| 导入导出 | `src/export/bpmn-mapping.ts`、`src/export/exporter.ts`、`src/export/importer.ts` | `tests/bpmn2/export/bpmn-mapping.test.ts`、`tests/bpmn2/export/export.test.ts`、`tests/bpmn2/adapters/adapters.test.ts` | 图形名与 BPMN XML tag / eventDefinition / attrs 是否一致 |
+| 事件 | `packages/x6-plugin-bpmn/src/utils/constants.ts`、`packages/x6-plugin-bpmn/src/shapes/events.ts`、`packages/x6-plugin-bpmn/src/export/bpmn-mapping.ts` | `packages/x6-plugin-bpmn/tests/bpmn2/shapes/events.test.ts`、`packages/x6-plugin-bpmn/tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 事件种类数量、触发图标、开始/中间/结束事件边框样式 |
+| 活动 | `packages/x6-plugin-bpmn/src/utils/constants.ts`、`packages/x6-plugin-bpmn/src/shapes/activities.ts`、`packages/x6-plugin-bpmn/src/export/bpmn-mapping.ts` | `packages/x6-plugin-bpmn/tests/bpmn2/shapes/activities.test.ts`、`packages/x6-plugin-bpmn/tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 任务类别、子流程/事件子流程/事务/调用活动的视觉差异 |
+| 网关 | `packages/x6-plugin-bpmn/src/utils/constants.ts`、`packages/x6-plugin-bpmn/src/shapes/gateways.ts`、`packages/x6-plugin-bpmn/src/export/bpmn-mapping.ts` | `packages/x6-plugin-bpmn/tests/bpmn2/shapes/gateways.test.ts`、`packages/x6-plugin-bpmn/tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 菱形外观、内部标记、事件网关/排他事件网关区分 |
+| 数据元素 | `packages/x6-plugin-bpmn/src/utils/constants.ts`、`packages/x6-plugin-bpmn/src/shapes/data.ts`、`packages/x6-plugin-bpmn/src/export/bpmn-mapping.ts` | `packages/x6-plugin-bpmn/tests/bpmn2/shapes/data.test.ts`、`packages/x6-plugin-bpmn/tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 数据对象折角、输入/输出标记、数据存储形状 |
+| 工件 | `packages/x6-plugin-bpmn/src/utils/constants.ts`、`packages/x6-plugin-bpmn/src/shapes/artifacts.ts`、`packages/x6-plugin-bpmn/src/export/bpmn-mapping.ts` | `packages/x6-plugin-bpmn/tests/bpmn2/shapes/artifacts.test.ts`、`packages/x6-plugin-bpmn/tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 分组虚线圆角框、文本注释左侧括号 |
+| 泳道 | `packages/x6-plugin-bpmn/src/utils/constants.ts`、`packages/x6-plugin-bpmn/src/shapes/swimlanes.ts`、`packages/x6-plugin-bpmn/src/export/bpmn-mapping.ts` | `packages/x6-plugin-bpmn/tests/bpmn2/shapes/swimlanes.test.ts`、`packages/x6-plugin-bpmn/tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | Pool / Lane 的容器关系与语义 |
+| 连接对象 | `packages/x6-plugin-bpmn/src/connections/index.ts`、`packages/x6-plugin-bpmn/src/export/bpmn-mapping.ts` | `packages/x6-plugin-bpmn/tests/bpmn2/integration/bpmn-spec-compliance.test.ts` | 顺序流 / 消息流 / 关联的线型与箭头 |
+| 连线规则 | `packages/x6-plugin-bpmn/src/rules/connection-rules.ts`、`packages/x6-plugin-bpmn/src/rules/validator.ts` | `packages/x6-plugin-bpmn/tests/bpmn2/rules/connection-rules.test.ts`、`packages/x6-plugin-bpmn/tests/bpmn2/rules/connections.test.ts` | 开始事件不可入线、结束事件不可出线、数据/工件只允许特定连接 |
+| 导入导出 | `packages/x6-plugin-bpmn/src/export/bpmn-mapping.ts`、`packages/x6-plugin-bpmn/src/export/exporter.ts`、`packages/x6-plugin-bpmn/src/export/importer.ts` | `packages/x6-plugin-bpmn/tests/bpmn2/export/bpmn-mapping.test.ts`、`packages/x6-plugin-bpmn/tests/bpmn2/export/export.test.ts`、`packages/x6-plugin-bpmn/tests/bpmn2/adapters/adapters.test.ts` | 图形名与 BPMN XML tag / eventDefinition / attrs 是否一致 |
 
 ## 4. 按规范逐步验证的执行方法
 
@@ -178,7 +180,7 @@
 核对：
 
 - 规则定义：`packages/x6-plugin-bpmn/src/rules/connection-rules.ts`
-- 校验实现：`packages/x6-plugin-bpmn/src/rules/validator.ts`
+- 校验实现：`packages/x6-plugin-bpmn/src/rules/validator.ts`（连接规则汇总，底层通用校验位于 `packages/x6-plugin-bpmn/src/core/rules/validator.ts`）
 - 自动验证：`packages/x6-plugin-bpmn/tests/bpmn2/rules/connection-rules.test.ts`
 - 集成验证：`packages/x6-plugin-bpmn/tests/bpmn2/rules/connections.test.ts`
 

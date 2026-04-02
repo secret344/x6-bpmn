@@ -3,7 +3,7 @@
  *
  * 包含 5 大类事件：开始、中间抛出、中间捕获、边界、结束。
  * 每类事件按事件定义类型（消息、定时、信号等）细分为多种变体，
- * 共计 48 种事件图形，通过数据驱动方式统一注册。
+ * 共计 47 种事件图形，通过数据驱动方式统一注册。
  */
 
 import { Graph } from '@antv/x6'
@@ -219,7 +219,7 @@ function createEventNodeConfig(config: EventConfig) {
 
 /**
  * 注册所有 BPMN 2.0 事件图形到 X6 全局注册表。
- * 共计 48 种事件变体，通过数据驱动方式统一注册。
+ * 共计 47 种事件变体，通过数据驱动方式统一注册。
  */
 export function registerEventShapes() {
   const { startEvent, intermediateEvent, endEvent, boundaryEvent } = BPMN_COLORS

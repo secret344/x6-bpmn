@@ -581,6 +581,19 @@ export async function importBpmnXml(graph: Graph, xml: string, options: ImportBp
 
   // ---------- Zoom to fit ----------
   if (zoomToFit) {
-    setTimeout(() => graph.zoomToFit({ padding: 40, maxScale: 1 }), 100)
+    setTimeout(() => {
+      if (graph.disposed) {
+        return
+      }
+
+      const viewport = graph.view.viewport as SVGGElement & {
+        getCTM?: () => unknown
+      }
+      if (typeof viewport.getCTM !== 'function') {
+        return
+      }
+
+      graph.zoomToFit({ padding: 40, maxScale: 1 })
+    }, 100)
   }
 }

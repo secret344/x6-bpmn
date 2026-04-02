@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { Graph } from '@antv/x6'
 
 import {
@@ -1344,7 +1344,7 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
     graph.dispose()
   })
 
-  it('默认应执行 zoomToFit', async () => {
+  it('默认应在支持 getCTM 时执行 zoomToFit', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1361,10 +1361,65 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
 </bpmn:definitions>`
 
     const graph = createTestGraph()
-    // Default options → zoomToFit = true → schedules setTimeout
-    await importBpmnXml(graph, xml) // default zoomToFit: true
-    expect(graph.getNodes().length).toBe(1)
-    graph.dispose()
+    const viewport = graph.view.viewport as SVGElement & { getCTM?: () => unknown }
+    viewport.getCTM = vi.fn(() => null)
+    const zoomToFitSpy = vi.spyOn(graph, 'zoomToFit').mockImplementation(() => graph)
+    let scheduledZoom: (() => void) | undefined
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: TimerHandler) => {
+      scheduledZoom = handler as () => void
+      return 0 as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout)
+
+    try {
+      await importBpmnXml(graph, xml)
+
+      expect(graph.getNodes().length).toBe(1)
+      expect(scheduledZoom).toBeTypeOf('function')
+
+      scheduledZoom?.()
+      expect(zoomToFitSpy).toHaveBeenCalledWith({ padding: 40, maxScale: 1 })
+    } finally {
+      setTimeoutSpy.mockRestore()
+      graph.dispose()
+    }
+  })
+
+  it('viewport 不支持 getCTM 时应跳过 zoomToFit', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:startEvent id="S1" name="开始" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+      <bpmndi:BPMNShape id="S1_di" bpmnElement="S1"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`
+
+    const graph = createTestGraph()
+    const viewport = graph.view.viewport as SVGElement & { getCTM?: () => unknown }
+    viewport.getCTM = undefined
+    const zoomToFitSpy = vi.spyOn(graph, 'zoomToFit')
+    let scheduledZoom: (() => void) | undefined
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: TimerHandler) => {
+      scheduledZoom = handler as () => void
+      return 0 as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout)
+
+    try {
+      await importBpmnXml(graph, xml)
+
+      expect(scheduledZoom).toBeTypeOf('function')
+      scheduledZoom?.()
+      expect(zoomToFitSpy).not.toHaveBeenCalled()
+    } finally {
+      setTimeoutSpy.mockRestore()
+      graph.dispose()
+    }
   })
 
   it('应处理无 process 的 XML（仅 collaboration）', async () => {
