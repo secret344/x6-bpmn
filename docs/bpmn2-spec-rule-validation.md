@@ -218,33 +218,33 @@
 只验证规范对照主文件：
 
 ```bash
-cd /home/runner/work/x6-bpmn/x6-bpmn/packages/x6-plugin-bpmn
+cd packages/x6-plugin-bpmn
 npm run test -- tests/bpmn2/integration/bpmn-spec-compliance.test.ts
 ```
 
 如果正在落实连线规则或映射规则，再补跑：
 
 ```bash
-cd /home/runner/work/x6-bpmn/x6-bpmn/packages/x6-plugin-bpmn
+cd packages/x6-plugin-bpmn
 npm run test -- tests/bpmn2/rules/connection-rules.test.ts
 ```
 
 ```bash
-cd /home/runner/work/x6-bpmn/x6-bpmn/packages/x6-plugin-bpmn
+cd packages/x6-plugin-bpmn
 npm run test -- tests/bpmn2/export/bpmn-mapping.test.ts
 ```
 
 ### 5.2 最终全量验证
 
 ```bash
-cd /home/runner/work/x6-bpmn/x6-bpmn/packages/x6-plugin-bpmn
+cd packages/x6-plugin-bpmn
 npm run test
 ```
 
 如果本次改动涉及 `src/**` 里的运行时逻辑、分支规则或跨模块调整，再执行覆盖率校验：
 
 ```bash
-cd /home/runner/work/x6-bpmn/x6-bpmn/packages/x6-plugin-bpmn
+cd packages/x6-plugin-bpmn
 npm run test:coverage
 ```
 
