@@ -1,0 +1,722 @@
+/**
+ * BPMN Document Builder — test utility
+ *
+ * Creates valid BPMN 2.0 XML documents programmatically via bpmn-moddle,
+ * then validates they can be parsed back without errors.
+ *
+ * Rule: NO raw XML template strings in tests. All BPMN XML must go
+ * through this builder so we guarantee structural BPMN 2.0 validity.
+ */
+
+import { BpmnModdle } from 'bpmn-moddle'
+import type { ModdleElement } from 'bpmn-moddle'
+
+const NS_BPMN = 'http://www.omg.org/spec/BPMN/20100524/MODEL'
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface ShapeSpec {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+  isHorizontal?: boolean
+  isExpanded?: boolean
+  isMarkerVisible?: boolean
+}
+
+export interface EdgeSpec {
+  id: string
+  waypoints: Array<{ x: number; y: number }>
+  messageVisibleKind?: 'initiating' | 'non_initiating'
+}
+
+export interface ProcessSpec {
+  id: string
+  isExecutable?: boolean
+  elements: ElementSpec[]
+}
+
+export type ElementSpec =
+  | StartEventSpec
+  | EndEventSpec
+  | IntermediateThrowEventSpec
+  | IntermediateCatchEventSpec
+  | BoundaryEventSpec
+  | TaskSpec
+  | GatewaySpec
+  | SubProcessSpec
+  | DataObjectSpec
+  | DataStoreSpec
+  | TextAnnotationSpec
+  | GroupSpec
+  | LaneSetSpec
+  | SequenceFlowSpec
+  | AssociationSpec
+  | DataAssociationSpec
+
+export interface StartEventSpec {
+  kind: 'startEvent'
+  id: string
+  name?: string
+  eventDefinition?: string
+  outgoing?: string[]
+  parallelMultiple?: boolean
+}
+
+export interface EndEventSpec {
+  kind: 'endEvent'
+  id: string
+  name?: string
+  eventDefinition?: string
+  incoming?: string[]
+}
+
+export interface TaskSpec {
+  kind: 'task' | 'userTask' | 'serviceTask' | 'scriptTask' | 'sendTask' |
+        'receiveTask' | 'manualTask' | 'businessRuleTask'
+  id: string
+  name?: string
+  incoming?: string[]
+  outgoing?: string[]
+  dataInputAssociations?: string[]
+  dataOutputAssociations?: string[]
+}
+
+export interface IntermediateThrowEventSpec {
+  kind: 'intermediateThrowEvent'
+  id: string
+  name?: string
+  eventDefinition?: string
+  incoming?: string[]
+  outgoing?: string[]
+}
+
+export interface IntermediateCatchEventSpec {
+  kind: 'intermediateCatchEvent'
+  id: string
+  name?: string
+  eventDefinition?: string
+  incoming?: string[]
+  outgoing?: string[]
+}
+
+export interface BoundaryEventSpec {
+  kind: 'boundaryEvent'
+  id: string
+  name?: string
+  attachedToRef?: string
+  cancelActivity?: boolean
+  eventDefinition?: string
+  parallelMultiple?: boolean
+}
+
+export interface GatewaySpec {
+  kind: 'exclusiveGateway' | 'parallelGateway' | 'inclusiveGateway' |
+        'complexGateway' | 'eventBasedGateway'
+  id: string
+  name?: string
+  default?: string
+  incoming?: string[]
+  outgoing?: string[]
+}
+
+export interface SubProcessSpec {
+  kind: 'subProcess' | 'transaction' | 'adHocSubProcess' | 'callActivity'
+  id: string
+  name?: string
+  triggeredByEvent?: boolean
+}
+
+export interface DataObjectSpec {
+  kind: 'dataObjectReference'
+  id: string
+  name?: string
+}
+
+export interface DataStoreSpec {
+  kind: 'dataStoreReference'
+  id: string
+  name?: string
+}
+
+export interface TextAnnotationSpec {
+  kind: 'textAnnotation'
+  id: string
+  text?: string
+}
+
+export interface GroupSpec {
+  kind: 'group'
+  id: string
+  name?: string
+}
+
+export interface LaneSetSpec {
+  kind: 'laneSet'
+  id: string
+  lanes: LaneSpec[]
+}
+
+export interface LaneSpec {
+  id: string
+  name?: string
+  flowNodeRefs?: string[]
+}
+
+export interface SequenceFlowSpec {
+  kind: 'sequenceFlow'
+  id: string
+  sourceRef: string
+  targetRef: string
+  name?: string
+  hasCondition?: boolean
+  conditionBody?: string
+}
+
+export interface AssociationSpec {
+  kind: 'association'
+  id: string
+  sourceRef: string
+  targetRef: string
+  direction?: 'One' | 'Both' | 'None'
+}
+
+export interface DataAssociationSpec {
+  kind: 'dataInputAssociation' | 'dataOutputAssociation'
+  id: string
+  taskId: string
+  dataRef: string
+}
+
+export interface CollaborationSpec {
+  id: string
+  participants: ParticipantSpec[]
+  messageFlows?: MessageFlowSpec[]
+}
+
+export interface ParticipantSpec {
+  id: string
+  name?: string
+  processRef: string
+}
+
+export interface MessageFlowSpec {
+  id: string
+  sourceRef: string
+  targetRef: string
+  name?: string
+}
+
+export interface BpmnDocumentSpec {
+  id?: string
+  targetNamespace?: string
+  processes: ProcessSpec[]
+  collaboration?: CollaborationSpec
+  /** DI shapes keyed by element id */
+  shapes?: Record<string, ShapeSpec>
+  /** DI edges keyed by element id */
+  edges?: Record<string, EdgeSpec>
+}
+
+// ============================================================================
+// Validation result
+// ============================================================================
+
+export interface BpmnValidationResult {
+  valid: boolean
+  xml: string
+  warnings: string[]
+  /** Parsed root element for structural assertions */
+  rootElement: ModdleElement | null
+}
+
+// ============================================================================
+// Builder
+// ============================================================================
+
+/**
+ * Build a BPMN 2.0 XML document from a spec using bpmn-moddle,
+ * then validate it by parsing back with bpmn-moddle.
+ *
+ * @throws if bpmn-moddle cannot serialize or parse the document
+ */
+export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<BpmnValidationResult> {
+  const moddle = new BpmnModdle()
+
+  // ---- Build elements ----
+  const nodeRegistry = new Map<string, ModdleElement>()
+  const allProcessElements: ModdleElement[] = []
+
+  // We need two passes: first create all nodes, then create flows (refs)
+  const flowSpecsDeferred: SequenceFlowSpec[] = []
+  const assocSpecsDeferred: AssociationSpec[] = []
+  const dataAssocSpecsDeferred: DataAssociationSpec[] = []
+
+  // default flow map: gateway id → seq flow id
+  const gatewayDefaultMap = new Map<string, string>()
+
+  for (const proc of spec.processes) {
+    for (const el of proc.elements) {
+      if (el.kind === 'sequenceFlow') {
+        flowSpecsDeferred.push(el)
+        continue
+      }
+      if (el.kind === 'association') {
+        assocSpecsDeferred.push(el)
+        continue
+      }
+      if (el.kind === 'dataInputAssociation' || el.kind === 'dataOutputAssociation') {
+        dataAssocSpecsDeferred.push(el)
+        continue
+      }
+      if (el.kind === 'laneSet') continue // handled per-process
+
+      const moddleEl = createFlowElement(moddle, el)
+      nodeRegistry.set(el.id, moddleEl)
+      allProcessElements.push(moddleEl)
+    }
+  }
+
+  // Set attachedToRef on boundary events (requires all elements to be created first)
+  for (const proc of spec.processes) {
+    for (const el of proc.elements) {
+      if (el.kind === 'boundaryEvent' && (el as BoundaryEventSpec).attachedToRef) {
+        const boundaryEl = nodeRegistry.get(el.id)
+        const hostEl = nodeRegistry.get((el as BoundaryEventSpec).attachedToRef!)
+        if (boundaryEl && hostEl) {
+          boundaryEl.attachedToRef = hostEl
+        }
+      }
+    }
+  }
+
+  // Now create sequence flows
+  const flowElements = new Map<string, ModdleElement>()
+  for (const sf of flowSpecsDeferred) {
+    const src = nodeRegistry.get(sf.sourceRef)
+    const tgt = nodeRegistry.get(sf.targetRef)
+    if (!src || !tgt) {
+      throw new Error(`BpmnBuilder: unknown sourceRef "${sf.sourceRef}" or targetRef "${sf.targetRef}" in sequenceFlow "${sf.id}"`)
+    }
+    const props: Record<string, any> = {
+      id: sf.id,
+      sourceRef: src,
+      targetRef: tgt,
+    }
+    if (sf.name) props.name = sf.name
+    const seqFlow = moddle.create('bpmn:SequenceFlow', props)
+    if (sf.hasCondition) {
+      seqFlow.conditionExpression = moddle.create('bpmn:FormalExpression', {
+        body: sf.conditionBody ?? 'condition',
+      })
+    }
+    flowElements.set(sf.id, seqFlow)
+    allProcessElements.push(seqFlow)
+  }
+
+  // Handle gateway defaults
+  for (const proc of spec.processes) {
+    for (const el of proc.elements) {
+      if ((el.kind === 'exclusiveGateway' || el.kind === 'inclusiveGateway') && (el as GatewaySpec).default) {
+        const gwEl = nodeRegistry.get(el.id)
+        const defFlowEl = flowElements.get((el as GatewaySpec).default!)
+        if (gwEl && defFlowEl) {
+          gwEl.default = defFlowEl
+        }
+      }
+    }
+  }
+
+  // Create associations
+  for (const assoc of assocSpecsDeferred) {
+    const src = nodeRegistry.get(assoc.sourceRef)
+    const tgt = nodeRegistry.get(assoc.targetRef)
+    if (!src || !tgt) {
+      throw new Error(`BpmnBuilder: unknown ref in association "${assoc.id}"`)
+    }
+    const props: Record<string, any> = {
+      id: assoc.id,
+      sourceRef: src,
+      targetRef: tgt,
+    }
+    if (assoc.direction) props.associationDirection = assoc.direction
+    const assocEl = moddle.create('bpmn:Association', props)
+    allProcessElements.push(assocEl)
+  }
+
+  // Create data associations and attach to tasks
+  for (const da of dataAssocSpecsDeferred) {
+    const task = nodeRegistry.get(da.taskId)
+    const dataRef = nodeRegistry.get(da.dataRef)
+    if (!task || !dataRef) {
+      throw new Error(`BpmnBuilder: unknown taskId "${da.taskId}" or dataRef "${da.dataRef}" in ${da.kind}`)
+    }
+    if (da.kind === 'dataInputAssociation') {
+      const daEl = moddle.create('bpmn:DataInputAssociation', {
+        id: da.id,
+        sourceRef: [dataRef],
+        targetRef: task,
+      })
+      task.dataInputAssociations = [...(task.dataInputAssociations ?? []), daEl]
+    } else {
+      const daEl = moddle.create('bpmn:DataOutputAssociation', {
+        id: da.id,
+        sourceRef: [task],
+        targetRef: dataRef,
+      })
+      task.dataOutputAssociations = [...(task.dataOutputAssociations ?? []), daEl]
+    }
+  }
+
+  // Build processes
+  const processElements = new Map<string, ModdleElement>()
+
+  for (const proc of spec.processes) {
+    const laneSetSpec = proc.elements.find((e) => e.kind === 'laneSet') as LaneSetSpec | undefined
+
+    const processEl = moddle.create('bpmn:Process', {
+      id: proc.id,
+      isExecutable: proc.isExecutable ?? false,
+    })
+
+    // Flow elements belonging to this process
+    const procFlowEls = allProcessElements.filter((el) => {
+      // Check if this element belongs to this process (by checking if its id is in this process's elements list)
+      const elIds = new Set(proc.elements.map((e) => e.id))
+      const flowIds = new Set(flowSpecsDeferred.filter((sf) =>
+        proc.elements.some((e) => e.id === sf.id || e.id === sf.sourceRef || e.id === sf.targetRef),
+      ).map((sf) => sf.id))
+      const assocIds = new Set(assocSpecsDeferred.filter((a) =>
+        proc.elements.some((e) => e.id === a.id || e.id === a.sourceRef || e.id === a.targetRef),
+      ).map((a) => a.id))
+      const elemId: string = (el as any).id || ''
+      return elIds.has(elemId) || flowIds.has(elemId) || assocIds.has(elemId)
+    })
+
+    processEl.flowElements = procFlowEls
+
+    if (laneSetSpec) {
+      const lanes = laneSetSpec.lanes.map((lane) => {
+        const flowNodeRefs = (lane.flowNodeRefs ?? []).map((refId) => nodeRegistry.get(refId)).filter(Boolean) as ModdleElement[]
+        return moddle.create('bpmn:Lane', {
+          id: lane.id,
+          name: lane.name,
+          flowNodeRef: flowNodeRefs,
+        })
+      })
+      processEl.laneSets = [moddle.create('bpmn:LaneSet', {
+        id: laneSetSpec.id,
+        lanes,
+      })]
+    }
+
+    processElements.set(proc.id, processEl)
+  }
+
+  // Build collaboration if specified
+  let collaborationEl: ModdleElement | null = null
+  if (spec.collaboration) {
+    const coll = spec.collaboration
+    const participants = coll.participants.map((p) =>
+      moddle.create('bpmn:Participant', {
+        id: p.id,
+        name: p.name,
+        processRef: processElements.get(p.processRef),
+      }),
+    )
+
+    const msgFlows = (coll.messageFlows ?? []).map((mf) => {
+      const src = nodeRegistry.get(mf.sourceRef) ?? processElements.get(mf.sourceRef)
+      const tgt = nodeRegistry.get(mf.targetRef) ?? processElements.get(mf.targetRef)
+      return moddle.create('bpmn:MessageFlow', {
+        id: mf.id,
+        sourceRef: src,
+        targetRef: tgt,
+        name: mf.name,
+      })
+    })
+
+    collaborationEl = moddle.create('bpmn:Collaboration', {
+      id: coll.id,
+      participants,
+      ...(msgFlows.length > 0 ? { messageFlows: msgFlows } : {}),
+    })
+
+    // Register participants in nodeRegistry for DI lookup
+    for (const p of coll.participants) {
+      const pEl = (collaborationEl.participants as ModdleElement[]).find((pe: any) => pe.id === p.id)
+      if (pEl) nodeRegistry.set(p.id, pEl)
+    }
+  }
+
+  // ---- Build DI ----
+  const planeElements: ModdleElement[] = []
+
+  if (spec.shapes) {
+    for (const [, shapeSpec] of Object.entries(spec.shapes)) {
+      const bpmnEl = nodeRegistry.get(shapeSpec.id)
+      const shape = moddle.create('bpmndi:BPMNShape', {
+        id: `${shapeSpec.id}_di`,
+        bpmnElement: bpmnEl ?? { id: shapeSpec.id },
+        ...(shapeSpec.isHorizontal !== undefined ? { isHorizontal: shapeSpec.isHorizontal } : {}),
+        ...(shapeSpec.isExpanded !== undefined ? { isExpanded: shapeSpec.isExpanded } : {}),
+        ...(shapeSpec.isMarkerVisible !== undefined ? { isMarkerVisible: shapeSpec.isMarkerVisible } : {}),
+      })
+      shape.bounds = moddle.create('dc:Bounds', {
+        x: shapeSpec.x,
+        y: shapeSpec.y,
+        width: shapeSpec.width,
+        height: shapeSpec.height,
+      })
+      planeElements.push(shape)
+    }
+  }
+
+  if (spec.edges) {
+    for (const [edgeId, edgeSpec] of Object.entries(spec.edges)) {
+      const bpmnEl = flowElements.get(edgeId) ?? nodeRegistry.get(edgeId)
+      const edgeEl = moddle.create('bpmndi:BPMNEdge', {
+        id: `${edgeId}_di`,
+        bpmnElement: bpmnEl ?? { id: edgeId },
+        ...(edgeSpec.messageVisibleKind !== undefined ? { messageVisibleKind: edgeSpec.messageVisibleKind } : {}),
+      })
+      edgeEl.waypoint = edgeSpec.waypoints.map((wp) =>
+        moddle.create('dc:Point', { x: wp.x, y: wp.y }),
+      )
+      planeElements.push(edgeEl)
+    }
+  }
+
+  const diPlaneEl = collaborationEl ?? (processElements.size === 1 ? [...processElements.values()][0] : null)
+
+  const plane = moddle.create('bpmndi:BPMNPlane', {
+    id: 'BPMNPlane_1',
+    bpmnElement: diPlaneEl,
+  })
+  plane.planeElement = planeElements
+
+  const diagram = moddle.create('bpmndi:BPMNDiagram', { id: 'BPMNDiagram_1' })
+  diagram.plane = plane
+
+  // ---- Assemble definitions ----
+  const definitions = moddle.create('bpmn:Definitions', {
+    id: spec.id ?? 'Definitions_1',
+    targetNamespace: spec.targetNamespace ?? 'http://bpmn.io/schema/bpmn',
+  })
+
+  const rootElements: ModdleElement[] = []
+  if (collaborationEl) rootElements.push(collaborationEl)
+  for (const procEl of processElements.values()) rootElements.push(procEl)
+  definitions.rootElements = rootElements
+  definitions.diagrams = [diagram]
+
+  // ---- Serialize ----
+  const { xml } = await moddle.toXML(definitions, { format: true, preamble: true })
+
+  // ---- Validate: parse back ----
+  const moddle2 = new BpmnModdle()
+  const { rootElement, warnings } = await moddle2.fromXML(xml)
+
+  const warningMessages = (warnings as any[]).map((w) =>
+    typeof w === 'string' ? w : (w?.message ?? String(w)),
+  )
+
+  return {
+    valid: warningMessages.length === 0,
+    xml,
+    warnings: warningMessages,
+    rootElement: rootElement as ModdleElement,
+  }
+}
+
+// ============================================================================
+// Validate existing XML
+// ============================================================================
+
+/**
+ * Parse and validate an existing XML string with bpmn-moddle.
+ * Returns the parsed rootElement plus any parser warnings.
+ */
+export async function validateBpmnXml(xml: string): Promise<BpmnValidationResult> {
+  const moddle = new BpmnModdle()
+  const { rootElement, warnings } = await moddle.fromXML(xml)
+
+  const warningMessages = (warnings as any[]).map((w) =>
+    typeof w === 'string' ? w : (w?.message ?? String(w)),
+  )
+
+  return {
+    valid: warningMessages.length === 0,
+    xml,
+    warnings: warningMessages,
+    rootElement: rootElement as ModdleElement | null,
+  }
+}
+
+// ============================================================================
+// Element factory
+// ============================================================================
+
+function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement {
+  switch (spec.kind) {
+    case 'startEvent': {
+      const el = moddle.create('bpmn:StartEvent', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+        ...(spec.parallelMultiple ? { parallelMultiple: true } : {}),
+      })
+      if (spec.eventDefinition) {
+        el.eventDefinitions = [createEventDefinition(moddle, spec.eventDefinition, `${spec.id}_ed`)]
+      }
+      return el
+    }
+
+    case 'endEvent': {
+      const el = moddle.create('bpmn:EndEvent', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+      if (spec.eventDefinition) {
+        el.eventDefinitions = [createEventDefinition(moddle, spec.eventDefinition, `${spec.id}_ed`)]
+      }
+      return el
+    }
+
+    case 'task':
+    case 'userTask':
+    case 'serviceTask':
+    case 'scriptTask':
+    case 'sendTask':
+    case 'receiveTask':
+    case 'manualTask':
+    case 'businessRuleTask': {
+      const bpmnType = `bpmn:${capitalize(spec.kind)}`
+      return moddle.create(bpmnType, {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+    }
+
+    case 'exclusiveGateway':
+    case 'parallelGateway':
+    case 'inclusiveGateway':
+    case 'complexGateway':
+    case 'eventBasedGateway': {
+      const bpmnType = `bpmn:${capitalize(spec.kind)}`
+      return moddle.create(bpmnType, {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+    }
+
+    case 'subProcess': {
+      return moddle.create('bpmn:SubProcess', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+        ...(spec.triggeredByEvent ? { triggeredByEvent: true } : {}),
+      })
+    }
+
+    case 'transaction': {
+      return moddle.create('bpmn:Transaction', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+    }
+
+    case 'adHocSubProcess': {
+      return moddle.create('bpmn:AdHocSubProcess', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+    }
+
+    case 'callActivity': {
+      return moddle.create('bpmn:CallActivity', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+    }
+
+    case 'dataObjectReference': {
+      return moddle.create('bpmn:DataObjectReference', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+    }
+
+    case 'dataStoreReference': {
+      return moddle.create('bpmn:DataStoreReference', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+    }
+
+    case 'intermediateThrowEvent': {
+      const el = moddle.create('bpmn:IntermediateThrowEvent', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+      if (spec.eventDefinition) {
+        el.eventDefinitions = [createEventDefinition(moddle, spec.eventDefinition, `${spec.id}_ed`)]
+      }
+      return el
+    }
+
+    case 'intermediateCatchEvent': {
+      const el = moddle.create('bpmn:IntermediateCatchEvent', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+      })
+      if (spec.eventDefinition) {
+        el.eventDefinitions = [createEventDefinition(moddle, spec.eventDefinition, `${spec.id}_ed`)]
+      }
+      return el
+    }
+
+    case 'boundaryEvent': {
+      const eventDefinition = (spec.eventDefinition ?? '').toLowerCase()
+      const el = moddle.create('bpmn:BoundaryEvent', {
+        id: spec.id,
+        ...(spec.name ? { name: spec.name } : {}),
+        cancelActivity: spec.cancelActivity ?? (eventDefinition === 'escalationeventdefinition' ? false : true),
+        ...(spec.parallelMultiple ? { parallelMultiple: true } : {}),
+      })
+      if (spec.eventDefinition) {
+        el.eventDefinitions = [createEventDefinition(moddle, spec.eventDefinition, `${spec.id}_ed`)]
+      }
+      return el
+    }
+
+    case 'textAnnotation': {
+      return moddle.create('bpmn:TextAnnotation', {
+        id: spec.id,
+        text: spec.text ?? '',
+      })
+    }
+
+    case 'group': {
+      return moddle.create('bpmn:Group', {
+        id: spec.id,
+      })
+    }
+
+    default:
+      throw new Error(`BpmnBuilder: unsupported element kind "${(spec as any).kind}"`)
+  }
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+function createEventDefinition(moddle: BpmnModdle, eventDefinition: string, id: string): ModdleElement {
+  if (eventDefinition === 'multipleEventDefinition') {
+    return moddle.createAny('bpmn:multipleEventDefinition', NS_BPMN, { id }) as ModdleElement
+  }
+  return moddle.create(`bpmn:${capitalize(eventDefinition)}`, { id })
+}

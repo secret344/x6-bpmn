@@ -8,24 +8,24 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@antv/x6": "^2.18.1",
-    "@antv/x6-plugin-clipboard": "^2.1.6",
-    "@antv/x6-plugin-history": "^2.2.4",
-    "@antv/x6-plugin-keyboard": "^2.2.3",
-    "@antv/x6-plugin-minimap": "^2.0.7",
-    "@antv/x6-plugin-selection": "^2.2.2",
-    "@antv/x6-plugin-snapline": "^2.1.7",
-    "@antv/x6-plugin-transform": "^2.1.8",
+    "@antv/x6": "^3.1.7",
+    "@antv/x6-plugin-clipboard": "^3.0.0",
+    "@antv/x6-plugin-history": "^3.0.0",
+    "@antv/x6-plugin-keyboard": "^3.0.0",
+    "@antv/x6-plugin-minimap": "^3.0.0",
+    "@antv/x6-plugin-selection": "^3.0.0",
+    "@antv/x6-plugin-snapline": "^3.0.0",
+    "@antv/x6-plugin-transform": "^3.0.0",
     "@arco-design/web-vue": "^2.57.0",
     "@x6-bpmn2/plugin": "1.0.0",
-    "bpmn-js": "^18.13.1",
+    "bpmn-js": "^18.14.0",
     "tslib": "^2.8.1",
-    "vue": "^3.5.30"
+    "vue": "^3.5.32"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.5",
-    "typescript": "^5.9.3",
-    "vite": "^6.2.0",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.3",
     "vue-tsc": "^3.2.6"
   }
 }

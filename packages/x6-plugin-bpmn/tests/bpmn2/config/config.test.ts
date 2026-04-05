@@ -72,6 +72,13 @@ describe('SHAPE_LABELS 映射表', () => {
     expect(SHAPE_LABELS['bpmn-boundary-event-multiple']).toBe('多重边界事件')
     expect(SHAPE_LABELS['bpmn-boundary-event-parallel-multiple']).toBe('并行多重边界事件')
     expect(SHAPE_LABELS['bpmn-boundary-event-non-interrupting']).toBe('非中断边界事件')
+    expect(SHAPE_LABELS['bpmn-boundary-event-message-non-interrupting']).toBe('消息非中断边界事件')
+    expect(SHAPE_LABELS['bpmn-boundary-event-timer-non-interrupting']).toBe('定时非中断边界事件')
+    expect(SHAPE_LABELS['bpmn-boundary-event-escalation-non-interrupting']).toBe('升级非中断边界事件')
+    expect(SHAPE_LABELS['bpmn-boundary-event-conditional-non-interrupting']).toBe('条件非中断边界事件')
+    expect(SHAPE_LABELS['bpmn-boundary-event-signal-non-interrupting']).toBe('信号非中断边界事件')
+    expect(SHAPE_LABELS['bpmn-boundary-event-multiple-non-interrupting']).toBe('多重非中断边界事件')
+    expect(SHAPE_LABELS['bpmn-boundary-event-parallel-multiple-non-interrupting']).toBe('并行多重非中断边界事件')
   })
 
   it('应包含所有结束事件', () => {
@@ -493,6 +500,16 @@ describe('loadBpmnFormData', () => {
     expect(loadBpmnFormData(cell).cancelActivity).toBe(true)
   })
 
+  it('非中断边界事件在缺省数据下应回退为 false', () => {
+    const cell = mockCell('bpmn-boundary-event-escalation-non-interrupting', {})
+    expect(loadBpmnFormData(cell).cancelActivity).toBe(false)
+  })
+
+  it('shape 缺失时 cancelActivity 缺省应回退为 true', () => {
+    const cell = { getData: () => ({ bpmn: {} }), getAttrByPath: () => undefined, isEdge: () => false, getLabels: () => [] } as any
+    expect(loadBpmnFormData(cell).cancelActivity).toBe(true)
+  })
+
   it('cancelActivity=false 应保持为 false', () => {
     const cell = mockCell('bpmn-boundary-event', { cancelActivity: false })
     expect(loadBpmnFormData(cell).cancelActivity).toBe(false)
@@ -662,5 +679,58 @@ describe('saveBpmnFormData', () => {
 
   it('messageFlow 应保存消息字段', () => {
     expect(saveBpmnFormData('messageFlow', { ...emptyBpmnFormData(), messageName: 'MF' }).messageName).toBe('MF')
+  })
+
+  it('各分类空值字段不应保存（覆盖 FALSE 分支）', () => {
+    const e = emptyBpmnFormData()
+    // scriptTask: empty fields → no output
+    const st = saveBpmnFormData('scriptTask', e)
+    expect(st.scriptFormat).toBeUndefined()
+    expect(st.script).toBeUndefined()
+    expect(st.resultVariable).toBeUndefined()
+    // callActivity: empty calledElement → no output
+    const ca = saveBpmnFormData('callActivity', e)
+    expect(ca.calledElement).toBeUndefined()
+    // gateway: empty defaultFlow / activationCondition → no output
+    const gw = saveBpmnFormData('gateway', e)
+    expect(gw.defaultFlow).toBeUndefined()
+    expect(gw.activationCondition).toBeUndefined()
+    // timerEvent: empty timerValue → no output for optional field
+    const te = saveBpmnFormData('timerEvent', e)
+    expect(te.timerValue).toBeUndefined()
+    // messageEvent: empty messageRef, messageName → no output
+    const me = saveBpmnFormData('messageEvent', e)
+    expect(me.messageRef).toBeUndefined()
+    expect(me.messageName).toBeUndefined()
+    // signalEvent: empty signalRef, signalName → no output
+    const se = saveBpmnFormData('signalEvent', e)
+    expect(se.signalRef).toBeUndefined()
+    expect(se.signalName).toBeUndefined()
+    // errorEvent: empty errorRef, errorCode → no output
+    const ee = saveBpmnFormData('errorEvent', e)
+    expect(ee.errorRef).toBeUndefined()
+    expect(ee.errorCode).toBeUndefined()
+    // escalationEvent: empty escalationRef, escalationCode → no output
+    const esc = saveBpmnFormData('escalationEvent', e)
+    expect(esc.escalationRef).toBeUndefined()
+    expect(esc.escalationCode).toBeUndefined()
+    // conditionalEvent: empty conditionExpression → no output
+    const ce = saveBpmnFormData('conditionalEvent', e)
+    expect(ce.conditionExpression).toBeUndefined()
+    // linkEvent: empty linkName → no output
+    const le = saveBpmnFormData('linkEvent', e)
+    expect(le.linkName).toBeUndefined()
+    // compensationEvent: empty activityRef → no output
+    const co = saveBpmnFormData('compensationEvent', e)
+    expect(co.activityRef).toBeUndefined()
+    // pool: empty processRef → no output
+    const po = saveBpmnFormData('pool', e)
+    expect(po.processRef).toBeUndefined()
+    // textAnnotation: empty annotationText → no output
+    const ta = saveBpmnFormData('textAnnotation', e)
+    expect(ta.annotationText).toBeUndefined()
+    // group: empty categoryValueRef → no output
+    const gr = saveBpmnFormData('group', e)
+    expect(gr.categoryValueRef).toBeUndefined()
   })
 })

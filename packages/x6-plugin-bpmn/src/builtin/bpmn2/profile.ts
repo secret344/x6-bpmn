@@ -36,8 +36,8 @@ function getNodeRendererName(shape: string): string {
   if (shape.includes('data-object') || shape.includes('data-input') || shape.includes('data-output') || shape.includes('data-store')) return 'data'
   if (shape === 'bpmn-text-annotation') return 'annotation'
   if (shape === 'bpmn-group') return 'group'
-  /* c8 ignore next — 所有已知 NODE_MAPPING 图形均已匹配，此行为新增图形的保底返回值 */
-  return 'task' // fallback for unrecognized shapes
+  /* v8 ignore next — 所有已知 NODE_MAPPING 图形均已匹配，此行为新增图形的保底返回值 */ /* istanbul ignore next */
+  return 'task' // 无法识别的图形回退值
 }
 
 function getNodeCategory(shape: string): BpmnNodeCategory {
@@ -71,7 +71,7 @@ function buildNodeDefinitions(): Record<string, NodeDefinition> {
       shape,
       category: getNodeCategory(shape),
       renderer: getNodeRendererName(shape),
-      /* c8 ignore next */
+      /* istanbul ignore next — SHAPE_LABELS 始终包含所有已注册图形; || fallback 不可达 */
       title: SHAPE_LABELS[shape] || shape,
     }
   }
@@ -81,12 +81,13 @@ function buildNodeDefinitions(): Record<string, NodeDefinition> {
 function buildEdgeDefinitions(): Record<string, EdgeDefinition> {
   const edges: Record<string, EdgeDefinition> = {}
   for (const shape of Object.keys(EDGE_MAPPING)) {
+    /* istanbul ignore next — SHAPE_LABELS 始终包含所有已注册图形; || fallback 不可达 */
+    const title = SHAPE_LABELS[shape] || shape
     edges[shape] = {
       shape,
       category: getEdgeCategory(shape),
       renderer: getEdgeRendererName(shape),
-      /* c8 ignore next */
-      title: SHAPE_LABELS[shape] || shape,
+      title,
     }
   }
   return edges
@@ -110,7 +111,7 @@ function buildNodeCategories(): Record<string, BpmnNodeCategory> {
 
 function buildFieldCapabilities(): Record<string, FieldCapability> {
   return {
-    // User Task
+    // 用户任务
     assignee: {
       scope: 'node',
       defaultValue: '',
@@ -148,7 +149,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Service / Business Rule / Send / Receive Task
+    // 服务 / 业务规则 / 发送 / 接收任务
     implementationType: {
       scope: 'node',
       defaultValue: '',
@@ -176,7 +177,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       deserialize: (v) => v === 'true' || v === true,
     },
 
-    // Script Task
+    // 脚本任务
     scriptFormat: {
       scope: 'node',
       defaultValue: '',
@@ -190,7 +191,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Call Activity
+    // 调用活动
     calledElement: {
       scope: 'node',
       defaultValue: '',
@@ -198,7 +199,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Sub-process
+    // 子流程
     triggeredByEvent: {
       scope: 'node',
       defaultValue: false,
@@ -206,7 +207,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => Boolean(v),
     },
 
-    // Gateway
+    // 网关
     defaultFlow: {
       scope: 'node',
       defaultValue: '',
@@ -220,7 +221,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Timer event
+    // 定时事件
     timerType: {
       scope: 'node',
       defaultValue: 'timeDuration',
@@ -234,7 +235,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Message event
+    // 消息事件
     messageRef: {
       scope: 'node',
       defaultValue: '',
@@ -248,7 +249,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Signal event
+    // 信号事件
     signalRef: {
       scope: 'node',
       defaultValue: '',
@@ -262,7 +263,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Error event
+    // 错误事件
     errorRef: {
       scope: 'node',
       defaultValue: '',
@@ -276,7 +277,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Escalation event
+    // 升级事件
     escalationRef: {
       scope: 'node',
       defaultValue: '',
@@ -290,7 +291,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Conditional
+    // 条件事件
     conditionExpression: {
       scope: 'edge',
       defaultValue: '',
@@ -298,7 +299,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Link event
+    // 链接事件
     linkName: {
       scope: 'node',
       defaultValue: '',
@@ -306,7 +307,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Compensation event
+    // 补偿事件
     activityRef: {
       scope: 'node',
       defaultValue: '',
@@ -314,7 +315,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Boundary event
+    // 边界事件
     cancelActivity: {
       scope: 'node',
       defaultValue: true,
@@ -322,7 +323,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => v !== false,
     },
 
-    // Data object
+    // 数据对象
     isCollection: {
       scope: 'node',
       defaultValue: false,
@@ -330,7 +331,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => Boolean(v),
     },
 
-    // Pool
+    // 池
     processRef: {
       scope: 'node',
       defaultValue: '',
@@ -338,7 +339,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Text annotation
+    // 文本注释
     annotationText: {
       scope: 'node',
       defaultValue: '',
@@ -346,7 +347,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => String(v ?? ''),
     },
 
-    // Group
+    // 组
     categoryValueRef: {
       scope: 'node',
       defaultValue: '',

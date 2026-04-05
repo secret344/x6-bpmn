@@ -1,11 +1,23 @@
 import { defineConfig } from 'vitest/config'
+import { resolve } from 'path'
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@antv/x6': resolve(__dirname, '../../node_modules/@antv/x6/es/index.js'),
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',
+    clearMocks: true,
+    server: {
+      deps: {
+        inline: [/@antv\//],
+      },
+    },
     coverage: {
-      provider: 'v8',
+      provider: 'istanbul',
       reporter: ['text', 'text-summary', 'lcov', 'json'],
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.d.ts', 'src/layout/**'],

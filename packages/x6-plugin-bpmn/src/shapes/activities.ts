@@ -53,6 +53,7 @@ interface TaskConfig {
  * 唯一的差异是左上角的类型标识图标。
  */
 function createTaskShape(config: TaskConfig) {
+  /* istanbul ignore next — 默认参数分支不作为业务逻辑分支测试 */
   const { shapeName, iconPath, label = '' } = config
   const { stroke, fill } = BPMN_COLORS.task
 

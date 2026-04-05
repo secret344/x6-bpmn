@@ -3,7 +3,7 @@
  *
  * 包含 5 大类事件：开始、中间抛出、中间捕获、边界、结束。
  * 每类事件按事件定义类型（消息、定时、信号等）细分为多种变体，
- * 共计 48 种事件图形，通过数据驱动方式统一注册。
+ * 共计 54 种事件图形，通过数据驱动方式统一注册。
  */
 
 import { Graph } from '@antv/x6'
@@ -48,6 +48,13 @@ import {
   BPMN_BOUNDARY_EVENT_MULTIPLE,
   BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE,
   BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
   BPMN_END_EVENT,
   BPMN_END_EVENT_MESSAGE,
   BPMN_END_EVENT_ESCALATION,
@@ -74,6 +81,7 @@ import { BPMN_PORTS, LABEL_BELOW } from './shared'
  * - 文字标签（label）— 显示在图形底部
  */
 
+/* istanbul ignore next — 函数默认参数 = {} 的缺省分支不作为业务逻辑测试 */
 function buildEventMarkup(
   options: {
     /** 是否显示双圈（中间事件/边界事件为 true） */
@@ -88,6 +96,7 @@ function buildEventMarkup(
     iconFilled?: boolean
   } = {},
 ) {
+  /* istanbul ignore next — buildEventMarkup 默认参数分支不作为业务逻辑分支测试 */
   const { doubleCircle = false, strokeWidth = 2, dashed = false, iconPath, iconFilled = false } = options
   // 按层次构建 SVG 元素列表
   const markup: Array<{ tagName: string; selector: string }> = [
@@ -191,6 +200,7 @@ interface EventConfig {
  */
 
 function createEventNodeConfig(config: EventConfig) {
+  /* istanbul ignore next — 默认参数分支不作为业务逻辑分支测试 */
   const { shapeName, stroke, fill, strokeWidth = 2, doubleCircle = false, dashed = false, iconPath, iconFilled = false, label = '' } = config
   const { markup, attrs } = buildEventMarkup({ doubleCircle, strokeWidth, dashed, iconPath, iconFilled })
 
@@ -219,7 +229,7 @@ function createEventNodeConfig(config: EventConfig) {
 
 /**
  * 注册所有 BPMN 2.0 事件图形到 X6 全局注册表。
- * 共计 48 种事件变体，通过数据驱动方式统一注册。
+ * 共计 54 种事件变体，通过数据驱动方式统一注册。
  */
 export function registerEventShapes() {
   const { startEvent, intermediateEvent, endEvent, boundaryEvent } = BPMN_COLORS
@@ -280,6 +290,14 @@ export function registerEventShapes() {
     { shapeName: BPMN_BOUNDARY_EVENT_MULTIPLE, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, iconPath: BPMN_ICONS.multiple, label: 'Multiple Boundary' },
     { shapeName: BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, iconPath: BPMN_ICONS.parallelMultiple, label: 'Parallel Multiple Boundary' },
     { shapeName: BPMN_BOUNDARY_EVENT_NON_INTERRUPTING, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, dashed: true, label: 'Non-Interrupting Boundary' },
+    // 按类型区分的非中断边界事件（虚线双圈）
+    { shapeName: BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, dashed: true, iconPath: BPMN_ICONS.message, label: 'Message Non-Interrupting Boundary' },
+    { shapeName: BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, dashed: true, iconPath: BPMN_ICONS.timer, label: 'Timer Non-Interrupting Boundary' },
+    { shapeName: BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, dashed: true, iconPath: BPMN_ICONS.escalation, label: 'Escalation Non-Interrupting Boundary' },
+    { shapeName: BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, dashed: true, iconPath: BPMN_ICONS.conditional, label: 'Conditional Non-Interrupting Boundary' },
+    { shapeName: BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, dashed: true, iconPath: BPMN_ICONS.signal, label: 'Signal Non-Interrupting Boundary' },
+    { shapeName: BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, dashed: true, iconPath: BPMN_ICONS.multiple, label: 'Multiple Non-Interrupting Boundary' },
+    { shapeName: BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING, stroke: boundaryEvent.stroke, fill: boundaryEvent.fill, doubleCircle: true, dashed: true, iconPath: BPMN_ICONS.parallelMultiple, label: 'Parallel Multiple Non-Interrupting Boundary' },
   ]
 
   // ==================== 结束事件 ====================

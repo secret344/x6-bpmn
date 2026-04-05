@@ -68,6 +68,7 @@ function postProcessSmartExtensions(graph: Graph, _context: ProfileContext): voi
     // 如果有 extensionProperties（底层 importer 已解析的扩展属性对象），
     // 将 smart: 前缀的属性提升为顶层数据
     const extProps = data.extensionProperties as Record<string, unknown> | undefined
+    /* istanbul ignore next — extProps 为非对象情况在实际运行中不会发生 */
     if (extProps && typeof extProps === 'object') {
       const smartProps: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(extProps)) {

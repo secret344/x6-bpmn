@@ -19,28 +19,26 @@ import {
   DEFAULT_CONNECTION_RULES,
   type BpmnNodeCategory,
   type BpmnConnectionRule,
+  type BpmnConnectionContext,
+  type BpmnConnectionConstraint,
+  type BpmnConnectionConstraintMatcher,
+  type BpmnConnectionConstraintRequirement,
+  type BpmnConnectionDataCondition,
+  type BpmnRuleValidationContext,
   type BpmnValidationResult,
 } from './connection-rules'
+import {
+  BPMN_MESSAGE_FLOW,
+  BPMN_SEQUENCE_FLOW,
+  BPMN_CONDITIONAL_FLOW,
+  BPMN_DEFAULT_FLOW,
+} from '../utils/constants'
+
+export type { BpmnConnectionContext } from './connection-rules'
 
 // ============================================================================
 // 验证参数
 // ============================================================================
-
-/**
- * 连线验证所需的上下文信息
- */
-export interface BpmnConnectionContext {
-  /** 源节点的 shape 名称 */
-  sourceShape: string
-  /** 目标节点的 shape 名称 */
-  targetShape: string
-  /** 连线（边）的 shape 名称（连线类型） */
-  edgeShape: string
-  /** 源节点当前已有的出线数量（可选，用于数量限制校验） */
-  sourceOutgoingCount?: number
-  /** 目标节点当前已有的入线数量（可选，用于数量限制校验） */
-  targetIncomingCount?: number
-}
 
 /**
  * 验证选项
@@ -71,39 +69,109 @@ function mergeRules(
   return merged
 }
 
-/**
- * 验证 BPMN 连线是否合法（纯函数）
- *
- * @param context 连线上下文（源、目标、边的 shape 名称及可选的连线数量信息）
- * @param options 可选验证选项（自定义规则、放行未知边类型等）
- * @returns 验证结果，包含 valid 和 reason
- *
- * @example
- * ```ts
- * const result = validateBpmnConnection({
- *   sourceShape: 'bpmn-start-event',
- *   targetShape: 'bpmn-user-task',
- *   edgeShape: 'bpmn-sequence-flow',
- * })
- * if (!result.valid) {
- *   console.warn('连线不合法:', result.reason)
- * }
- * ```
- */
-export function validateBpmnConnection(
-  context: BpmnConnectionContext,
-  options: BpmnValidateOptions = {},
+function runConfiguredConstraints(
+  sourceRule: BpmnConnectionRule,
+  targetRule: BpmnConnectionRule,
+  context: BpmnRuleValidationContext,
 ): BpmnValidationResult {
-  const rules = mergeRules(options.customRules)
-  const { sourceShape, targetShape, edgeShape, sourceOutgoingCount, targetIncomingCount } = context
+  const constraints = [
+    ...(sourceRule.constraints ?? []),
+    ...(targetRule.constraints ?? []),
+  ]
+
+  for (const constraint of constraints) {
+    if (!matchesConstraintMatcher(constraint.when, context)) continue
+    if (constraint.forbid && matchesConstraintMatcher(constraint.forbid, context)) {
+      return { valid: false, reason: constraint.reason }
+    }
+    if (constraint.require && !matchesConstraintRequirement(constraint.require, context)) {
+      return { valid: false, reason: constraint.reason }
+    }
+  }
+
+  return { valid: true }
+}
+
+function matchesConstraintMatcher(
+  matcher: BpmnConnectionConstraintMatcher | undefined,
+  context: BpmnRuleValidationContext,
+): boolean {
+  if (!matcher) return true
+  if (matcher.edgeShapes && !matcher.edgeShapes.includes(context.edgeShape)) return false
+  if (matcher.sourceCategories && !matcher.sourceCategories.includes(context.sourceCategory)) return false
+  if (matcher.targetCategories && !matcher.targetCategories.includes(context.targetCategory)) return false
+  if (matcher.sourceShapes && !matcher.sourceShapes.includes(context.sourceShape)) return false
+  if (matcher.targetShapes && !matcher.targetShapes.includes(context.targetShape)) return false
+  if (matcher.sourceDataMatches && !matchesDataConditions(context.sourceData, matcher.sourceDataMatches)) return false
+  if (matcher.targetDataMatches && !matchesDataConditions(context.targetData, matcher.targetDataMatches)) return false
+  return true
+}
+
+function matchesConstraintRequirement(
+  requirement: BpmnConnectionConstraintRequirement,
+  context: BpmnRuleValidationContext,
+): boolean {
+  if (
+    requirement.allowedTargetShapes &&
+    !requirement.allowedTargetShapes.includes(context.targetShape)
+  ) {
+    return false
+  }
+  if (
+    requirement.minSourceOutgoingSequenceFlowCount !== undefined &&
+    (context.sourceOutgoingSequenceFlowCount ?? 0) < requirement.minSourceOutgoingSequenceFlowCount
+  ) {
+    return false
+  }
+  if (
+    requirement.maxTargetIncomingSequenceFlowCount !== undefined &&
+    (context.targetIncomingSequenceFlowCount ?? 0) > requirement.maxTargetIncomingSequenceFlowCount
+  ) {
+    return false
+  }
+  return true
+}
+
+function matchesDataConditions(
+  data: Record<string, any> | undefined,
+  conditions: BpmnConnectionDataCondition[],
+): boolean {
+  return conditions.every((condition) => readValueByPath(data, condition.path) === condition.equals)
+}
+
+function readValueByPath(data: Record<string, any> | undefined, path: string): unknown {
+  if (!data || typeof data !== 'object') return undefined
+  return path.split('.').reduce<unknown>((currentValue, segment) => {
+    if (!currentValue || typeof currentValue !== 'object') return undefined
+    return (currentValue as Record<string, unknown>)[segment]
+  }, data)
+}
+
+/**
+ * 使用指定规则集与分类解析器执行连线验证。
+ */
+export function validateConnectionAgainstRules(
+  context: BpmnConnectionContext,
+  rules: Record<BpmnNodeCategory, BpmnConnectionRule>,
+  resolveCategory: (shape: string) => BpmnNodeCategory,
+  options: Pick<BpmnValidateOptions, 'allowUnknownEdgeTypes'> = {},
+): BpmnValidationResult {
+  const {
+    sourceShape,
+    targetShape,
+    edgeShape,
+    sourceOutgoingCount,
+    targetIncomingCount,
+    sourcePoolId,
+    targetPoolId,
+  } = context
 
   // 1. 获取源和目标的分类
-  const sourceCategory = getNodeCategory(sourceShape)
-  const targetCategory = getNodeCategory(targetShape)
+  const sourceCategory = resolveCategory(sourceShape)
+  const targetCategory = resolveCategory(targetShape)
 
-  // 对于 unknown 分类，若未提供自定义规则，则放行
-  const sourceRule = rules[sourceCategory]
-  const targetRule = rules[targetCategory]
+  const sourceRule = rules[sourceCategory] || {}
+  const targetRule = rules[targetCategory] || {}
 
   // 2. 检查源节点是否禁止出线
   if (sourceRule.noOutgoing) {
@@ -205,12 +273,88 @@ export function validateBpmnConnection(
     }
   }
 
-  return { valid: true }
+  // 12. 检查 Pool 边界约束
+  if (sourcePoolId !== undefined && targetPoolId !== undefined) {
+    const poolCheck = validatePoolBoundary(edgeShape, sourcePoolId, targetPoolId)
+    if (!poolCheck.valid) return poolCheck
+  }
+
+  // 13. 检查动态语义约束
+  return runConfiguredConstraints(sourceRule, targetRule, {
+    ...context,
+    sourceCategory,
+    targetCategory,
+  })
+}
+
+/**
+ * 验证 BPMN 连线是否合法（纯函数）
+ *
+ * @param context 连线上下文（源、目标、边的 shape 名称及可选的连线数量信息）
+ * @param options 可选验证选项（自定义规则、放行未知边类型等）
+ * @returns 验证结果，包含 valid 和 reason
+ *
+ * @example
+ * ```ts
+ * const result = validateBpmnConnection({
+ *   sourceShape: 'bpmn-start-event',
+ *   targetShape: 'bpmn-user-task',
+ *   edgeShape: 'bpmn-sequence-flow',
+ * })
+ * if (!result.valid) {
+ *   console.warn('连线不合法:', result.reason)
+ * }
+ * ```
+ */
+export function validateBpmnConnection(
+  context: BpmnConnectionContext,
+  options: BpmnValidateOptions = {},
+): BpmnValidationResult {
+  return validateConnectionAgainstRules(
+    context,
+    mergeRules(options.customRules),
+    getNodeCategory,
+    options,
+  )
 }
 
 // ============================================================================
-// X6 连接验证回调封装
+// Pool 边界验证
 // ============================================================================
+
+const SEQUENCE_FLOW_SET = new Set([BPMN_SEQUENCE_FLOW, BPMN_CONDITIONAL_FLOW, BPMN_DEFAULT_FLOW])
+
+/**
+ * 在调用 validateBpmnConnection 之后检查 Pool 边界约束。
+ *
+ * 规范要求：
+ * - 顺序流 / 条件流 / 默认流：源和目标必须在同一个 Pool 内
+ * - 消息流：源和目标必须属于不同的 Pool
+ *
+ * 只有当 sourcePoolId 和 targetPoolId 均提供时才执行此验证。
+ */
+export function validatePoolBoundary(
+  edgeShape: string,
+  sourcePoolId: string,
+  targetPoolId: string,
+): BpmnValidationResult {
+  if (SEQUENCE_FLOW_SET.has(edgeShape)) {
+    if (sourcePoolId !== targetPoolId) {
+      return {
+        valid: false,
+        reason: '顺序流不能穿越 Pool 边界（formal-11-01-03 §7.5.1 / §8.3.13）',
+      }
+    }
+  } else if (edgeShape === BPMN_MESSAGE_FLOW) {
+    if (sourcePoolId === targetPoolId) {
+      return {
+        valid: false,
+        reason: '消息流必须连接不同的 Pool（formal-11-01-03 §7.5.2 / §9.3）',
+      }
+    }
+  }
+  return { valid: true }
+}
 
 /**
  * X6 validateConnection 回调参数类型
@@ -277,12 +421,28 @@ export function createBpmnValidateConnection(
     // 计算当前出入线数量
     const sourceOutgoingCount = countOutgoingEdges(sourceNode)
     const targetIncomingCount = countIncomingEdges(targetNode)
+    const sourceOutgoingSequenceFlowCount = countSequenceFlowEdges(sourceNode, 'outgoing')
+    const targetIncomingSequenceFlowCount = countSequenceFlowEdges(targetNode, 'incoming')
+
+    const sourcePoolId = findPoolId(sourceNode)
+    const targetPoolId = findPoolId(targetNode)
 
     const result = validateBpmnConnection(
-      { sourceShape, targetShape, edgeShape, sourceOutgoingCount, targetIncomingCount },
+      {
+        sourceShape,
+        targetShape,
+        edgeShape,
+        sourceOutgoingCount,
+        targetIncomingCount,
+        sourceOutgoingSequenceFlowCount,
+        targetIncomingSequenceFlowCount,
+        sourceData: readNodeData(sourceNode),
+        targetData: readNodeData(targetNode),
+        sourcePoolId,
+        targetPoolId,
+      },
       options,
     )
-
     return result.valid
   }
 }
@@ -324,11 +484,29 @@ export function createBpmnValidateConnectionWithResult(
 
     const sourceOutgoingCount = countOutgoingEdges(sourceNode)
     const targetIncomingCount = countIncomingEdges(targetNode)
+    const sourceOutgoingSequenceFlowCount = countSequenceFlowEdges(sourceNode, 'outgoing')
+    const targetIncomingSequenceFlowCount = countSequenceFlowEdges(targetNode, 'incoming')
 
-    return validateBpmnConnection(
-      { sourceShape, targetShape, edgeShape, sourceOutgoingCount, targetIncomingCount },
+    const sourcePoolId = findPoolId(sourceNode)
+    const targetPoolId = findPoolId(targetNode)
+
+    const connResult = validateBpmnConnection(
+      {
+        sourceShape,
+        targetShape,
+        edgeShape,
+        sourceOutgoingCount,
+        targetIncomingCount,
+        sourceOutgoingSequenceFlowCount,
+        targetIncomingSequenceFlowCount,
+        sourceData: readNodeData(sourceNode),
+        targetData: readNodeData(targetNode),
+        sourcePoolId,
+        targetPoolId,
+      },
       options,
     )
+    return connResult
   }
 }
 
@@ -360,4 +538,44 @@ function countIncomingEdges(node: Node): number {
   } catch {
     return 0
   }
+}
+
+/**
+ * 统计节点的顺序流系列连线数量。
+ */
+function countSequenceFlowEdges(node: Node, direction: 'outgoing' | 'incoming'): number {
+  try {
+    const graph = node.model?.graph
+    if (!graph) return 0
+    return graph.getConnectedEdges(node, { [direction]: true }).filter((edge: Edge) => SEQUENCE_FLOW_SET.has(edge.shape)).length
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * 读取节点持久化数据。
+ */
+function readNodeData(node: Node): Record<string, any> | undefined {
+  try {
+    const data = node.getData()
+    if (data && typeof data === 'object') return data as Record<string, any>
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+/**
+ * 详细节点的父层居层结构，返回属于的 Pool 节点 ID。
+ * 节点 → Lane → Pool 这种嵌套层尚加以支持。
+ */
+function findPoolId(node: Node): string | undefined {
+  const BPMN_POOL_SHAPE = 'bpmn-pool'
+  let current: any = node.getParent()
+  while (current) {
+    if (current.shape === BPMN_POOL_SHAPE) return current.id as string
+    current = current.getParent()
+  }
+  return undefined
 }

@@ -1,4 +1,4 @@
-// Type declarations for bpmn-moddle v10
+// bpmn-moddle v10 类型声明
 // https://github.com/bpmn-io/bpmn-moddle
 
 declare module 'bpmn-moddle' {
@@ -35,32 +35,32 @@ declare module 'bpmn-moddle' {
     constructor(packages?: Record<string, any>, options?: Record<string, any>)
 
     /**
-     * Create a moddle element of the given type with the given properties.
+     * 根据指定类型和属性创建 moddle 元素。
      */
     create(type: string, attrs?: Record<string, any>): ModdleElement
 
     /**
-     * Create an any-typed element (for extension elements).
+     * 创建任意类型元素（用于扩展元素）。
      */
     createAny(name: string, nsUri: string, properties?: Record<string, any>): ModdleElement
 
     /**
-     * Parse a BPMN 2.0 XML string into a moddle element tree.
+     * 将 BPMN 2.0 XML 字符串解析为 moddle 元素树。
      */
     fromXML(xmlStr: string, typeName?: string, options?: FromXMLOptions): Promise<ParseResult>
 
     /**
-     * Serialize a moddle element tree to BPMN 2.0 XML.
+     * 将 moddle 元素树序列化为 BPMN 2.0 XML。
      */
     toXML(element: ModdleElement, options?: ToXMLOptions): Promise<SerializationResult>
 
     /**
-     * Get a type descriptor by type name.
+     * 根据类型名获取类型描述符。
      */
     getType(type: string): any
 
     /**
-     * Get a package by prefix or URI.
+     * 根据前缀或 URI 获取包。
      */
     getPackage(uriOrPrefix: string): any
   }

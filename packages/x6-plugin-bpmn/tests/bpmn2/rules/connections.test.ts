@@ -57,7 +57,7 @@ describe('连接线图形注册（registerConnectionShapes）', () => {
       expect(config.attrs.line.strokeWidth).toBe(2)
       expect(config.attrs.line.targetMarker).toBeDefined()
       expect(config.attrs.line.targetMarker.name).toBe('block')
-      // No dash for sequence flow
+      // 顺序流不用虚线
       expect(config.attrs.line.strokeDasharray).toBeUndefined()
     })
 

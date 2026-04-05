@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Graph } from '@antv/x6'
+import { buildTestXml } from '../../helpers/xml-test-utils'
 import { DialectManager, createDialectManager } from '../../../src/adapters/x6/bind'
 import { ProfileRegistry } from '../../../src/core/dialect/registry'
 import type { ExporterAdapter, ImporterAdapter, ProfileContext, ResolvedProfile } from '../../../src/core/dialect/types'
@@ -202,7 +203,7 @@ describe('createBpmn2ExporterAdapter', () => {
   })
 
   it('exportXML 应调用底层 exportBpmnXml 并返回 XML', async () => {
-    // Register shapes
+    // 注册图形
     try { Graph.registerNode('bpmn-start-event', { inherit: 'rect' }, true) } catch {}
     const mod = await import('../../../src/adapters/bpmn2/exporter')
     const adapter = mod.createBpmn2ExporterAdapter()
@@ -233,21 +234,12 @@ describe('createBpmn2ImporterAdapter', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const graph = new Graph({ container, width: 800, height: 600 })
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="Definitions_1">
-  <bpmn:process id="Process_1" isExecutable="true">
-    <bpmn:startEvent id="start" name="Start" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="start_di" bpmnElement="start">
-        <dc:Bounds x="100" y="100" width="36" height="36" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = await buildTestXml({
+      processes: [{ id: 'Process_1', isExecutable: true, elements: [
+        { kind: 'startEvent', id: 'start', name: 'Start' },
+      ] }],
+      shapes: { start: { id: 'start', x: 100, y: 100, width: 36, height: 36 } },
+    })
     await adapter.importXML(graph, xml, {} as any)
     expect(graph.getNodes().length).toBe(1)
     graph.dispose()

@@ -146,7 +146,7 @@ export class DialectManager {
     let context = getProfileContext(graph)
 
     // 确定方言 ID（detect() 总返回 string，第二个 ?? 为防御性保底）
-    /* c8 ignore next */
+    /* v8 ignore next */ /* istanbul ignore next */
     const id = dialectId ?? this.detector.detect(xml) ?? this.defaultDialect
 
     // 如果还没绑定，或者方言不匹配，重新绑定
@@ -177,7 +177,7 @@ export class DialectManager {
         const adapter = this.exporters.get(chain[i])
         if (adapter) return adapter
       }
-    } /* c8 ignore next 3 */ catch {
+    } /* v8 ignore next 3 */ /* istanbul ignore next */ catch {
       // 继承链不可用，降级为 undefined
     }
     return undefined
@@ -198,7 +198,7 @@ export class DialectManager {
         const adapter = this.importers.get(chain[i])
         if (adapter) return adapter
       }
-    } /* c8 ignore next 3 */ catch {
+    } /* v8 ignore next 3 */ /* istanbul ignore next */ catch {
       // 继承链不可用，降级为 undefined
     }
     return undefined

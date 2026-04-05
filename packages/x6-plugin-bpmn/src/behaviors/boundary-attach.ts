@@ -30,6 +30,7 @@ import {
   BPMN_EVENT_SUB_PROCESS,
   BPMN_AD_HOC_SUB_PROCESS,
   BPMN_CALL_ACTIVITY,
+  BPMN_BOUNDARY_EVENT_CANCEL,
 } from '../utils/constants'
 import { isBoundaryShape } from '../export/bpmn-mapping'
 import { snapToRectEdge, boundaryPositionToPoint } from './geometry'
@@ -64,8 +65,16 @@ export interface BoundaryAttachOptions {
   /**
    * 自定义判断：某个 shape 是否可作为宿主（Activity）。
    * 传入后覆盖内置默认判断。
+   * @deprecated 建议改用 isValidHostForBoundary，支持根据边界事件类型指定合法宿主
    */
   isValidHost?: (shape: string) => boolean
+
+  /**
+   * 自定义判断：宿主-边界事件组合是否合法。
+   * 指定后优先于 isValidHost。
+   * 默认使用 defaultIsValidHostForBoundary（Cancel 事件只允许附着 Transaction）。
+   */
+  isValidHostForBoundary?: (hostShape: string, boundaryShape: string) => boolean
 
   /**
    * 自定义判断：某个 shape 是否为边界事件。
@@ -95,8 +104,25 @@ const DEFAULT_HOST_SHAPES = new Set([
   BPMN_CALL_ACTIVITY,
 ])
 
-function defaultIsValidHost(shape: string): boolean {
-  return DEFAULT_HOST_SHAPES.has(shape)
+/**
+ * 取消边界事件的合法宿主集合。
+ * 规范要求：Cancel 边界事件只能附着到事务子流程（Transaction Sub-Process）边界。
+ */
+export const CANCEL_BOUNDARY_HOST_SHAPES = new Set([BPMN_TRANSACTION])
+
+/** 取消边界事件图形集合 */
+const CANCEL_BOUNDARY_SHAPES = new Set([BPMN_BOUNDARY_EVENT_CANCEL])
+
+/**
+ * 默认的边界事件宿主验证器（能识别边界事件类型）。
+ * - 取消边界事件：只能附着到 Transaction Sub-Process
+ * - 其它边界事件：可附着到任意 Activity
+ */
+export function defaultIsValidHostForBoundary(hostShape: string, boundaryShape: string): boolean {
+  if (CANCEL_BOUNDARY_SHAPES.has(boundaryShape)) {
+    return CANCEL_BOUNDARY_HOST_SHAPES.has(hostShape)
+  }
+  return DEFAULT_HOST_SHAPES.has(hostShape)
 }
 
 // ============================================================================
@@ -113,13 +139,14 @@ function getBoundaryPos(node: Node): BoundaryPosition | null {
 function setBoundaryPos(node: Node, pos: BoundaryPosition): void {
   const data = node.getData() || {}
   const bpmn = data.bpmn || {}
+  /* istanbul ignore next — node.getParent().id 始终有效; ?? fallback 不可达 */
+  const attachedToRef = node.getParent()?.id ?? bpmn.attachedToRef
   node.setData({
     ...data,
     bpmn: {
       ...bpmn,
       boundaryPosition: pos,
-      /* c8 ignore next — 正常情况下 getParent().id 始终有效 */
-      attachedToRef: node.getParent()?.id ?? bpmn.attachedToRef,
+      attachedToRef,
     },
   }, { silent: true })
 }
@@ -199,9 +226,15 @@ export function setupBoundaryAttach(
     snapDistance = 30,
     detachDistance = 60,
     constrainToEdge = true,
-    isValidHost = defaultIsValidHost,
     isBoundaryEvent: isBE = isBoundaryShape,
   } = options
+
+  // 解析合法宿主验证器：优先使用 isValidHostForBoundary，其次封装老版 isValidHost，最后用默认
+  const resolvedHostValidator: (hostShape: string, boundaryShape: string) => boolean =
+    options.isValidHostForBoundary ??
+    (options.isValidHost
+      ? (host, _boundary) => options.isValidHost!(host)
+      : defaultIsValidHostForBoundary)
 
   // ------------------------------------------------------------------
   // ① node:embedded — 嵌入完成后 snap 到边框
@@ -213,7 +246,7 @@ export function setupBoundaryAttach(
   function onNodeEmbedded({ node }: { node: Node; currentParent: Node | null; previousParent: Node | null }) {
     if (!isBE(node.shape)) return
     const parent = node.getParent() as Node | null
-    if (!parent || !isValidHost(parent.shape)) return
+    if (!parent || !resolvedHostValidator(parent.shape, node.shape)) return
 
     // snap 到宿主边框
     const center = nodeCenter(node)
@@ -234,7 +267,7 @@ export function setupBoundaryAttach(
   function onNodeMoving({ node }: { node: Node }) {
     if (!isBE(node.shape)) return
     const parent = node.getParent() as Node | null
-    if (!parent || !isValidHost(parent.shape)) return
+    if (!parent || !resolvedHostValidator(parent.shape, node.shape)) return
 
     const center = nodeCenter(node)
     const hostRect = nodeRect(parent)
@@ -244,7 +277,7 @@ export function setupBoundaryAttach(
     if (snap.distance > detachDistance) {
       parent.unembed(node)
       // 清除附着数据
-      /* c8 ignore next — getData() 在实际场景中始终有值 */
+      /* v8 ignore next — getData() 在实际场景中始终有值 */ /* istanbul ignore next */
       const data = node.getData() || {}
       const bpmn = { ...(data.bpmn || {}) }
       delete bpmn.boundaryPosition
@@ -266,7 +299,7 @@ export function setupBoundaryAttach(
   // 根据存储的 BoundaryPosition（边 + 比例）重新计算坐标。
   // ------------------------------------------------------------------
   function onNodeChangeSize({ node }: { node: Node; cell: Cell }) {
-    if (!isValidHost(node.shape)) return
+    if (!DEFAULT_HOST_SHAPES.has(node.shape)) return
     const children = node.getChildren() as Cell[] | null
     if (!children) return
 

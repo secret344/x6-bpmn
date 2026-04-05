@@ -16,6 +16,8 @@
 - **可选注册**：通过 `BpmnPluginOptions` 按类别开关图形注册
 - **TypeScript 优先**：完整类型定义，100% TypeScript 编写
 
+运行时约束设计说明见 [../../docs/runtime-constraints-design.md](../../docs/runtime-constraints-design.md)。
+
 ## 安装
 
 ```bash

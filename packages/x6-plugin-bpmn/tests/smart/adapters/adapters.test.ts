@@ -4,8 +4,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { Graph } from '@antv/x6'
+import { buildTestXml } from '../../helpers/xml-test-utils'
 
-// Register minimal shapes so graph.addNode / addEdge works
+// 注册最小图形以便 graph.addNode / addEdge 可用
 try { Graph.registerNode('bpmn-start-event', { inherit: 'rect' }, true) } catch {}
 try { Graph.registerNode('bpmn-end-event', { inherit: 'rect' }, true) } catch {}
 try { Graph.registerNode('bpmn-user-task', { inherit: 'rect' }, true) } catch {}
@@ -85,6 +86,21 @@ describe('createSmartEngineExporterAdapter', () => {
     expect(xml).toContain('xmlns:ext="http://ext.example.com"')
     graph.dispose()
   })
+
+  it('exportXML 不应注入已有命名空间（覆盖 injection 为空的路径）', async () => {
+    const mod = await import('../../../src/adapters/smartengine/exporter')
+    // 传入一个已存在于 BpmnModdle 输出中的 additionalNamespace（xmlns:bpmn）
+    // 导致注入跳过该命名空间 → 至少一个命名空间被跳过 → 测试 if (!xml.includes(nsAttr)) 的 FALSE 分支
+    const adapter = mod.createSmartEngineExporterAdapter({
+      additionalNamespaces: { bpmn: 'http://www.omg.org/spec/BPMN/20100524/MODEL' },
+    })
+    const graph = createTestGraph()
+    const xml = await adapter.exportXML(graph, minimalContext())
+    // bpmn namespace already exists, should not be duplicated
+    const count = (xml.match(/xmlns:bpmn=/g) || []).length
+    expect(count).toBe(1)
+    graph.dispose()
+  })
 })
 
 describe('createSmartEngineImporterAdapter', () => {
@@ -113,16 +129,16 @@ describe('createSmartEngineImporterAdapter', () => {
     const mod = await import('../../../src/adapters/smartengine/importer')
     const adapter = mod.createSmartEngineImporterAdapter()
     const graph = createTestGraph()
-    // Create a node with extensionProperties containing smart: keys
+    // 创建一个包含 smart: 前缀键的 extensionProperties 节点
     graph.addNode({
       shape: 'bpmn-user-task', id: 'task1', x: 100, y: 100, width: 100, height: 60,
       data: { extensionProperties: { 'smart:action': 'review', 'smart_type': 'approval', other: 'ignore' } },
     })
-    // The post-processing should extract smart-prefixed keys
+    // 后处理应提取 smart 前缀的键
     const { exportBpmnXml } = await import('../../../src/export/exporter')
     const xml = await exportBpmnXml(graph)
     graph.clearCells()
-    // Instead of round-tripping (which may lose extensionProperties),
+    // 不进行往返测试（可能丢失 extensionProperties），
     // directly set up the scenario and call importXML
     await adapter.importXML(graph, xml, minimalContext())
     graph.dispose()
@@ -146,7 +162,7 @@ describe('createSmartEngineImporterAdapter', () => {
     // Use clearGraph: false so existing nodes survive import
     const adapter = mod.createSmartEngineImporterAdapter({ clearGraph: false })
     const graph = createTestGraph()
-    // Add a node with extensionProperties containing smart: prefixed keys
+    // 添加一个包含 smart: 前缀键的 extensionProperties 节点
     graph.addNode({
       shape: 'bpmn-user-task', id: 'n1', x: 0, y: 0, width: 100, height: 60,
       data: {
@@ -157,15 +173,10 @@ describe('createSmartEngineImporterAdapter', () => {
         },
       },
     })
-    // Import an empty XML with clearGraph=false to trigger postProcess without wiping nodes
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" id="Definitions_1">
-  <bpmn:process id="Process_1" isExecutable="true" />
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1" />
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    // 导入空 XML（clearGraph=false）以触发 postProcess 而不清空节点
+    const xml = await buildTestXml({
+      processes: [{ id: 'Process_1', isExecutable: true, elements: [] }],
+    })
     await adapter.importXML(graph, xml, minimalContext())
     const node = graph.getCellById('n1') as any
     expect(node).toBeTruthy()
@@ -173,7 +184,7 @@ describe('createSmartEngineImporterAdapter', () => {
     // smart: prefix keys should be elevated to top-level data
     expect(data.action).toBe('approve')
     expect(data.retry).toBe('3')
-    // Non-smart keys should not be elevated
+    // 非 smart 前缀的键不应被提升
     expect(data.normalKey).toBeUndefined()
     graph.dispose()
   })
@@ -182,18 +193,33 @@ describe('createSmartEngineImporterAdapter', () => {
     const mod = await import('../../../src/adapters/smartengine/importer')
     const adapter = mod.createSmartEngineImporterAdapter({ clearGraph: false })
     const graph = createTestGraph()
-    // Add node without data
+    // 添加无数据的节点
     graph.addNode({ shape: 'bpmn-start-event', id: 'n2', x: 0, y: 0, width: 36, height: 36 })
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" id="Definitions_1">
-  <bpmn:process id="Process_1" isExecutable="true" />
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1" />
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = await buildTestXml({
+      processes: [{ id: 'Process_1', isExecutable: true, elements: [] }],
+    })
     await adapter.importXML(graph, xml, minimalContext())
-    // Should not throw
+    // 不应抛异常
+    graph.dispose()
+  })
+
+  it('postProcessSmartExtensions 应跳过无 extensionProperties 的节点（覆盖 extProps 假值路径）', async () => {
+    const mod = await import('../../../src/adapters/smartengine/importer')
+    const adapter = mod.createSmartEngineImporterAdapter({ clearGraph: false })
+    const graph = createTestGraph()
+    // 节点有 data 但无 extensionProperties → extProps 为 undefined → if (extProps && ...) = false
+    graph.addNode({
+      shape: 'bpmn-start-event', id: 'n3', x: 0, y: 0, width: 36, height: 36,
+      data: { someOtherField: 'value' },
+    })
+    const xml = await buildTestXml({
+      processes: [{ id: 'Process_1', isExecutable: true, elements: [] }],
+    })
+    await adapter.importXML(graph, xml, minimalContext())
+    const node = graph.getCellById('n3') as any
+    expect(node).toBeTruthy()
+    // someOtherField should still be there, nothing changed
+    expect(node.getData().someOtherField).toBe('value')
     graph.dispose()
   })
 })

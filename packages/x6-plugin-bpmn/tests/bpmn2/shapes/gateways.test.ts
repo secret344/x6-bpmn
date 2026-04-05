@@ -28,9 +28,10 @@ describe('网关图形注册（registerGatewayShapes）', () => {
     expect(() => registerGatewayShapes()).not.toThrow()
   })
 
-  it('应注册恰好 6 种网关图形', () => {
+  it('应注册恰好 7 种网关图形', () => {
     registerGatewayShapes()
-    expect(registerNodeSpy).toHaveBeenCalledTimes(6)
+    // 6 原始 + Parallel EBG = 7
+    expect(registerNodeSpy).toHaveBeenCalledTimes(7)
   })
 
   const gatewayNames = [

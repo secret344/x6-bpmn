@@ -35,6 +35,13 @@ export const SHAPE_LABELS: Record<string, string> = {
   'bpmn-boundary-event-cancel': '取消边界事件', 'bpmn-boundary-event-compensation': '补偿边界事件',
   'bpmn-boundary-event-signal': '信号边界事件', 'bpmn-boundary-event-multiple': '多重边界事件',
   'bpmn-boundary-event-parallel-multiple': '并行多重边界事件', 'bpmn-boundary-event-non-interrupting': '非中断边界事件',
+  'bpmn-boundary-event-message-non-interrupting': '消息非中断边界事件',
+  'bpmn-boundary-event-timer-non-interrupting': '定时非中断边界事件',
+  'bpmn-boundary-event-escalation-non-interrupting': '升级非中断边界事件',
+  'bpmn-boundary-event-conditional-non-interrupting': '条件非中断边界事件',
+  'bpmn-boundary-event-signal-non-interrupting': '信号非中断边界事件',
+  'bpmn-boundary-event-multiple-non-interrupting': '多重非中断边界事件',
+  'bpmn-boundary-event-parallel-multiple-non-interrupting': '并行多重非中断边界事件',
   'bpmn-end-event': '结束事件', 'bpmn-end-event-message': '消息结束事件',
   'bpmn-end-event-escalation': '升级结束事件', 'bpmn-end-event-error': '错误结束事件',
   'bpmn-end-event-cancel': '取消结束事件', 'bpmn-end-event-compensation': '补偿结束事件',
@@ -105,7 +112,7 @@ export function registerShapeCategory(shape: string, category: ShapeCategory) {
  * 自定义注册的类别优先于内置规则。
  */
 export function classifyShape(s: string): ShapeCategory {
-  // Custom overrides first
+  // 自定义覆盖优先
   if (customCategoryMap[s]) return customCategoryMap[s]
 
   // Activities
@@ -119,13 +126,13 @@ export function classifyShape(s: string): ShapeCategory {
   if (s === 'bpmn-task') return 'task'
   if (s === 'bpmn-call-activity') return 'callActivity'
   if (s === 'bpmn-sub-process' || s === 'bpmn-event-sub-process' || s === 'bpmn-transaction' || s === 'bpmn-ad-hoc-sub-process') return 'subProcess'
-  // Gateways
+  // 网关
   if (s.includes('gateway')) return 'gateway'
   // Connections (must be checked before event-definition includes to avoid misclassification)
   if (s === 'bpmn-sequence-flow' || s === 'bpmn-conditional-flow' || s === 'bpmn-default-flow') return 'sequenceFlow'
   if (s === 'bpmn-message-flow') return 'messageFlow'
   if (s === 'bpmn-association' || s === 'bpmn-directed-association' || s === 'bpmn-data-association') return 'association'
-  // Events — by event definition type
+  // 事件 —— 按事件定义类型
   if (s.includes('-timer')) return 'timerEvent'
   if (s.includes('-message')) return 'messageEvent'
   if (s.includes('-signal')) return 'signalEvent'
@@ -144,7 +151,7 @@ export function classifyShape(s: string): ShapeCategory {
   // Artifacts
   if (s === 'bpmn-text-annotation') return 'textAnnotation'
   if (s === 'bpmn-group') return 'group'
-  // Swimlanes
+  // 泳道
   if (s === 'bpmn-pool') return 'pool'
   if (s === 'bpmn-lane') return 'lane'
   return 'unknown'
@@ -156,47 +163,47 @@ export function classifyShape(s: string): ShapeCategory {
 
 /** BPMN 元素的表单数据接口，包含所有可配置属性 */
 export interface BpmnFormData {
-  // User Task
+  // 用户任务
   assignee: string; candidateUsers: string; candidateGroups: string
   formKey: string; dueDate: string; priority: string
-  // Service / Business Rule / Send / Receive Task
+  // 服务 / 业务规则 / 发送 / 接收任务
   implementationType: string; implementation: string; resultVariable: string
   isAsync: boolean
-  // Script Task
+  // 脚本任务
   scriptFormat: string; script: string
-  // Call Activity
+  // 调用活动
   calledElement: string
   // Sub-process
   triggeredByEvent: boolean
-  // Gateway
+  // 网关
   defaultFlow: string; activationCondition: string
-  // Timer event
+  // 定时事件
   timerType: string; timerValue: string
-  // Message event, send/receive task, message flow
+  // 消息事件、发送/接收任务、消息流
   messageRef: string; messageName: string
-  // Signal event
+  // 信号事件
   signalRef: string; signalName: string
-  // Error event
+  // 错误事件
   errorRef: string; errorCode: string
-  // Escalation event
+  // 升级事件
   escalationRef: string; escalationCode: string
-  // Conditional event & sequence flow
+  // 条件事件 & 顺序流
   conditionExpression: string
-  // Link event
+  // 链接事件
   linkName: string
-  // Compensation event
+  // 补偿事件
   activityRef: string
-  // Boundary event
+  // 边界事件
   cancelActivity: boolean
-  // Data object
+  // 数据对象
   isCollection: boolean
-  // Pool
+  // 池
   processRef: string
-  // Text annotation
+  // 文本注释
   annotationText: string
-  // Group
+  // 组
   categoryValueRef: string
-  // Custom extension fields — consumers can add arbitrary keys
+  // 自定义扩展字段 —— 使用方可添加任意键
   [key: string]: any
 }
 
@@ -225,6 +232,10 @@ export function emptyBpmnFormData(): BpmnFormData {
     annotationText: '',
     categoryValueRef: '',
   }
+}
+
+function getDefaultCancelActivity(shape: string): boolean {
+  return !shape.includes('-non-interrupting')
 }
 
 // ============================================================================
@@ -262,7 +273,7 @@ export function loadBpmnFormData(cell: Cell): BpmnFormData {
   const s = cell.shape
   const form = emptyBpmnFormData()
 
-  // Copy all known keys from bpmn
+  // 从 bpmn 复制所有已知字段
   form.assignee = bpmn.assignee || ''
   form.candidateUsers = bpmn.candidateUsers || ''
   form.candidateGroups = bpmn.candidateGroups || ''
@@ -292,13 +303,15 @@ export function loadBpmnFormData(cell: Cell): BpmnFormData {
   form.conditionExpression = bpmn.conditionExpression || ''
   form.linkName = bpmn.linkName || ''
   form.activityRef = bpmn.activityRef || ''
-  form.cancelActivity = bpmn.cancelActivity !== false
+  form.cancelActivity = typeof bpmn.cancelActivity === 'boolean'
+    ? bpmn.cancelActivity
+    : getDefaultCancelActivity(cell.shape || '')
   form.isCollection = bpmn.isCollection || false
   form.processRef = bpmn.processRef || ''
   form.annotationText = bpmn.annotationText || getCellLabel(cell)
   form.categoryValueRef = bpmn.categoryValueRef || ''
 
-  // Copy any custom extension keys
+  // 复制自定义扩展字段
   for (const key of Object.keys(bpmn)) {
     if (!(key in form)) {
       form[key] = bpmn[key]
@@ -342,6 +355,7 @@ export function saveBpmnFormData(category: ShapeCategory, form: BpmnFormData, sh
   }
   if (category === 'subProcess') {
     bpmn.isAsync = form.isAsync
+    /* istanbul ignore else */
     if (isEventSub) bpmn.triggeredByEvent = true
   }
   if (category === 'gateway') {
@@ -393,7 +407,7 @@ export function saveBpmnFormData(category: ShapeCategory, form: BpmnFormData, sh
     if (form.categoryValueRef) bpmn.categoryValueRef = form.categoryValueRef
   }
 
-  // Copy custom extension fields
+  // 复制自定义扩展字段
   const standardKeys = new Set(Object.keys(emptyBpmnFormData()))
   for (const key of Object.keys(form)) {
     if (!standardKeys.has(key) && form[key] !== undefined && form[key] !== '') {

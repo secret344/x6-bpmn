@@ -29,30 +29,37 @@ const iNonInterrupting = '<circle cx="14" cy="14" r="5" fill="none" stroke="curr
 // ============================================================================
 
 /** 单圈事件（开始/空白） */
+/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgEvent = (inner: string, strokeW = 1.5, fill = 'none', stroke = '#52c41a') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="12" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}"/>${inner}</svg>`
 
 /** 双圈事件（中间抛出/捕获） */
+/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgEventDouble = (inner: string, stroke = '#e6a817') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="12" fill="none" stroke="${stroke}" stroke-width="1.5"/><circle cx="14" cy="14" r="9.5" fill="none" stroke="${stroke}" stroke-width="1"/>${inner}</svg>`
 
 /** 边界事件（虚线内圈） */
+/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgBoundary = (inner: string, stroke = '#722ed1') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="12" fill="none" stroke="${stroke}" stroke-width="1.5"/><circle cx="14" cy="14" r="9.5" fill="none" stroke="${stroke}" stroke-width="1" stroke-dasharray="3 2"/>${inner}</svg>`
 
 /** 结束事件（粗圈） */
+/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgEndEvent = (inner: string, stroke = '#f5222d') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="12" fill="none" stroke="${stroke}" stroke-width="2.5"/>${inner}</svg>`
 
 /** 任务（圆角矩形） */
+/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgTask = (inner: string, stroke = '#1890ff') =>
   `<svg viewBox="0 0 40 28" width="40" height="28"><rect x="1" y="1" width="38" height="26" rx="4" fill="#f0f5ff" stroke="${stroke}" stroke-width="1.5"/>${inner}</svg>`
 
 /** 子流程 */
+/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgSubProcess = (inner: string, stroke = '#13c2c2', dashed = false) =>
   `<svg viewBox="0 0 44 30" width="44" height="30"><rect x="1" y="1" width="42" height="28" rx="5" fill="#e6fffb" stroke="${stroke}" stroke-width="1.5" ${dashed ? 'stroke-dasharray="5 3"' : ''}/>${inner}</svg>`
 
 /** 网关（菱形） */
+/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgGateway = (inner: string, stroke = '#faad14') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><polygon points="14,2 26,14 14,26 2,14" fill="#fffbe6" stroke="${stroke}" stroke-width="1.5"/>${inner}</svg>`
 

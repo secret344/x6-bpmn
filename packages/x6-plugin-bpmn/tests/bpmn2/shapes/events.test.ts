@@ -22,6 +22,13 @@ import {
   BPMN_BOUNDARY_EVENT_COMPENSATION, BPMN_BOUNDARY_EVENT_SIGNAL,
   BPMN_BOUNDARY_EVENT_MULTIPLE, BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE,
   BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
   BPMN_END_EVENT, BPMN_END_EVENT_MESSAGE, BPMN_END_EVENT_ESCALATION,
   BPMN_END_EVENT_ERROR, BPMN_END_EVENT_CANCEL, BPMN_END_EVENT_COMPENSATION,
   BPMN_END_EVENT_SIGNAL, BPMN_END_EVENT_TERMINATE, BPMN_END_EVENT_MULTIPLE,
@@ -29,7 +36,7 @@ import {
 
 /**
  * 事件图形注册测试（registerEventShapes）
- * 验证开始 / 中间 / 边界 / 结束 4 类事件，共 47 个图形的圆形、颜色、图标和属性。
+ * 验证开始 / 中间 / 边界 / 结束 4 类事件，共 54 个图形的圆形、颜色、图标和属性。
  */
 describe('事件图形注册（registerEventShapes）', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,9 +50,10 @@ describe('事件图形注册（registerEventShapes）', () => {
     expect(() => registerEventShapes()).not.toThrow()
   })
 
-  it('应注册恰好 47 个事件图形', () => {
+  it('应注册恰好 54 个事件图形', () => {
     registerEventShapes()
-    expect(registerNodeSpy).toHaveBeenCalledTimes(47)
+    // 47 原始 + 7 个按类型区分的非中断边界事件变体 = 54
+    expect(registerNodeSpy).toHaveBeenCalledTimes(54)
   })
 
   // ==================== Start Events (7) ====================
@@ -70,7 +78,7 @@ describe('事件图形注册（registerEventShapes）', () => {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
         const config = call[1] as any
         expect(config.inherit).toBe('ellipse')
-        // Start events should NOT have innerCircle
+        // 开始事件不应有 innerCircle
         expect(config.attrs.body.strokeWidth).toBe(2)
         expect(config.attrs.innerCircle).toBeUndefined()
       }
@@ -168,7 +176,7 @@ describe('事件图形注册（registerEventShapes）', () => {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
         const config = call[1] as any
         expect(config.attrs.icon).toBeDefined()
-        // Throw events use filled icons
+        // 抛出事件使用填充图标
         expect(config.attrs.icon.fill).toBe(BPMN_COLORS.intermediateEvent.stroke)
       }
     })
@@ -209,13 +217,13 @@ describe('事件图形注册（registerEventShapes）', () => {
         const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === name)!
         const config = call[1] as any
         expect(config.attrs.icon).toBeDefined()
-        // Catch events use outline icons (stroke, not filled)
+        // 捕获事件使用描边图标（描边而非填充）
         expect(config.attrs.icon.stroke).toBe(BPMN_COLORS.intermediateEvent.stroke)
       }
     })
   })
 
-  // ==================== Boundary Events (12) ====================
+  // ==================== Boundary Events (19) ====================
 
   describe('边界事件', () => {
     const boundaryEventNames = [
@@ -225,9 +233,16 @@ describe('事件图形注册（registerEventShapes）', () => {
       BPMN_BOUNDARY_EVENT_COMPENSATION, BPMN_BOUNDARY_EVENT_SIGNAL,
       BPMN_BOUNDARY_EVENT_MULTIPLE, BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE,
       BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
     ]
 
-    it('应注册全部 12 种边界事件', () => {
+    it('应注册全部 19 种边界事件', () => {
       registerEventShapes()
       for (const name of boundaryEventNames) {
         expect(registerNodeSpy).toHaveBeenCalledWith(name, expect.any(Object), true)

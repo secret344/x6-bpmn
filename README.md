@@ -11,9 +11,12 @@ x6-bpmn2/
 ├── packages/
 │   ├── x6-plugin-bpmn/   # 核心插件（npm 包 @x6-bpmn2/plugin）
 │   ├── example/           # 完整 BPMN 编辑器示例（Vue 3 + Vite）
-│   └── approval-flow/     # 审批流设计器示例（Vue 3 + Vite）
+│   ├── approval-flow/     # 审批流设计器示例（Vue 3 + Vite）
+│   └── bpmn2-spec/        # BPMN 2.0 规范文档（git submodule）
 └── docs/
-    └── custom-extension-guide.md  # 局部定制指南
+    ├── custom-extension-guide.md   # 局部定制指南
+    ├── dynamic-config-architecture.md # 动态方言架构说明
+    └── runtime-constraints-design.md  # 运行时约束设计
 ```
 
 ## 核心包：@x6-bpmn2/plugin
@@ -78,3 +81,21 @@ npm run build
 ## 许可
 
 MIT
+
+---
+
+## BPMN 2.0 规范参考
+
+项目以 [git submodule](packages/bpmn2-spec) 方式引入了中文版 BPMN 2.0 规范文档：
+
+- [packages/bpmn2-spec/BPMN2_nodes_简版.md](packages/bpmn2-spec/BPMN2_nodes_简版.md) — 节点快速参考
+- [packages/bpmn2-spec/BPMN2_详细规范/](packages/bpmn2-spec/BPMN2_详细规范/) — 按章节细分的完整规范
+- [packages/bpmn2-spec/formal-11-01-03.pdf](packages/bpmn2-spec/formal-11-01-03.pdf) — OMG 官方规范原文（PDF）
+
+首次克隆时需同步 submodule：
+
+```bash
+git clone --recurse-submodules <repo-url>
+# 或已克隆后执行
+git submodule update --init
+```

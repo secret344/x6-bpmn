@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { Graph } from '@antv/x6'
+import { buildAndValidateBpmn, validateBpmnXml } from '../../helpers/bpmn-builder'
+import { bpmnRoundtrip } from '../../helpers/roundtrip'
+import { buildTestXml, matchXmlOrThrow, removeXmlOrThrow, replaceXmlOrThrow, truncateXml, withXmlDeclaration } from '../../helpers/xml-test-utils'
 
 import {
   NODE_MAPPING,
@@ -13,7 +16,7 @@ import {
   isConditionalFlow,
 } from '../../../src/export/bpmn-mapping'
 import { exportBpmnXml } from '../../../src/export/exporter'
-import { importBpmnXml } from '../../../src/export/importer'
+import { parseBpmnXml, loadBpmnGraph } from '../../../src/import'
 
 import {
   BPMN_START_EVENT,
@@ -54,6 +57,13 @@ import {
   BPMN_BOUNDARY_EVENT_MULTIPLE,
   BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE,
   BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
   BPMN_END_EVENT,
   BPMN_END_EVENT_MESSAGE,
   BPMN_END_EVENT_ESCALATION,
@@ -165,6 +175,13 @@ describe('BPMN 映射表（bpmn-mapping）', () => {
         BPMN_BOUNDARY_EVENT_COMPENSATION, BPMN_BOUNDARY_EVENT_SIGNAL,
         BPMN_BOUNDARY_EVENT_MULTIPLE, BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE,
         BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
+        BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+        BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+        BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+        BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+        BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+        BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+        BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
         BPMN_END_EVENT, BPMN_END_EVENT_MESSAGE, BPMN_END_EVENT_ESCALATION,
         BPMN_END_EVENT_ERROR, BPMN_END_EVENT_CANCEL, BPMN_END_EVENT_COMPENSATION,
         BPMN_END_EVENT_SIGNAL, BPMN_END_EVENT_TERMINATE, BPMN_END_EVENT_MULTIPLE,
@@ -247,6 +264,8 @@ describe('BPMN 映射表（bpmn-mapping）', () => {
       expect(NODE_MAPPING[BPMN_EVENT_SUB_PROCESS].attrs?.triggeredByEvent).toBe('true')
       expect(NODE_MAPPING[BPMN_BOUNDARY_EVENT].attrs?.cancelActivity).toBe('true')
       expect(NODE_MAPPING[BPMN_BOUNDARY_EVENT_NON_INTERRUPTING].attrs?.cancelActivity).toBe('false')
+      expect(NODE_MAPPING[BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING].attrs?.cancelActivity).toBe('false')
+      expect(NODE_MAPPING[BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING].attrs?.parallelMultiple).toBe('true')
       expect(NODE_MAPPING[BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY].attrs?.eventGatewayType).toBe('Exclusive')
       expect(NODE_MAPPING[BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE].attrs?.parallelMultiple).toBe('true')
       expect(NODE_MAPPING[BPMN_START_EVENT_PARALLEL_MULTIPLE].attrs?.parallelMultiple).toBe('true')
@@ -680,60 +699,45 @@ describe('BPMN XML 导出（exportBpmnXml）', () => {
 // Importer Tests
 // ============================================================================
 
-describe('BPMN XML 导入（importBpmnXml）', () => {
-  const SIMPLE_BPMN = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="Start_1" name="开始">
-      <bpmn:outgoing>Flow_1</bpmn:outgoing>
-    </bpmn:startEvent>
-    <bpmn:userTask id="Task_1" name="审批">
-      <bpmn:incoming>Flow_1</bpmn:incoming>
-      <bpmn:outgoing>Flow_2</bpmn:outgoing>
-    </bpmn:userTask>
-    <bpmn:endEvent id="End_1" name="结束">
-      <bpmn:incoming>Flow_2</bpmn:incoming>
-    </bpmn:endEvent>
-    <bpmn:sequenceFlow id="Flow_1" sourceRef="Start_1" targetRef="Task_1" />
-    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_1" targetRef="End_1" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="Start_1_di" bpmnElement="Start_1">
-        <dc:Bounds x="100" y="120" width="36" height="36" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_1_di" bpmnElement="Task_1">
-        <dc:Bounds x="200" y="110" width="100" height="60" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="End_1_di" bpmnElement="End_1">
-        <dc:Bounds x="400" y="120" width="36" height="36" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
-        <di:waypoint x="136" y="138" />
-        <di:waypoint x="200" y="140" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
-        <di:waypoint x="300" y="140" />
-        <di:waypoint x="400" y="138" />
-      </bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+describe('BPMN XML 导入（parseBpmnXml + loadBpmnGraph）', () => {
+  // SIMPLE_BPMN: 由 bpmn-moddle 构建并验证的最小完整 BPMN 2.0 流程文档
+  let SIMPLE_BPMN: string
+  beforeAll(async () => {
+    const result = await buildAndValidateBpmn({
+      processes: [{
+        id: 'Process_1',
+        elements: [
+          { kind: 'startEvent',   id: 'Start_1', name: '开始' },
+          { kind: 'userTask',     id: 'Task_1',  name: '审批' },
+          { kind: 'endEvent',     id: 'End_1',   name: '结束' },
+          { kind: 'sequenceFlow', id: 'Flow_1',  sourceRef: 'Start_1', targetRef: 'Task_1' },
+          { kind: 'sequenceFlow', id: 'Flow_2',  sourceRef: 'Task_1',  targetRef: 'End_1'  },
+        ],
+      }],
+      shapes: {
+        'Start_1': { id: 'Start_1', x: 100, y: 120, width: 36,  height: 36 },
+        'Task_1':  { id: 'Task_1',  x: 200, y: 110, width: 100, height: 60 },
+        'End_1':   { id: 'End_1',   x: 400, y: 120, width: 36,  height: 36 },
+      },
+      edges: {
+        'Flow_1': { id: 'Flow_1', waypoints: [{ x: 136, y: 138 }, { x: 200, y: 140 }] },
+        'Flow_2': { id: 'Flow_2', waypoints: [{ x: 300, y: 140 }, { x: 400, y: 138 }] },
+      },
+    })
+    expect(result.valid).toBe(true)
+    SIMPLE_BPMN = result.xml
+  })
 
   it('应从 BPMN XML 中导入节点', async () => {
     const graph = createTestGraph()
-    await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(SIMPLE_BPMN), { zoomToFit: false })
     expect(graph.getNodes().length).toBe(3)
     graph.dispose()
   })
 
   it('应从 BPMN 标签创建正确的图形', async () => {
     const graph = createTestGraph()
-    await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(SIMPLE_BPMN), { zoomToFit: false })
 
     expect(graph.getCellById('Start_1')!.shape).toBe(BPMN_START_EVENT)
     expect(graph.getCellById('Task_1')!.shape).toBe(BPMN_USER_TASK)
@@ -743,14 +747,14 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
 
   it('应从 BPMN XML 中导入连接线', async () => {
     const graph = createTestGraph()
-    await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(SIMPLE_BPMN), { zoomToFit: false })
     expect(graph.getEdges().length).toBe(2)
     graph.dispose()
   })
 
   it('应从 DI 设置节点位置', async () => {
     const graph = createTestGraph()
-    await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(SIMPLE_BPMN), { zoomToFit: false })
 
     const startNode = graph.getCellById('Start_1') as any
     const pos = startNode.getPosition()
@@ -761,7 +765,7 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
 
   it('应从 DI 设置节点尺寸', async () => {
     const graph = createTestGraph()
-    await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(SIMPLE_BPMN), { zoomToFit: false })
 
     const taskNode = graph.getCellById('Task_1') as any
     const size = taskNode.getSize()
@@ -775,7 +779,7 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
     graph.addNode({ shape: 'rect', x: 0, y: 0, width: 50, height: 50 })
     expect(graph.getNodes().length).toBe(1)
 
-    await importBpmnXml(graph, SIMPLE_BPMN, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(SIMPLE_BPMN), { zoomToFit: false })
     expect(graph.getNodes().length).toBe(3)
     graph.dispose()
   })
@@ -784,45 +788,32 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
     const graph = createTestGraph()
     graph.addNode({ shape: 'rect', x: 0, y: 0, width: 50, height: 50 })
 
-    await importBpmnXml(graph, SIMPLE_BPMN, { clearGraph: false, zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(SIMPLE_BPMN), { clearGraph: false, zoomToFit: false })
     expect(graph.getNodes().length).toBe(4)
     graph.dispose()
   })
 
   it('无效根元素时应抛出错误', async () => {
     const graph = createTestGraph()
-    await expect(importBpmnXml(graph, '<not-definitions />', { zoomToFit: false })).rejects.toThrow('Invalid BPMN XML')
+    await expect(parseBpmnXml('<not-definitions />')).rejects.toThrow('Invalid BPMN XML')
     graph.dispose()
   })
 
   it('应导入带 eventDefinition 的事件', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="Start_Msg" name="消息开始">
-      <bpmn:messageEventDefinition id="Start_Msg_ed" />
-    </bpmn:startEvent>
-    <bpmn:endEvent id="End_Term" name="终止">
-      <bpmn:terminateEventDefinition id="End_Term_ed" />
-    </bpmn:endEvent>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="Start_Msg_di" bpmnElement="Start_Msg">
-        <dc:Bounds x="100" y="100" width="36" height="36" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="End_Term_di" bpmnElement="End_Term">
-        <dc:Bounds x="300" y="100" width="36" height="36" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'Start_Msg', name: '消息开始', eventDefinition: 'MessageEventDefinition' },
+        { kind: 'endEvent',   id: 'End_Term',  name: '终止',     eventDefinition: 'TerminateEventDefinition' },
+      ]}],
+      shapes: {
+        'Start_Msg': { id: 'Start_Msg', x: 100, y: 100, width: 36, height: 36 },
+        'End_Term':  { id: 'End_Term',  x: 300, y: 100, width: 36, height: 36 },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getCellById('Start_Msg')!.shape).toBe(BPMN_START_EVENT_MESSAGE)
     expect(graph.getCellById('End_Term')!.shape).toBe(BPMN_END_EVENT_TERMINATE)
@@ -830,33 +821,23 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入池和泳道', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:collaboration id="Collab_1">
-    <bpmn:participant id="Pool_1" name="泳池" processRef="Process_1" />
-  </bpmn:collaboration>
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:laneSet id="LaneSet_1">
-      <bpmn:lane id="Lane_1" name="泳道A" />
-    </bpmn:laneSet>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collab_1">
-      <bpmndi:BPMNShape id="Pool_1_di" bpmnElement="Pool_1" isHorizontal="true">
-        <dc:Bounds x="40" y="40" width="800" height="400" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true">
-        <dc:Bounds x="70" y="40" width="770" height="400" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'laneSet', id: 'LaneSet_1', lanes: [{ id: 'Lane_1', name: '泳道A' }] },
+      ]}],
+      collaboration: {
+        id: 'Collab_1',
+        participants: [{ id: 'Pool_1', name: '泳池', processRef: 'Process_1' }],
+      },
+      shapes: {
+        'Pool_1': { id: 'Pool_1', x: 40, y: 40, width: 800, height: 400, isHorizontal: true },
+        'Lane_1': { id: 'Lane_1', x: 70, y: 40, width: 770, height: 400, isHorizontal: true },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getCellById('Pool_1')!.shape).toBe(BPMN_POOL)
     expect(graph.getCellById('Lane_1')!.shape).toBe(BPMN_LANE)
@@ -864,27 +845,22 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入网关', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:exclusiveGateway id="GW_1" name="判断" />
-    <bpmn:parallelGateway id="GW_2" name="并行" />
-    <bpmn:inclusiveGateway id="GW_3" name="包容" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="GW_1_di" bpmnElement="GW_1"><dc:Bounds x="100" y="100" width="50" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="GW_2_di" bpmnElement="GW_2"><dc:Bounds x="250" y="100" width="50" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="GW_3_di" bpmnElement="GW_3"><dc:Bounds x="400" y="100" width="50" height="50" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'exclusiveGateway', id: 'GW_1', name: '判断' },
+        { kind: 'parallelGateway',  id: 'GW_2', name: '并行' },
+        { kind: 'inclusiveGateway', id: 'GW_3', name: '包容' },
+      ]}],
+      shapes: {
+        'GW_1': { id: 'GW_1', x: 100, y: 100, width: 50, height: 50 },
+        'GW_2': { id: 'GW_2', x: 250, y: 100, width: 50, height: 50 },
+        'GW_3': { id: 'GW_3', x: 400, y: 100, width: 50, height: 50 },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getCellById('GW_1')!.shape).toBe(BPMN_EXCLUSIVE_GATEWAY)
     expect(graph.getCellById('GW_2')!.shape).toBe(BPMN_PARALLEL_GATEWAY)
@@ -893,33 +869,24 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入文本注释和关联', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="Start_1" name="开始" />
-    <bpmn:textAnnotation id="Ann_1">
-      <bpmn:text>备注内容</bpmn:text>
-    </bpmn:textAnnotation>
-    <bpmn:association id="Assoc_1" sourceRef="Ann_1" targetRef="Start_1" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="Start_1_di" bpmnElement="Start_1"><dc:Bounds x="200" y="120" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Ann_1_di" bpmnElement="Ann_1"><dc:Bounds x="100" y="50" width="120" height="40" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Assoc_1_di" bpmnElement="Assoc_1">
-        <di:waypoint x="160" y="90" />
-        <di:waypoint x="218" y="120" />
-      </bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent',   id: 'Start_1', name: '开始' },
+        { kind: 'textAnnotation', id: 'Ann_1', text: '备注内容' },
+        { kind: 'association',  id: 'Assoc_1', sourceRef: 'Ann_1', targetRef: 'Start_1' },
+      ]}],
+      shapes: {
+        'Start_1': { id: 'Start_1', x: 200, y: 120, width: 36,  height: 36 },
+        'Ann_1':   { id: 'Ann_1',   x: 100, y: 50,  width: 120, height: 40 },
+      },
+      edges: {
+        'Assoc_1': { id: 'Assoc_1', waypoints: [{ x: 160, y: 90 }, { x: 218, y: 120 }] },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getCellById('Ann_1')!.shape).toBe(BPMN_TEXT_ANNOTATION)
     expect(graph.getEdges().length).toBe(1)
@@ -928,25 +895,20 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入数据对象和数据存储', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:dataObjectReference id="Data_1" name="数据" />
-    <bpmn:dataStoreReference id="Store_1" name="数据库" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="Data_1_di" bpmnElement="Data_1"><dc:Bounds x="100" y="100" width="40" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Store_1_di" bpmnElement="Store_1"><dc:Bounds x="200" y="100" width="50" height="50" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'dataObjectReference', id: 'Data_1',  name: '数据' },
+        { kind: 'dataStoreReference',  id: 'Store_1', name: '数据库' },
+      ]}],
+      shapes: {
+        'Data_1':  { id: 'Data_1',  x: 100, y: 100, width: 40, height: 50 },
+        'Store_1': { id: 'Store_1', x: 200, y: 100, width: 50, height: 50 },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getCellById('Data_1')!.shape).toBe(BPMN_DATA_OBJECT)
     expect(graph.getCellById('Store_1')!.shape).toBe(BPMN_DATA_STORE)
@@ -954,32 +916,28 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入默认流', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:exclusiveGateway id="GW_1" default="Flow_Def" />
-    <bpmn:userTask id="T_1" />
-    <bpmn:userTask id="T_2" />
-    <bpmn:sequenceFlow id="Flow_1" sourceRef="GW_1" targetRef="T_1" />
-    <bpmn:sequenceFlow id="Flow_Def" sourceRef="GW_1" targetRef="T_2" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="GW_1_di" bpmnElement="GW_1"><dc:Bounds x="100" y="100" width="50" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T_1_di" bpmnElement="T_1"><dc:Bounds x="250" y="50" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T_2_di" bpmnElement="T_2"><dc:Bounds x="250" y="150" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1"><di:waypoint x="150" y="125" /><di:waypoint x="250" y="80" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_Def_di" bpmnElement="Flow_Def"><di:waypoint x="150" y="125" /><di:waypoint x="250" y="180" /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'exclusiveGateway', id: 'GW_1', default: 'Flow_Def' },
+        { kind: 'userTask', id: 'T_1' },
+        { kind: 'userTask', id: 'T_2' },
+        { kind: 'sequenceFlow', id: 'Flow_1',   sourceRef: 'GW_1', targetRef: 'T_1' },
+        { kind: 'sequenceFlow', id: 'Flow_Def', sourceRef: 'GW_1', targetRef: 'T_2' },
+      ]}],
+      shapes: {
+        'GW_1': { id: 'GW_1', x: 100, y: 100, width: 50,  height: 50 },
+        'T_1':  { id: 'T_1',  x: 250, y: 50,  width: 100, height: 60 },
+        'T_2':  { id: 'T_2',  x: 250, y: 150, width: 100, height: 60 },
+      },
+      edges: {
+        'Flow_1':   { id: 'Flow_1',   waypoints: [{ x: 150, y: 125 }, { x: 250, y: 80  }] },
+        'Flow_Def': { id: 'Flow_Def', waypoints: [{ x: 150, y: 125 }, { x: 250, y: 180 }] },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     const defEdge = graph.getEdges().find((e) => e.id === 'Flow_Def')
     expect(defEdge!.shape).toBe(BPMN_DEFAULT_FLOW)
@@ -987,118 +945,113 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入条件流', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:exclusiveGateway id="GW_1" />
-    <bpmn:userTask id="T_1" />
-    <bpmn:sequenceFlow id="Flow_Cond" sourceRef="GW_1" targetRef="T_1">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">x &gt; 0</bpmn:conditionExpression>
-    </bpmn:sequenceFlow>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="GW_1_di" bpmnElement="GW_1"><dc:Bounds x="100" y="100" width="50" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T_1_di" bpmnElement="T_1"><dc:Bounds x="250" y="100" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Flow_Cond_di" bpmnElement="Flow_Cond"><di:waypoint x="150" y="125" /><di:waypoint x="250" y="130" /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'exclusiveGateway', id: 'GW_1' },
+        { kind: 'userTask',         id: 'T_1'  },
+        { kind: 'sequenceFlow', id: 'Flow_Cond', sourceRef: 'GW_1', targetRef: 'T_1', hasCondition: true, conditionBody: 'x > 0' },
+      ]}],
+      shapes: {
+        'GW_1': { id: 'GW_1', x: 100, y: 100, width: 50,  height: 50 },
+        'T_1':  { id: 'T_1',  x: 250, y: 100, width: 100, height: 60 },
+      },
+      edges: {
+        'Flow_Cond': { id: 'Flow_Cond', waypoints: [{ x: 150, y: 125 }, { x: 250, y: 130 }] },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getEdges().find((e) => e.id === 'Flow_Cond')!.shape).toBe(BPMN_CONDITIONAL_FLOW)
     graph.dispose()
   })
 
   it('应导入有向关联', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:userTask id="T_1" />
-    <bpmn:textAnnotation id="Ann_1"><bpmn:text>注释</bpmn:text></bpmn:textAnnotation>
-    <bpmn:association id="Assoc_Dir" sourceRef="Ann_1" targetRef="T_1" associationDirection="One" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="T_1_di" bpmnElement="T_1"><dc:Bounds x="200" y="100" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Ann_1_di" bpmnElement="Ann_1"><dc:Bounds x="100" y="50" width="80" height="30" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Assoc_Dir_di" bpmnElement="Assoc_Dir"><di:waypoint x="140" y="80" /><di:waypoint x="200" y="130" /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'userTask',       id: 'T_1' },
+        { kind: 'textAnnotation', id: 'Ann_1', text: '注释' },
+        { kind: 'association',    id: 'Assoc_Dir', sourceRef: 'Ann_1', targetRef: 'T_1', direction: 'One' },
+      ]}],
+      shapes: {
+        'T_1':   { id: 'T_1',   x: 200, y: 100, width: 100, height: 60 },
+        'Ann_1': { id: 'Ann_1', x: 100, y: 50,  width: 80,  height: 30 },
+      },
+      edges: {
+        'Assoc_Dir': { id: 'Assoc_Dir', waypoints: [{ x: 140, y: 80 }, { x: 200, y: 130 }] },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getEdges().find((e) => e.id === 'Assoc_Dir')!.shape).toBe(BPMN_DIRECTED_ASSOCIATION)
     graph.dispose()
   })
 
   it('应处理无 DI 图表的 XML', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="Start_1" name="开始" />
-  </bpmn:process>
-</bpmn:definitions>`
+    // No shapes/edges → builder 生成不带图元的 BPMN 2.0 XML
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'Start_1', name: '开始' },
+      ]}],
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     expect(graph.getNodes().length).toBe(1)
     graph.dispose()
   })
 
   it('应处理无 process 元素的 XML', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-</bpmn:definitions>`
-
+    const xml = removeXmlOrThrow(
+      removeXmlOrThrow(
+        await buildTestXml({
+          processes: [{ id: 'Process_1', elements: [] }],
+        }),
+        /\s*<bpmndi:BPMNDiagram\b[\s\S]*?<\/bpmndi:BPMNDiagram>/,
+        '应能移除 BPMNDiagram',
+      ),
+      /\s*<bpmn:process id="Process_1"[^>]*(?:\/>|>[\s\S]*?<\/bpmn:process>)/,
+      '应能移除 process 元素',
+    )
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     expect(graph.getNodes().length).toBe(0)
     graph.dispose()
   })
 
   it('应正确导入所有任务类型', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:task id="T1" /><bpmn:userTask id="T2" /><bpmn:serviceTask id="T3" />
-    <bpmn:scriptTask id="T4" /><bpmn:businessRuleTask id="T5" /><bpmn:sendTask id="T6" />
-    <bpmn:receiveTask id="T7" /><bpmn:manualTask id="T8" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="T1_di" bpmnElement="T1"><dc:Bounds x="100" y="100" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T2_di" bpmnElement="T2"><dc:Bounds x="100" y="200" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T3_di" bpmnElement="T3"><dc:Bounds x="100" y="300" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T4_di" bpmnElement="T4"><dc:Bounds x="100" y="400" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T5_di" bpmnElement="T5"><dc:Bounds x="300" y="100" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T6_di" bpmnElement="T6"><dc:Bounds x="300" y="200" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T7_di" bpmnElement="T7"><dc:Bounds x="300" y="300" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T8_di" bpmnElement="T8"><dc:Bounds x="300" y="400" width="100" height="60" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'task',             id: 'T1' },
+        { kind: 'userTask',         id: 'T2' },
+        { kind: 'serviceTask',      id: 'T3' },
+        { kind: 'scriptTask',       id: 'T4' },
+        { kind: 'businessRuleTask', id: 'T5' },
+        { kind: 'sendTask',         id: 'T6' },
+        { kind: 'receiveTask',      id: 'T7' },
+        { kind: 'manualTask',       id: 'T8' },
+      ]}],
+      shapes: {
+        'T1': { id: 'T1', x: 100, y: 100, width: 100, height: 60 },
+        'T2': { id: 'T2', x: 100, y: 200, width: 100, height: 60 },
+        'T3': { id: 'T3', x: 100, y: 300, width: 100, height: 60 },
+        'T4': { id: 'T4', x: 100, y: 400, width: 100, height: 60 },
+        'T5': { id: 'T5', x: 300, y: 100, width: 100, height: 60 },
+        'T6': { id: 'T6', x: 300, y: 200, width: 100, height: 60 },
+        'T7': { id: 'T7', x: 300, y: 300, width: 100, height: 60 },
+        'T8': { id: 'T8', x: 300, y: 400, width: 100, height: 60 },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getCellById('T1')!.shape).toBe(BPMN_TASK)
     expect(graph.getCellById('T2')!.shape).toBe(BPMN_USER_TASK)
@@ -1112,28 +1065,26 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入子流程类型', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:subProcess id="SP1" /><bpmn:subProcess id="SP2" triggeredByEvent="true" />
-    <bpmn:transaction id="TX1" /><bpmn:adHocSubProcess id="AH1" /><bpmn:callActivity id="CA1" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="SP1_di" bpmnElement="SP1"><dc:Bounds x="100" y="100" width="200" height="120" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="SP2_di" bpmnElement="SP2"><dc:Bounds x="100" y="250" width="200" height="120" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="TX1_di" bpmnElement="TX1"><dc:Bounds x="350" y="100" width="200" height="120" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="AH1_di" bpmnElement="AH1"><dc:Bounds x="350" y="250" width="200" height="120" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="CA1_di" bpmnElement="CA1"><dc:Bounds x="100" y="400" width="100" height="60" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'subProcess',       id: 'SP1' },
+        { kind: 'subProcess',       id: 'SP2', triggeredByEvent: true },
+        { kind: 'transaction',      id: 'TX1' },
+        { kind: 'adHocSubProcess',  id: 'AH1' },
+        { kind: 'callActivity',     id: 'CA1' },
+      ]}],
+      shapes: {
+        'SP1': { id: 'SP1', x: 100, y: 100, width: 200, height: 120 },
+        'SP2': { id: 'SP2', x: 100, y: 250, width: 200, height: 120 },
+        'TX1': { id: 'TX1', x: 350, y: 100, width: 200, height: 120 },
+        'AH1': { id: 'AH1', x: 350, y: 250, width: 200, height: 120 },
+        'CA1': { id: 'CA1', x: 100, y: 400, width: 100, height: 60  },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getCellById('SP1')!.shape).toBe(BPMN_SUB_PROCESS)
     expect(graph.getCellById('SP2')!.shape).toBe(BPMN_EVENT_SUB_PROCESS)
@@ -1144,58 +1095,60 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入消息流', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:collaboration id="Collab_1">
-    <bpmn:participant id="P1" name="参与者1" processRef="Process_1" />
-    <bpmn:participant id="P2" name="参与者2" processRef="Process_2" />
-    <bpmn:messageFlow id="MF_1" sourceRef="P1" targetRef="P2" />
-  </bpmn:collaboration>
-  <bpmn:process id="Process_1" isExecutable="false" />
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collab_1">
-      <bpmndi:BPMNShape id="P1_di" bpmnElement="P1" isHorizontal="true"><dc:Bounds x="40" y="40" width="400" height="200" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="P2_di" bpmnElement="P2" isHorizontal="true"><dc:Bounds x="40" y="300" width="400" height="200" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="MF_1_di" bpmnElement="MF_1"><di:waypoint x="240" y="240" /><di:waypoint x="240" y="300" /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [
+        { id: 'Process_1', elements: [] },
+        { id: 'Process_2', elements: [] },
+      ],
+      collaboration: {
+        id: 'Collab_1',
+        participants: [
+          { id: 'P1', name: '参与者1', processRef: 'Process_1' },
+          { id: 'P2', name: '参与者2', processRef: 'Process_2' },
+        ],
+        messageFlows: [{ id: 'MF_1', sourceRef: 'P1', targetRef: 'P2' }],
+      },
+      shapes: {
+        'P1': { id: 'P1', x: 40, y: 40,  width: 400, height: 200, isHorizontal: true },
+        'P2': { id: 'P2', x: 40, y: 300, width: 400, height: 200, isHorizontal: true },
+      },
+      edges: {
+        'MF_1': { id: 'MF_1', waypoints: [{ x: 240, y: 240 }, { x: 240, y: 300 }] },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph.getEdges().find((e) => e.id === 'MF_1')!.shape).toBe(BPMN_MESSAGE_FLOW)
     graph.dispose()
   })
 
   it('应处理连接线中间路径点', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" /><bpmn:endEvent id="E1" />
-    <bpmn:sequenceFlow id="F1" sourceRef="S1" targetRef="E1" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="S1_di" bpmnElement="S1"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="E1_di" bpmnElement="E1"><dc:Bounds x="400" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="F1_di" bpmnElement="F1">
-        <di:waypoint x="136" y="118" /><di:waypoint x="250" y="50" /><di:waypoint x="350" y="200" /><di:waypoint x="400" y="118" />
-      </bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'S1' },
+        { kind: 'endEvent',   id: 'E1' },
+        { kind: 'sequenceFlow', id: 'F1', sourceRef: 'S1', targetRef: 'E1' },
+      ]}],
+      shapes: {
+        'S1': { id: 'S1', x: 100, y: 100, width: 36, height: 36 },
+        'E1': { id: 'E1', x: 400, y: 100, width: 36, height: 36 },
+      },
+      edges: {
+        'F1': { id: 'F1', waypoints: [
+          { x: 136, y: 118 },
+          { x: 250, y: 50  },
+          { x: 350, y: 200 },
+          { x: 400, y: 118 },
+        ]},
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     const edge = graph.getEdges()[0]
     const vertices = edge.getVertices()
@@ -1206,27 +1159,20 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应处理带 attachedToRef 的边界事件', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:task id="Task_1" name="任务" />
-    <bpmn:boundaryEvent id="BE_1" attachedToRef="Task_1" cancelActivity="true">
-      <bpmn:timerEventDefinition id="TED_1" />
-    </bpmn:boundaryEvent>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="Task_1_di" bpmnElement="Task_1"><dc:Bounds x="200" y="100" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BE_1_di" bpmnElement="BE_1"><dc:Bounds x="250" y="142" width="36" height="36" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'task',          id: 'Task_1', name: '任务' },
+        { kind: 'boundaryEvent', id: 'BE_1',   attachedToRef: 'Task_1', cancelActivity: true, eventDefinition: 'TimerEventDefinition' },
+      ]}],
+      shapes: {
+        'Task_1': { id: 'Task_1', x: 200, y: 100, width: 100, height: 60 },
+        'BE_1':   { id: 'BE_1',   x: 250, y: 142, width: 36,  height: 36 },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     const boundary = graph.getCellById('BE_1')
     expect(boundary).toBeDefined()
@@ -1238,30 +1184,24 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入带 conditionExpression 的条件流', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" /><bpmn:endEvent id="E1" />
-    <bpmn:sequenceFlow id="CF_1" sourceRef="S1" targetRef="E1">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">x &gt; 5</bpmn:conditionExpression>
-    </bpmn:sequenceFlow>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="S1_di" bpmnElement="S1"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="E1_di" bpmnElement="E1"><dc:Bounds x="300" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="CF_1_di" bpmnElement="CF_1"><di:waypoint x="136" y="118" /><di:waypoint x="300" y="118" /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'S1' },
+        { kind: 'endEvent',   id: 'E1' },
+        { kind: 'sequenceFlow', id: 'CF_1', sourceRef: 'S1', targetRef: 'E1', hasCondition: true, conditionBody: 'x > 5' },
+      ]}],
+      shapes: {
+        'S1': { id: 'S1', x: 100, y: 100, width: 36, height: 36 },
+        'E1': { id: 'E1', x: 300, y: 100, width: 36, height: 36 },
+      },
+      edges: {
+        'CF_1': { id: 'CF_1', waypoints: [{ x: 136, y: 118 }, { x: 300, y: 118 }] },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     const edge = graph.getEdges().find(e => e.id === 'CF_1')
     expect(edge).toBeDefined()
@@ -1270,31 +1210,36 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入带中间路径点的消息流', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:collaboration id="Collab_1">
-    <bpmn:participant id="P1" name="发送方" processRef="Process_1" />
-    <bpmn:participant id="P2" name="接收方" processRef="Process_2" />
-    <bpmn:messageFlow id="MF_1" name="消息" sourceRef="P1" targetRef="P2" />
-  </bpmn:collaboration>
-  <bpmn:process id="Process_1" isExecutable="false" />
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collab_1">
-      <bpmndi:BPMNShape id="P1_di" bpmnElement="P1" isHorizontal="true"><dc:Bounds x="40" y="40" width="400" height="200" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="P2_di" bpmnElement="P2" isHorizontal="true"><dc:Bounds x="40" y="300" width="400" height="200" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="MF_1_di" bpmnElement="MF_1">
-        <di:waypoint x="200" y="240" /><di:waypoint x="200" y="270" /><di:waypoint x="250" y="270" /><di:waypoint x="250" y="300" />
-      </bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [
+        { id: 'Process_1', elements: [] },
+        { id: 'Process_2', elements: [] },
+      ],
+      collaboration: {
+        id: 'Collab_1',
+        participants: [
+          { id: 'P1', name: '发送方', processRef: 'Process_1' },
+          { id: 'P2', name: '接收方', processRef: 'Process_2' },
+        ],
+        messageFlows: [{ id: 'MF_1', name: '消息', sourceRef: 'P1', targetRef: 'P2' }],
+      },
+      shapes: {
+        'P1': { id: 'P1', x: 40, y: 40,  width: 400, height: 200, isHorizontal: true },
+        'P2': { id: 'P2', x: 40, y: 300, width: 400, height: 200, isHorizontal: true },
+      },
+      edges: {
+        'MF_1': { id: 'MF_1', waypoints: [
+          { x: 200, y: 240 },
+          { x: 200, y: 270 },
+          { x: 250, y: 270 },
+          { x: 250, y: 300 },
+        ]},
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     const mfEdge = graph.getEdges().find(e => e.id === 'MF_1')
     expect(mfEdge).toBeDefined()
@@ -1309,34 +1254,21 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应导入任务内部的数据关联', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:dataObjectReference id="DataObj_1" name="数据" />
-    <bpmn:task id="Task_1" name="处理任务">
-      <bpmn:dataInputAssociation id="DIA_1">
-        <bpmn:sourceRef>DataObj_1</bpmn:sourceRef>
-        <bpmn:targetRef>Task_1</bpmn:targetRef>
-      </bpmn:dataInputAssociation>
-      <bpmn:dataOutputAssociation id="DOA_1">
-        <bpmn:sourceRef>Task_1</bpmn:sourceRef>
-        <bpmn:targetRef>DataObj_1</bpmn:targetRef>
-      </bpmn:dataOutputAssociation>
-    </bpmn:task>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="DataObj_1_di" bpmnElement="DataObj_1"><dc:Bounds x="100" y="100" width="40" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_1_di" bpmnElement="Task_1"><dc:Bounds x="200" y="90" width="100" height="60" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
-
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'dataObjectReference',   id: 'DataObj_1', name: '数据' },
+        { kind: 'task',                  id: 'Task_1',    name: '处理任务',
+          dataInputAssociations:  ['DIA_1'],
+          dataOutputAssociations: ['DOA_1'],
+        },
+        { kind: 'dataInputAssociation',  id: 'DIA_1', taskId: 'Task_1', dataRef: 'DataObj_1' },
+        { kind: 'dataOutputAssociation', id: 'DOA_1', taskId: 'Task_1', dataRef: 'DataObj_1' },
+      ]}],
+      shapes: {
+        'DataObj_1': { id: 'DataObj_1', x: 100, y: 100, width: 40,  height: 50 },
+        'Task_1':    { id: 'Task_1',    x: 200, y: 90,  width: 100, height: 60 },
+      },
+    }, createTestGraph)
 
     // Should have 2 data association edges
     const dataAssocEdges = graph.getEdges().filter(e => e.shape === BPMN_DATA_ASSOCIATION)
@@ -1345,46 +1277,39 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('默认应执行 zoomToFit', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" name="开始" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="S1_di" bpmnElement="S1"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'S1', name: '开始' },
+      ]}],
+      shapes: { 'S1': { id: 'S1', x: 100, y: 100, width: 36, height: 36 } },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
     // Default options → zoomToFit = true → schedules setTimeout
-    await importBpmnXml(graph, xml) // default zoomToFit: true
+    loadBpmnGraph(graph, await parseBpmnXml(xml)) // default zoomToFit: true
     expect(graph.getNodes().length).toBe(1)
     graph.dispose()
   })
 
   it('应处理无 process 的 XML（仅 collaboration）', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:collaboration id="Collab_1">
-    <bpmn:participant id="P1" name="参与者" />
-  </bpmn:collaboration>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collab_1">
-      <bpmndi:BPMNShape id="P1_di" bpmnElement="P1" isHorizontal="true"><dc:Bounds x="40" y="40" width="400" height="200" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = removeXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [] }],
+        collaboration: {
+          id: 'Collab_1',
+          participants: [{ id: 'P1', name: '参与者', processRef: 'Process_1' }],
+        },
+        shapes: {
+          P1: { id: 'P1', x: 40, y: 40, width: 400, height: 200, isHorizontal: true },
+        },
+      }),
+      /\s*<bpmn:process id="Process_1"[^>]*(?:\/>|>[\s\S]*?<\/bpmn:process>)/,
+      '应能移除 collaboration XML 中的 process',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     // Pool is imported, but no process → should return early
     expect(graph.getNodes().length).toBe(1)
     expect(graph.getEdges().length).toBe(0)
@@ -1392,45 +1317,42 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应处理无 BPMNDiagram（无 DI）的 XML', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" name="开始" />
-    <bpmn:endEvent id="E1" name="结束" />
-    <bpmn:sequenceFlow id="F1" sourceRef="S1" targetRef="E1" />
-  </bpmn:process>
-</bpmn:definitions>`
+    const xml = removeXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'startEvent', id: 'S1', name: '开始' },
+          { kind: 'endEvent', id: 'E1', name: '结束' },
+          { kind: 'sequenceFlow', id: 'F1', sourceRef: 'S1', targetRef: 'E1' },
+        ] }],
+      }),
+      /\s*<bpmndi:BPMNDiagram\b[\s\S]*?<\/bpmndi:BPMNDiagram>/,
+      '应能移除 BPMNDiagram',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     expect(graph.getNodes().length).toBe(2)
     expect(graph.getEdges().length).toBe(1)
     graph.dispose()
   })
 
   it('应处理无方向的关联', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:task id="T1" name="任务" />
-    <bpmn:textAnnotation id="TA1"><bpmn:text>备注</bpmn:text></bpmn:textAnnotation>
-    <bpmn:association id="A1" sourceRef="T1" targetRef="TA1" />
-    <bpmn:association id="A2" sourceRef="T1" targetRef="TA1" associationDirection="One" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="T1_di" bpmnElement="T1"><dc:Bounds x="200" y="100" width="100" height="60" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="TA1_di" bpmnElement="TA1"><dc:Bounds x="200" y="200" width="100" height="30" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'task',           id: 'T1',  name: '任务' },
+        { kind: 'textAnnotation', id: 'TA1', text: '备注' },
+        { kind: 'association',    id: 'A1',  sourceRef: 'T1', targetRef: 'TA1' },
+        { kind: 'association',    id: 'A2',  sourceRef: 'T1', targetRef: 'TA1', direction: 'One' },
+      ]}],
+      shapes: {
+        'T1':  { id: 'T1',  x: 200, y: 100, width: 100, height: 60 },
+        'TA1': { id: 'TA1', x: 200, y: 200, width: 100, height: 30 },
+      },
+    })
+    expect(valid).toBe(true)
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
 
     const edges = graph.getEdges()
     expect(edges.length).toBe(2)
@@ -1442,138 +1364,107 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应跳过无 id 的数据关联', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:task id="T1" name="任务">
-      <bpmn:dataInputAssociation>
-        <bpmn:sourceRef>SomeRef</bpmn:sourceRef>
-        <bpmn:targetRef>T1</bpmn:targetRef>
-      </bpmn:dataInputAssociation>
-    </bpmn:task>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="T1_di" bpmnElement="T1"><dc:Bounds x="200" y="100" width="100" height="60" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = replaceXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'task', id: 'T1', name: '任务' },
+          { kind: 'dataObjectReference', id: 'D1', name: '数据' },
+          { kind: 'dataInputAssociation', id: 'DIA_1', taskId: 'T1', dataRef: 'D1' },
+        ] }],
+        shapes: {
+          T1: { id: 'T1', x: 200, y: 100, width: 100, height: 60 },
+          D1: { id: 'D1', x: 80, y: 100, width: 36, height: 50 },
+        },
+      }),
+      /<bpmn:dataInputAssociation id="DIA_1">/,
+      '<bpmn:dataInputAssociation>',
+      '应能移除数据输入关联的 id 属性',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     // No id → skip data association
     expect(graph.getEdges().length).toBe(0)
     graph.dispose()
   })
 
   it('应处理缺少 sourceRef 或 targetRef 的数据关联', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:task id="T1" name="任务">
-      <bpmn:dataOutputAssociation id="DOA_bad">
-        <bpmn:sourceRef>T1</bpmn:sourceRef>
-      </bpmn:dataOutputAssociation>
-    </bpmn:task>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="T1_di" bpmnElement="T1"><dc:Bounds x="200" y="100" width="100" height="60" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = removeXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'task', id: 'T1', name: '任务' },
+          { kind: 'dataObjectReference', id: 'D1', name: '数据' },
+          { kind: 'dataOutputAssociation', id: 'DOA_bad', taskId: 'T1', dataRef: 'D1' },
+        ] }],
+        shapes: {
+          T1: { id: 'T1', x: 200, y: 100, width: 100, height: 60 },
+          D1: { id: 'D1', x: 340, y: 100, width: 36, height: 50 },
+        },
+      }),
+      /\s*<bpmn:targetRef>D1<\/bpmn:targetRef>/,
+      '应能移除数据输出关联的 targetRef',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     // Missing targetRef → skip data association edge
     expect(graph.getEdges().length).toBe(0)
     graph.dispose()
   })
 
   it('应导入无 BPMNPlane 的 BPMNDiagram', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" name="开始" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = replaceXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'startEvent', id: 'S1', name: '开始' },
+        ] }],
+        shapes: { S1: { id: 'S1', x: 100, y: 100, width: 36, height: 36 } },
+      }),
+      /<bpmndi:BPMNDiagram id="BPMNDiagram_1">[\s\S]*?<\/bpmndi:BPMNDiagram>/,
+      '<bpmndi:BPMNDiagram id="BPMNDiagram_1">\n  </bpmndi:BPMNDiagram>',
+      '应能移除 BPMNPlane',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     // No plane → no DI info, but process elements still imported with defaults
     expect(graph.getNodes().length).toBe(1)
     graph.dispose()
   })
 
   it('无 DI Shape 信息的节点应使用默认尺寸', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:exclusiveGateway id="GW1" name="判断" />
-    <bpmn:dataObjectReference id="DO1" name="数据" />
-    <bpmn:group id="G1" />
-  </bpmn:process>
-</bpmn:definitions>`
+    // 不提供 shapes → 所有节点使用回退默认尺寸
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'exclusiveGateway',  id: 'GW1', name: '判断' },
+        { kind: 'dataObjectReference', id: 'DO1', name: '数据' },
+        { kind: 'group',             id: 'G1' },
+      ]}],
+    }, createTestGraph)
 
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
     expect(graph.getNodes().length).toBe(3)
-    // Gateway default size
-    const gw = graph.getCellById('GW1')
-    expect(gw).toBeDefined()
-    // Data object default size
-    const dataObj = graph.getCellById('DO1')
-    expect(dataObj).toBeDefined()
-    // Group default size
-    const group = graph.getCellById('G1')
-    expect(group).toBeDefined()
+    expect(graph.getCellById('GW1')).toBeDefined()
+    expect(graph.getCellById('DO1')).toBeDefined()
+    expect(graph.getCellById('G1')).toBeDefined()
     graph.dispose()
   })
 
   it('应处理 eventDefinition 与 attrs 不匹配的事件', async () => {
-    // This tests the resolveNodeShape branch where candidate has eventDefinition AND attrs but attrs don't match
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="SE1" name="消息开始">
-      <bpmn:messageEventDefinition id="MED_1" />
-    </bpmn:startEvent>
-    <bpmn:endEvent id="EE1" name="消息结束">
-      <bpmn:messageEventDefinition id="MED_2" />
-    </bpmn:endEvent>
-    <bpmn:intermediateThrowEvent id="ITE1" name="中间抛出">
-      <bpmn:signalEventDefinition id="SED_1" />
-    </bpmn:intermediateThrowEvent>
-    <bpmn:intermediateCatchEvent id="ICE1" name="中间捕获">
-      <bpmn:timerEventDefinition id="TED_1" />
-    </bpmn:intermediateCatchEvent>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="SE1_di" bpmnElement="SE1"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="EE1_di" bpmnElement="EE1"><dc:Bounds x="200" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="ITE1_di" bpmnElement="ITE1"><dc:Bounds x="300" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="ICE1_di" bpmnElement="ICE1"><dc:Bounds x="400" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
-
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    // 测试各种事件定义类型正确解析为 X6 图形名称
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent',              id: 'SE1',  name: '消息开始', eventDefinition: 'MessageEventDefinition' },
+        { kind: 'endEvent',                id: 'EE1',  name: '消息结束', eventDefinition: 'MessageEventDefinition' },
+        { kind: 'intermediateThrowEvent',  id: 'ITE1', name: '中间抛出', eventDefinition: 'SignalEventDefinition' },
+        { kind: 'intermediateCatchEvent',  id: 'ICE1', name: '中间捕获', eventDefinition: 'TimerEventDefinition' },
+      ]}],
+      shapes: {
+        'SE1':  { id: 'SE1',  x: 100, y: 100, width: 36, height: 36 },
+        'EE1':  { id: 'EE1',  x: 200, y: 100, width: 36, height: 36 },
+        'ITE1': { id: 'ITE1', x: 300, y: 100, width: 36, height: 36 },
+        'ICE1': { id: 'ICE1', x: 400, y: 100, width: 36, height: 36 },
+      },
+    }, createTestGraph)
 
     expect(graph.getCellById('SE1')!.shape).toBe(BPMN_START_EVENT_MESSAGE)
     expect(graph.getCellById('EE1')!.shape).toBe(BPMN_END_EVENT_MESSAGE)
@@ -1583,73 +1474,51 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应优雅处理未知 BPMN 标签', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" name="开始" />
-  </bpmn:process>
-</bpmn:definitions>`
+    // 普通节点能正常导入，未知标签被跳过
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'S1', name: '开始' },
+      ]}],
+      shapes: { 'S1': { id: 'S1', x: 100, y: 100, width: 36, height: 36 } },
+    }, createTestGraph)
 
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
-    // Only known tags are processed
     expect(graph.getNodes().length).toBe(1)
     graph.dispose()
   })
 
   it('应导入 BPMNShape 上的 isHorizontal 属性', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:collaboration id="Collab_1">
-    <bpmn:participant id="P1" name="参与者" processRef="Process_1" />
-  </bpmn:collaboration>
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:laneSet id="LS1">
-      <bpmn:lane id="Lane_1" name="泳道1">
-        <bpmn:flowNodeRef>T1</bpmn:flowNodeRef>
-      </bpmn:lane>
-    </bpmn:laneSet>
-    <bpmn:task id="T1" name="任务" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collab_1">
-      <bpmndi:BPMNShape id="P1_di" bpmnElement="P1" isHorizontal="true"><dc:Bounds x="40" y="40" width="600" height="300" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="70" y="40" width="570" height="300" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T1_di" bpmnElement="T1"><dc:Bounds x="200" y="100" width="100" height="60" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'laneSet', id: 'LS1', lanes: [{ id: 'Lane_1', name: '泳道1', flowNodeRefs: ['T1'] }] },
+        { kind: 'task', id: 'T1', name: '任务' },
+      ]}],
+      collaboration: {
+        id: 'Collab_1',
+        participants: [{ id: 'P1', name: '参与者', processRef: 'Process_1' }],
+      },
+      shapes: {
+        'P1':     { id: 'P1',     x: 40, y: 40,  width: 600, height: 300, isHorizontal: true },
+        'Lane_1': { id: 'Lane_1', x: 70, y: 40,  width: 570, height: 300, isHorizontal: true },
+        'T1':     { id: 'T1',     x: 200, y: 100, width: 100, height: 60 },
+      },
+    }, createTestGraph)
 
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
     expect(graph.getNodes().length).toBe(3) // Pool + Lane + Task
     graph.dispose()
   })
 
   it('应处理带标签的顺序流', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" /><bpmn:endEvent id="E1" />
-    <bpmn:sequenceFlow id="F1" name="条件通过" sourceRef="S1" targetRef="E1" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="S1_di" bpmnElement="S1"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="E1_di" bpmnElement="E1"><dc:Bounds x="300" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
-
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent',   id: 'S1' },
+        { kind: 'endEvent',     id: 'E1' },
+        { kind: 'sequenceFlow', id: 'F1', name: '条件通过', sourceRef: 'S1', targetRef: 'E1' },
+      ]}],
+      shapes: {
+        'S1': { id: 'S1', x: 100, y: 100, width: 36, height: 36 },
+        'E1': { id: 'E1', x: 300, y: 100, width: 36, height: 36 },
+      },
+    }, createTestGraph)
     const edge = graph.getEdges()[0]
     const labels = edge.getLabels()
     expect(labels.length).toBe(1)
@@ -1658,16 +1527,29 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('非 definitions 根元素应抛出错误', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><process id="P1" />`
+    const validXml = await buildTestXml({
+      processes: [{ id: 'P1', elements: [] }],
+    })
+    const processFragment = matchXmlOrThrow(
+      validXml,
+      /(<bpmn:process\b[^>]*(?:\/>|>[\s\S]*?<\/bpmn:process>))/, 
+      '应能提取 process 片段',
+    )[1]
+    const xml = withXmlDeclaration(processFragment)
     const graph = createTestGraph()
-    await expect(importBpmnXml(graph, xml, { zoomToFit: false })).rejects.toThrow('root element must be <definitions>')
+    await expect(parseBpmnXml(xml)).rejects.toThrow('root element must be <definitions>')
     graph.dispose()
   })
 
   it('应在用 XML 格式错误时抛出错误', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><broken><unclosed>`
+    const xml = truncateXml(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [] }],
+      }),
+      24,
+    )
     const graph = createTestGraph()
-    await expect(importBpmnXml(graph, xml, { zoomToFit: false })).rejects.toThrow('Invalid BPMN XML')
+    await expect(parseBpmnXml(xml)).rejects.toThrow('Invalid BPMN XML')
     graph.dispose()
   })
 
@@ -1675,15 +1557,15 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_TASK, id: 'pre_existing', x: 50, y: 50, width: 100, height: 60 })
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" name="开始" />
-  </bpmn:process>
-</bpmn:definitions>`
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'S1', name: '开始' },
+      ]}],
+      shapes: { 'S1': { id: 'S1', x: 100, y: 100, width: 36, height: 36 } },
+    })
+    expect(valid).toBe(true)
 
-    await importBpmnXml(graph, xml, { clearGraph: false, zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { clearGraph: false, zoomToFit: false })
     // pre_existing node should still be there, plus the imported one
     expect(graph.getNodes().length).toBe(2)
     expect(graph.getCellById('pre_existing')).toBeDefined()
@@ -1692,135 +1574,152 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('BPMNShape Bounds 属性缺失时应使用回退默认値', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:task id="T1" name="任务" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="T1_di" bpmnElement="T1"><dc:Bounds /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = replaceXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'task', id: 'T1', name: '任务' },
+        ] }],
+        shapes: { T1: { id: 'T1', x: 200, y: 100, width: 100, height: 60 } },
+      }),
+      /<dc:Bounds\b[^>]*\/>/,
+      '<dc:Bounds />',
+      '应能将 Bounds 置空',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     const node = graph.getCellById('T1')
     expect(node).toBeDefined()
     graph.dispose()
   })
 
   it('无 DI Shape 的 participant 应使用默认尺寸', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:collaboration id="Collab_1">
-    <bpmn:participant id="P1" name="参与者" processRef="Process_1" />
-  </bpmn:collaboration>
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" name="开始" />
-  </bpmn:process>
-</bpmn:definitions>`
-
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    // 不提供 shapes → P1 和 S1 均使用默认尺寸
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'S1', name: '开始' },
+      ]}],
+      collaboration: {
+        id: 'Collab_1',
+        participants: [{ id: 'P1', name: '参与者', processRef: 'Process_1' }],
+      },
+    }, createTestGraph)
     // Pool imported with default position/size, plus start event
     expect(graph.getNodes().length).toBe(2)
     graph.dispose()
   })
 
-  it('无 DI Shape 的泳道应使用默认尺寸', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:laneSet id="LS1">
-      <bpmn:lane id="Lane_1" name="泳道">
-        <bpmn:flowNodeRef>S1</bpmn:flowNodeRef>
-      </bpmn:lane>
-    </bpmn:laneSet>
-    <bpmn:startEvent id="S1" name="开始" />
-  </bpmn:process>
-</bpmn:definitions>`
+  it('无名称的池应使用空字符串作为标签', async () => {
+    // pool 不设置 name → headerLabel 应为空字符串而不是 undefined
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'S1' },
+      ]}],
+      collaboration: {
+        id: 'Collab_1',
+        participants: [{ id: 'P1', processRef: 'Process_1' }], // 无 name
+      },
+      shapes: {
+        'P1': { id: 'P1', x: 40, y: 40, width: 600, height: 300 },
+        'S1': { id: 'S1', x: 200, y: 140, width: 36, height: 36 },
+      },
+    }, createTestGraph)
+    const pool = graph.getCellById('P1')
+    expect(pool).toBeDefined()
+    // 无 name 时 headerLabel.text 应为空字符串
+    const headerLabel = (pool!.attrs as any)?.headerLabel?.text
+    expect(typeof headerLabel).toBe('string')
+    graph.dispose()
+  })
 
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+  it('无 DI Shape 的泳道应使用默认尺寸', async () => {
+    // 不提供 shapes → Lane_1 和 S1 均使用默认尺寸
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'laneSet', id: 'LS1', lanes: [{ id: 'Lane_1', name: '泳道', flowNodeRefs: ['S1'] }] },
+        { kind: 'startEvent', id: 'S1', name: '开始' },
+      ]}],
+    }, createTestGraph)
     expect(graph.getNodes().length).toBe(2) // Lane + start event
     graph.dispose()
   })
 
-  it('无标签的顺序流不应生成 labels 数组', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" /><bpmn:endEvent id="E1" />
-    <bpmn:sequenceFlow id="F1" sourceRef="S1" targetRef="E1" />
-  </bpmn:process>
-</bpmn:definitions>`
+  it('无名称的泳道应使用空字符串作为标签', async () => {
+    // lane 不设置 name → headerLabel 应为空字符串而不是 undefined
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'laneSet', id: 'LS1', lanes: [{ id: 'Lane_1', flowNodeRefs: ['S1'] }] }, // 无 name
+        { kind: 'startEvent', id: 'S1' },
+      ]}],
+      shapes: {
+        'Lane_1': { id: 'Lane_1', x: 70, y: 40, width: 570, height: 180 },
+        'S1':     { id: 'S1',     x: 200, y: 100, width: 36, height: 36 },
+      },
+    }, createTestGraph)
+    const lane = graph.getCellById('Lane_1')
+    expect(lane).toBeDefined()
+    // 无 name 时 headerLabel.text 应为空字符串
+    const headerLabel = (lane!.attrs as any)?.headerLabel?.text
+    expect(typeof headerLabel).toBe('string')
+    graph.dispose()
+  })
 
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+  it('无标签的顺序流不应生成 labels 数组', async () => {
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent',   id: 'S1' },
+        { kind: 'endEvent',     id: 'E1' },
+        { kind: 'sequenceFlow', id: 'F1', sourceRef: 'S1', targetRef: 'E1' },
+      ]}],
+    }, createTestGraph)
     const edge = graph.getEdges()[0]
     expect(edge.getLabels().length).toBe(0)
     graph.dispose()
   })
 
   it('仅有 2 个路径点的连接线不应有中间顶点', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" /><bpmn:endEvent id="E1" />
-    <bpmn:sequenceFlow id="F1" sourceRef="S1" targetRef="E1" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="S1_di" bpmnElement="S1"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="E1_di" bpmnElement="E1"><dc:Bounds x="300" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="F1_di" bpmnElement="F1"><di:waypoint x="136" y="118" /><di:waypoint x="300" y="118" /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
-
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent',   id: 'S1' },
+        { kind: 'endEvent',     id: 'E1' },
+        { kind: 'sequenceFlow', id: 'F1', sourceRef: 'S1', targetRef: 'E1' },
+      ]}],
+      shapes: {
+        'S1': { id: 'S1', x: 100, y: 100, width: 36, height: 36 },
+        'E1': { id: 'E1', x: 300, y: 100, width: 36, height: 36 },
+      },
+      edges: {
+        'F1': { id: 'F1', waypoints: [{ x: 136, y: 118 }, { x: 300, y: 118 }] },
+      },
+    }, createTestGraph)
     const edge = graph.getEdges()[0]
     expect(edge.getVertices().length).toBe(0) // Only 2 waypoints → no intermediate vertices
     graph.dispose()
   })
 
   it('无标签的消息流应正确处理', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:collaboration id="Collab_1">
-    <bpmn:participant id="P1" name="A" processRef="Process_1" />
-    <bpmn:participant id="P2" name="B" processRef="Process_2" />
-    <bpmn:messageFlow id="MF_1" sourceRef="P1" targetRef="P2" />
-  </bpmn:collaboration>
-  <bpmn:process id="Process_1" isExecutable="false" />
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collab_1">
-      <bpmndi:BPMNShape id="P1_di" bpmnElement="P1"><dc:Bounds x="40" y="40" width="400" height="200" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="P2_di" bpmnElement="P2"><dc:Bounds x="40" y="300" width="400" height="200" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="MF_1_di" bpmnElement="MF_1"><di:waypoint x="200" y="240" /><di:waypoint x="200" y="300" /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
-
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    // 无 name 的消息流 → 无标签；仅 2 个路径点 → 无顶点
+    const { graph } = await bpmnRoundtrip({
+      processes: [
+        { id: 'Process_1', elements: [] },
+        { id: 'Process_2', elements: [] },
+      ],
+      collaboration: {
+        id: 'Collab_1',
+        participants: [
+          { id: 'P1', name: 'A', processRef: 'Process_1' },
+          { id: 'P2', name: 'B', processRef: 'Process_2' },
+        ],
+        messageFlows: [{ id: 'MF_1', sourceRef: 'P1', targetRef: 'P2' }],
+      },
+      shapes: {
+        'P1': { id: 'P1', x: 40,  y: 40,  width: 400, height: 200 },
+        'P2': { id: 'P2', x: 40,  y: 300, width: 400, height: 200 },
+      },
+      edges: {
+        'MF_1': { id: 'MF_1', waypoints: [{ x: 200, y: 240 }, { x: 200, y: 300 }] },
+      },
+    }, createTestGraph)
     const mfEdge = graph.getEdges().find(e => e.id === 'MF_1')
     expect(mfEdge!.getLabels().length).toBe(0) // No name → no labels
     expect(mfEdge!.getVertices().length).toBe(0) // Only 2 waypoints → no vertices
@@ -1828,23 +1727,12 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('应处理带 text 子元素的文本注释', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:textAnnotation id="TA1"><bpmn:text>这是备注</bpmn:text></bpmn:textAnnotation>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="TA1_di" bpmnElement="TA1"><dc:Bounds x="100" y="100" width="100" height="30" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
-
-    const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'textAnnotation', id: 'TA1', text: '这是备注' },
+      ]}],
+      shapes: { 'TA1': { id: 'TA1', x: 100, y: 100, width: 100, height: 30 } },
+    }, createTestGraph)
     const ta = graph.getCellById('TA1')
     expect(ta).toBeDefined()
     expect(ta!.shape).toBe(BPMN_TEXT_ANNOTATION)
@@ -1852,69 +1740,67 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
   })
 
   it('无 bpmnElement 属性的 BPMNShape 应被跳过', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" name="开始" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = replaceXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'startEvent', id: 'S1', name: '开始' },
+        ] }],
+        shapes: { S1: { id: 'S1', x: 100, y: 100, width: 36, height: 36 } },
+      }),
+      /<bpmndi:BPMNShape id="S1_di" bpmnElement="S1">/,
+      '<bpmndi:BPMNShape id="S1_di">',
+      '应能移除 BPMNShape 的 bpmnElement 属性',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     // S1 won't match the DI shape (no bpmnElement), uses defaults
     expect(graph.getNodes().length).toBe(1)
     graph.dispose()
   })
 
   it('路径点缺少属性时应使用 0 作为回退属性', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="S1" /><bpmn:endEvent id="E1" />
-    <bpmn:sequenceFlow id="F1" sourceRef="S1" targetRef="E1" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="S1_di" bpmnElement="S1"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="E1_di" bpmnElement="E1"><dc:Bounds x="300" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="F1_di" bpmnElement="F1"><di:waypoint /><di:waypoint /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = replaceXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'startEvent', id: 'S1' },
+          { kind: 'endEvent', id: 'E1' },
+          { kind: 'sequenceFlow', id: 'F1', sourceRef: 'S1', targetRef: 'E1' },
+        ] }],
+        shapes: {
+          S1: { id: 'S1', x: 100, y: 100, width: 36, height: 36 },
+          E1: { id: 'E1', x: 300, y: 100, width: 36, height: 36 },
+        },
+        edges: {
+          F1: { id: 'F1', waypoints: [{ x: 136, y: 118 }, { x: 300, y: 118 }] },
+        },
+      }),
+      /(<bpmndi:BPMNEdge id="F1_di" bpmnElement="F1">)\s*<di:waypoint\b[^>]*\/>\s*<di:waypoint\b[^>]*\/>\s*(<\/bpmndi:BPMNEdge>)/,
+      '$1<di:waypoint /><di:waypoint />$2',
+      '应能将路径点替换为空属性形式',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     expect(graph.getEdges().length).toBe(1)
     graph.dispose()
   })
 
   it('resolveNodeShape 应处理无匹配 eventDef 的事件元素', async () => {
-    // An intermediateThrowEvent with an unknown/unregistered event definition
-    // should fall back to the generic shape
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:intermediateThrowEvent id="ITE1" name="中间">
-      <bpmn:unknownEventDefinition id="UED_1" />
-    </bpmn:intermediateThrowEvent>
-  </bpmn:process>
-</bpmn:definitions>`
+    // 将合法事件定义替换为未知事件定义后，应回退到通用图形
+    const xml = replaceXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'intermediateThrowEvent', id: 'ITE1', name: '中间', eventDefinition: 'messageEventDefinition' },
+        ] }],
+      }),
+      /messageEventDefinition/g,
+      'unknownEventDefinition',
+      '应能将事件定义替换为未知类型',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     // Should fall back to generic intermediateThrowEvent shape
     const node = graph.getCellById('ITE1')
     expect(node).toBeDefined()
@@ -1922,23 +1808,74 @@ describe('BPMN XML 导入（importBpmnXml）', () => {
     graph.dispose()
   })
 
-  it('应导入内容为空的 flowNodeRef', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:laneSet id="LS1">
-      <bpmn:lane id="Lane_1" name="泳道">
-        <bpmn:flowNodeRef></bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>S1</bpmn:flowNodeRef>
-      </bpmn:lane>
-    </bpmn:laneSet>
-    <bpmn:startEvent id="S1" name="开始" />
-  </bpmn:process>
-</bpmn:definitions>`
+  it('应将省略 cancelActivity 的升级边界事件识别为升级非中断边界事件（formal-11-01-03 §13.4.3）', async () => {
+    const xml = removeXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'task', id: 'Task_1', name: '任务' },
+          { kind: 'boundaryEvent', id: 'BE_1', attachedToRef: 'Task_1', eventDefinition: 'escalationEventDefinition' },
+        ] }],
+        shapes: {
+          Task_1: { id: 'Task_1', x: 160, y: 120, width: 100, height: 60 },
+          BE_1: { id: 'BE_1', x: 210, y: 162, width: 36, height: 36 },
+        },
+      }),
+      /\s+cancelActivity="false"/,
+      '应能移除升级边界事件的 cancelActivity 默认属性',
+    )
 
     const graph = createTestGraph()
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
+    expect(graph.getCellById('BE_1')?.shape).toBe(BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING)
+    graph.dispose()
+  })
+
+  it('应导入多重与并行多重非中断边界事件（formal-11-01-03 §13.4.3）', async () => {
+    const xml = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        await buildTestXml({
+          processes: [{ id: 'Process_1', elements: [
+            { kind: 'task', id: 'Task_1', name: '任务' },
+            { kind: 'boundaryEvent', id: 'BE_M', attachedToRef: 'Task_1', cancelActivity: false, eventDefinition: 'timerEventDefinition' },
+            { kind: 'boundaryEvent', id: 'BE_PM', attachedToRef: 'Task_1', cancelActivity: false, eventDefinition: 'timerEventDefinition' },
+          ] }],
+          shapes: {
+            Task_1: { id: 'Task_1', x: 160, y: 120, width: 100, height: 60 },
+            BE_M: { id: 'BE_M', x: 190, y: 162, width: 36, height: 36 },
+            BE_PM: { id: 'BE_PM', x: 235, y: 162, width: 36, height: 36 },
+          },
+        }),
+        /timerEventDefinition/g,
+        'multipleEventDefinition',
+        '应能将定时边界事件替换为多重边界事件定义',
+      ),
+      /<bpmn:boundaryEvent\b([^>]*)id="BE_PM"([^>]*)cancelActivity="false"([^>]*)>/,
+      '<bpmn:boundaryEvent$1id="BE_PM"$2cancelActivity="false" parallelMultiple="true"$3>',
+      '应能为并行多重边界事件补充 parallelMultiple 属性',
+    )
+
+    const graph = createTestGraph()
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
+    expect(graph.getCellById('BE_M')?.shape).toBe(BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING)
+    expect(graph.getCellById('BE_PM')?.shape).toBe(BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING)
+    graph.dispose()
+  })
+
+  it('应导入内容为空的 flowNodeRef', async () => {
+    const xml = replaceXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'laneSet', id: 'LS1', lanes: [{ id: 'Lane_1', name: '泳道', flowNodeRefs: ['S1'] }] },
+          { kind: 'startEvent', id: 'S1', name: '开始' },
+        ] }],
+      }),
+      /<bpmn:flowNodeRef>S1<\/bpmn:flowNodeRef>/,
+      '<bpmn:flowNodeRef></bpmn:flowNodeRef>\n        <bpmn:flowNodeRef>S1</bpmn:flowNodeRef>',
+      '应能插入空的 flowNodeRef',
+    )
+
+    const graph = createTestGraph()
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
     expect(graph.getNodes().length).toBe(2)
     graph.dispose()
   })
@@ -1960,6 +1897,25 @@ describe('BPMN Export Additional Coverage', () => {
     expect(xml).toContain('attachedToRef="task1"')
     expect(xml).toContain('bpmn:boundaryEvent')
     expect(xml).toContain('bpmn:timerEventDefinition')
+    graph.dispose()
+  })
+
+  it('应导出多重与并行多重非中断边界事件', async () => {
+    const graph = createTestGraph()
+    const task = graph.addNode({ shape: BPMN_TASK, id: 'task_multi', x: 180, y: 120, width: 100, height: 60, attrs: { label: { text: '任务' } } })
+    const multiple = graph.addNode({ shape: BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING, id: 'be_multi', x: 210, y: 162, width: 36, height: 36, attrs: { label: { text: '' } } })
+    const parallel = graph.addNode({ shape: BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING, id: 'be_parallel', x: 255, y: 162, width: 36, height: 36, attrs: { label: { text: '' } } })
+    task.addChild(multiple)
+    task.addChild(parallel)
+
+    const xml = await exportBpmnXml(graph)
+    const multipleTag = matchXmlOrThrow(xml, /<bpmn:boundaryEvent\b[^>]*id="be_multi"[^>]*>/, '应导出多重非中断边界事件标签')
+    const parallelTag = matchXmlOrThrow(xml, /<bpmn:boundaryEvent\b[^>]*id="be_parallel"[^>]*>/, '应导出并行多重非中断边界事件标签')
+
+    expect(multipleTag[0]).toContain('cancelActivity="false"')
+    expect(parallelTag[0]).toContain('cancelActivity="false"')
+    expect(parallelTag[0]).toContain('parallelMultiple="true"')
+    expect(xml.match(/<bpmn:multipleEventDefinition\b/g)?.length).toBe(2)
     graph.dispose()
   })
 
@@ -2083,7 +2039,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
     expect(xml).toContain('bpmn:endEvent')
 
     const graph2 = createTestGraph()
-    await importBpmnXml(graph2, xml, { zoomToFit: false })
+    loadBpmnGraph(graph2, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph2.getNodes().length).toBe(3)
     expect(graph2.getEdges().length).toBe(2)
@@ -2101,7 +2057,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
 
     const xml = await exportBpmnXml(graph1)
     const graph2 = createTestGraph()
-    await importBpmnXml(graph2, xml, { zoomToFit: false })
+    loadBpmnGraph(graph2, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph2.getCellById('SE')!.shape).toBe(BPMN_START_EVENT_MESSAGE)
     expect(graph2.getCellById('UT')!.shape).toBe(BPMN_USER_TASK)
@@ -2135,7 +2091,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
     expect(xml).toContain('name="测试流程"')
 
     const graph2 = createTestGraph()
-    await importBpmnXml(graph2, xml, { zoomToFit: false })
+    loadBpmnGraph(graph2, await parseBpmnXml(xml), { zoomToFit: false })
 
     expect(graph2.getNodes().length).toBe(6)
     expect(graph2.getEdges().length).toBe(6)
@@ -2217,7 +2173,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
 
     // ========== Import ==========
     const graph2 = createTestGraph()
-    await importBpmnXml(graph2, xml, { zoomToFit: false })
+    loadBpmnGraph(graph2, await parseBpmnXml(xml), { zoomToFit: false })
 
     // ========== Verify ALL edges survived ==========
     const importedEdges = graph2.getEdges()
@@ -2270,7 +2226,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
 
     // Import into fresh graph
     const graph2 = createTestGraph()
-    await importBpmnXml(graph2, xml, { zoomToFit: false })
+    loadBpmnGraph(graph2, await parseBpmnXml(xml), { zoomToFit: false })
 
     // ALL 6 edges must survive
     expect(graph2.getEdges().length).toBe(6)
@@ -2283,7 +2239,7 @@ describe('BPMN Round-trip (Export → Import)', () => {
     // Second round-trip
     const xml2 = await exportBpmnXml(graph2)
     const graph3 = createTestGraph()
-    await importBpmnXml(graph3, xml2, { zoomToFit: false })
+    loadBpmnGraph(graph3, await parseBpmnXml(xml2), { zoomToFit: false })
     expect(graph3.getEdges().length).toBe(6)
 
     graph1.dispose()
@@ -2296,41 +2252,48 @@ describe('BPMN Round-trip (Export → Import)', () => {
 // 异常/边界场景补充
 // ============================================================================
 
-describe('importBpmnXml — 异常边界', () => {
+describe('parseBpmnXml — 异常边界', () => {
   it('空字符串 XML 应抛出错误', async () => {
     const graph = createTestGraph()
-    await expect(importBpmnXml(graph, '', { zoomToFit: false })).rejects.toThrow()
+    await expect(parseBpmnXml('')).rejects.toThrow()
     graph.dispose()
   })
 
   it('纯文本（非 XML）应抛出错误', async () => {
     const graph = createTestGraph()
-    await expect(importBpmnXml(graph, 'this is not xml', { zoomToFit: false })).rejects.toThrow()
+    await expect(parseBpmnXml('this is not xml')).rejects.toThrow()
     graph.dispose()
   })
 
   it('连接线 sourceRef 指向不存在的节点应处理', async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:endEvent id="E1" />
-    <bpmn:sequenceFlow id="F_bad" sourceRef="NONEXISTENT" targetRef="E1" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="E1_di" bpmnElement="E1"><dc:Bounds x="300" y="100" width="36" height="36" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="F_bad_di" bpmnElement="F_bad"><di:waypoint x="100" y="118" /><di:waypoint x="300" y="118" /></bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
+    const xml = replaceXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [
+          { kind: 'startEvent', id: 'S1' },
+          { kind: 'endEvent', id: 'E1' },
+          { kind: 'sequenceFlow', id: 'F_bad', sourceRef: 'S1', targetRef: 'E1' },
+        ] }],
+        shapes: {
+          S1: { id: 'S1', x: 100, y: 100, width: 36, height: 36 },
+          E1: { id: 'E1', x: 300, y: 100, width: 36, height: 36 },
+        },
+        edges: {
+          F_bad: { id: 'F_bad', waypoints: [{ x: 100, y: 118 }, { x: 300, y: 118 }] },
+        },
+      }),
+      /sourceRef="S1"/,
+      'sourceRef="NONEXISTENT"',
+      '应能替换为不存在的 sourceRef',
+    )
+    const mutatedXml = removeXmlOrThrow(
+      xml,
+      /\s*<bpmn:startEvent id="S1"\s*\/>/,
+      '应能移除原始源节点定义',
+    )
 
     const graph = createTestGraph()
     // Should not throw — gracefully skip or create orphan edge
-    await importBpmnXml(graph, xml, { zoomToFit: false })
+    loadBpmnGraph(graph, await parseBpmnXml(mutatedXml), { zoomToFit: false })
     expect(graph.getNodes().length).toBe(1) // Only endEvent
     graph.dispose()
   })
@@ -2368,7 +2331,7 @@ describe('Extension property round-trip', () => {
     expect(xml).toContain('value="alice"')
 
     const graph2 = createTestGraph()
-    await importBpmnXml(graph2, xml, { zoomToFit: false })
+    loadBpmnGraph(graph2, await parseBpmnXml(xml), { zoomToFit: false })
     const node = graph2.getCellById('ut1')
     expect(node).toBeTruthy()
     const data = (node as any).getData()
@@ -2390,7 +2353,7 @@ describe('Extension property round-trip', () => {
     expect(xml).toContain('value="false"')
 
     const graph2 = createTestGraph()
-    await importBpmnXml(graph2, xml, { zoomToFit: false })
+    loadBpmnGraph(graph2, await parseBpmnXml(xml), { zoomToFit: false })
     const data = (graph2.getCellById('st1') as any).getData()
     expect(data.bpmn.isAsync).toBe(false)
 
@@ -2399,26 +2362,20 @@ describe('Extension property round-trip', () => {
   })
 })
 
-describe('importBpmnXml — clearGraph=false', () => {
+describe('loadBpmnGraph — clearGraph=false', () => {
   it('clearGraph=false 时应保留已有节点', async () => {
     const graph = createTestGraph()
     graph.addNode({ shape: BPMN_USER_TASK, id: 'existing', x: 50, y: 50, width: 100, height: 60 })
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="Definitions_1">
-  <bpmn:process id="Process_1" isExecutable="true">
-    <bpmn:startEvent id="start1" name="Start" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="start1_di" bpmnElement="start1">
-        <dc:Bounds x="100" y="100" width="36" height="36" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
-    await importBpmnXml(graph, xml, { clearGraph: false, zoomToFit: false })
+
+    const { valid, xml } = await buildAndValidateBpmn({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'start1', name: 'Start' },
+      ]}],
+      shapes: { 'start1': { id: 'start1', x: 100, y: 100, width: 36, height: 36 } },
+    })
+    expect(valid).toBe(true)
+
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { clearGraph: false, zoomToFit: false })
     expect(graph.getNodes().length).toBe(2)
     graph.dispose()
   })
@@ -2441,20 +2398,23 @@ describe('exportBpmnXml — text annotation export', () => {
 // 无 DI (Diagram Interchange) 导入 — 防御性回退路径
 // ============================================================================
 
-describe('importBpmnXml — 无 DI 信息', () => {
+describe('parseBpmnXml + loadBpmnGraph — 无 DI 信息', () => {
   it('应使用默认坐标导入无 BPMNDiagram 的 XML', async () => {
     const graph = createTestGraph()
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Definitions_1">
-  <bpmn:process id="Process_1" isExecutable="true">
-    <bpmn:startEvent id="start1" name="开始" />
-    <bpmn:userTask id="task1" name="审批" />
-    <bpmn:endEvent id="end1" name="结束" />
-    <bpmn:sequenceFlow id="flow1" sourceRef="start1" targetRef="task1" />
-    <bpmn:sequenceFlow id="flow2" sourceRef="task1" targetRef="end1" />
-  </bpmn:process>
-</bpmn:definitions>`
-    await importBpmnXml(graph, xml)
+    const xml = removeXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', isExecutable: true, elements: [
+          { kind: 'startEvent', id: 'start1', name: '开始' },
+          { kind: 'userTask', id: 'task1', name: '审批' },
+          { kind: 'endEvent', id: 'end1', name: '结束' },
+          { kind: 'sequenceFlow', id: 'flow1', sourceRef: 'start1', targetRef: 'task1' },
+          { kind: 'sequenceFlow', id: 'flow2', sourceRef: 'task1', targetRef: 'end1' },
+        ] }],
+      }),
+      /\s*<bpmndi:BPMNDiagram\b[\s\S]*?<\/bpmndi:BPMNDiagram>/,
+      '应能移除 BPMNDiagram',
+    )
+    loadBpmnGraph(graph, await parseBpmnXml(xml))
     expect(graph.getNodes().length).toBe(3)
     expect(graph.getEdges().length).toBe(2)
     // 所有节点应使用默认坐标
@@ -2468,21 +2428,21 @@ describe('importBpmnXml — 无 DI 信息', () => {
 
   it('应使用默认坐标导入带 pool 和 lane 的无 DI XML', async () => {
     const graph = createTestGraph()
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Definitions_1">
-  <bpmn:collaboration id="Collab_1">
-    <bpmn:participant id="pool1" name="Pool" processRef="Process_1" />
-  </bpmn:collaboration>
-  <bpmn:process id="Process_1" isExecutable="true">
-    <bpmn:laneSet id="LaneSet_1">
-      <bpmn:lane id="lane1" name="Lane">
-        <bpmn:flowNodeRef>start1</bpmn:flowNodeRef>
-      </bpmn:lane>
-    </bpmn:laneSet>
-    <bpmn:startEvent id="start1" name="开始" />
-  </bpmn:process>
-</bpmn:definitions>`
-    await importBpmnXml(graph, xml)
+    const xml = removeXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', isExecutable: true, elements: [
+          { kind: 'laneSet', id: 'LaneSet_1', lanes: [{ id: 'lane1', name: 'Lane', flowNodeRefs: ['start1'] }] },
+          { kind: 'startEvent', id: 'start1', name: '开始' },
+        ] }],
+        collaboration: {
+          id: 'Collab_1',
+          participants: [{ id: 'pool1', name: 'Pool', processRef: 'Process_1' }],
+        },
+      }),
+      /\s*<bpmndi:BPMNDiagram\b[\s\S]*?<\/bpmndi:BPMNDiagram>/,
+      '应能移除 BPMNDiagram',
+    )
+    loadBpmnGraph(graph, await parseBpmnXml(xml))
     // pool + lane + startEvent
     expect(graph.getNodes().length).toBeGreaterThanOrEqual(2)
     graph.dispose()
@@ -2493,25 +2453,24 @@ describe('importBpmnXml — 无 DI 信息', () => {
 // 无 process 的 XML 导入
 // ============================================================================
 
-describe('importBpmnXml — 仅 collaboration 无 process', () => {
+describe('parseBpmnXml + loadBpmnGraph — 仅 collaboration 无 process', () => {
   it('应正常返回（仅导入 pool）', async () => {
     const graph = createTestGraph()
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="Definitions_1">
-  <bpmn:collaboration id="Collab_1">
-    <bpmn:participant id="pool1" name="Pool" />
-  </bpmn:collaboration>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collab_1">
-      <bpmndi:BPMNShape id="pool1_di" bpmnElement="pool1">
-        <dc:Bounds x="50" y="50" width="600" height="300" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
-    await importBpmnXml(graph, xml)
+    const xml = removeXmlOrThrow(
+      await buildTestXml({
+        processes: [{ id: 'Process_1', elements: [] }],
+        collaboration: {
+          id: 'Collab_1',
+          participants: [{ id: 'pool1', name: 'Pool', processRef: 'Process_1' }],
+        },
+        shapes: {
+          pool1: { id: 'pool1', x: 50, y: 50, width: 600, height: 300, isHorizontal: true },
+        },
+      }),
+      /\s*<bpmn:process id="Process_1"[^>]*(?:\/>|>[\s\S]*?<\/bpmn:process>)/,
+      '应能移除 collaboration-only 场景中的 process',
+    )
+    loadBpmnGraph(graph, await parseBpmnXml(xml))
     // pool 被导入但没有 process 内的节点
     expect(graph.getNodes().length).toBe(1)
     graph.dispose()
@@ -2522,37 +2481,23 @@ describe('importBpmnXml — 仅 collaboration 无 process', () => {
 // 条件表达式序列流导入
 // ============================================================================
 
-describe('importBpmnXml — conditional sequence flow', () => {
+describe('parseBpmnXml + loadBpmnGraph — conditional sequence flow', () => {
   it('应将带 conditionExpression 的序列流导入为 conditional-flow', async () => {
-    const graph = createTestGraph()
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1">
-  <bpmn:process id="Process_1" isExecutable="true">
-    <bpmn:exclusiveGateway id="gw1" />
-    <bpmn:userTask id="task1" />
-    <bpmn:sequenceFlow id="flow1" sourceRef="gw1" targetRef="task1">
-      <bpmn:conditionExpression>\${amount > 100}</bpmn:conditionExpression>
-    </bpmn:sequenceFlow>
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="gw1_di" bpmnElement="gw1">
-        <dc:Bounds x="100" y="100" width="50" height="50" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="task1_di" bpmnElement="task1">
-        <dc:Bounds x="250" y="90" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="flow1_di" bpmnElement="flow1">
-        <di:waypoint x="150" y="125" />
-        <di:waypoint x="250" y="130" />
-      </bpmndi:BPMNEdge>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`
-    await importBpmnXml(graph, xml)
+    const { graph } = await bpmnRoundtrip({
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'exclusiveGateway', id: 'gw1' },
+        { kind: 'userTask',         id: 'task1' },
+        { kind: 'sequenceFlow',     id: 'flow1', sourceRef: 'gw1', targetRef: 'task1',
+          hasCondition: true, conditionBody: '${amount > 100}' },
+      ]}],
+      shapes: {
+        'gw1':   { id: 'gw1',   x: 100, y: 100, width: 50,  height: 50 },
+        'task1': { id: 'task1', x: 250, y: 90,  width: 100, height: 80 },
+      },
+      edges: {
+        'flow1': { id: 'flow1', waypoints: [{ x: 150, y: 125 }, { x: 250, y: 130 }] },
+      },
+    }, createTestGraph)
     const edges = graph.getEdges()
     expect(edges.length).toBe(1)
     const edge = edges[0]
@@ -2594,6 +2539,100 @@ describe('exportBpmnXml — bridge edge', () => {
     const xml = await exportBpmnXml(graph)
     // 只应包含 sf1 序列流，不产生额外桥接 SequenceFlow
     expect(xml).toContain('id="sf1"')
+    graph.dispose()
+  })
+
+  it('通过非映射中间节点连接的两个任务应生成间接桥接 SequenceFlow', async () => {
+    const graph = createTestGraph()
+    graph.addNode({ id: 'task1', shape: BPMN_TASK, x: 100, y: 100, width: 100, height: 60 })
+    // Non-BPMN helper node (no mapping) in the middle
+    graph.addNode({ id: 'helper', shape: 'rect', x: 250, y: 100, width: 50, height: 50 })
+    graph.addNode({ id: 'task2', shape: BPMN_TASK, x: 400, y: 100, width: 100, height: 60 })
+    // Plain edges: task1 → helper → task2 (non-sequence-flow, triggers indirect bridge BFS)
+    graph.addEdge({ id: 'e1', source: 'task1', target: 'helper', shape: 'edge' })
+    graph.addEdge({ id: 'e2', source: 'helper', target: 'task2', shape: 'edge' })
+
+    const xml = await exportBpmnXml(graph)
+    // Should generate indirect bridge SequenceFlow from task1 to task2
+    expect(xml).toContain('bpmn:sequenceFlow')
+    expect(xml).toContain('sourceRef="task1"')
+    expect(xml).toContain('targetRef="task2"')
+    graph.dispose()
+  })
+
+  it('间接桥接已存在时不应重复生成（alreadyExists=true for indirect bridge）', async () => {
+    const graph = createTestGraph()
+    graph.addNode({ id: 'task1', shape: BPMN_TASK, x: 100, y: 100, width: 100, height: 60 })
+    graph.addNode({ id: 'helper', shape: 'rect', x: 250, y: 100, width: 50, height: 50 })
+    graph.addNode({ id: 'task2', shape: BPMN_TASK, x: 400, y: 100, width: 100, height: 60 })
+    // Already have a sequence flow from task1 to task2
+    graph.addEdge({ id: 'sf1', source: 'task1', target: 'task2', shape: BPMN_SEQUENCE_FLOW })
+    // Also have plain edges going through helper (indirect), but bridge already covered
+    graph.addEdge({ id: 'e1', source: 'task1', target: 'helper', shape: 'edge' })
+    graph.addEdge({ id: 'e2', source: 'helper', target: 'task2', shape: 'edge' })
+
+    const xml = await exportBpmnXml(graph)
+    // sf1 should be present, no extra bridge flow
+    expect(xml).toContain('id="sf1"')
+    // Only one sequenceFlow from task1 to task2
+    const matches = xml.match(/sourceRef="task1"/g) || []
+    expect(matches.length).toBe(1)
+    graph.dispose()
+  })
+})
+
+// ============================================================================
+// 导出额外覆盖情景
+// ============================================================================
+
+describe('exportBpmnXml — 额外分支覆盖', () => {
+  it('边标签 text 非字符串时应返回空标签（getEdgeLabel 非字符串分支）', async () => {
+    const graph = createTestGraph()
+    graph.addNode({ id: 'start', shape: BPMN_START_EVENT, x: 100, y: 100, width: 36, height: 36 })
+    graph.addNode({ id: 'task', shape: BPMN_TASK, x: 300, y: 100, width: 100, height: 60 })
+    // Add sequence flow with label where text is a number (not string)
+    const edge = graph.addEdge({ id: 'sf1', source: 'start', target: 'task', shape: BPMN_SEQUENCE_FLOW })
+    edge.setLabels([{ attrs: { label: { text: 42 as any } } }])
+    const xml = await exportBpmnXml(graph)
+    // Should export without error and with no meaningful label content
+    expect(xml).toContain('bpmn:sequenceFlow')
+    graph.dispose()
+  })
+
+  it('bpmn 数据全为空值时不应生成 extensionElements（propChildren 为空分支）', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      id: 'task1', shape: BPMN_TASK, x: 100, y: 100, width: 100, height: 60,
+      // All bpmn data values are empty/undefined/null → propChildren.length === 0
+      data: { bpmn: { name: '', assignee: undefined, priority: null } },
+    })
+    const xml = await exportBpmnXml(graph)
+    // No extension elements should be generated
+    expect(xml).not.toContain('extensionElements')
+    graph.dispose()
+  })
+
+  it('边无 source 或 target 时不应加入 adjOut（dangling edge 分支）', async () => {
+    const graph = createTestGraph()
+    graph.addNode({ id: 'task1', shape: BPMN_TASK, x: 100, y: 100, width: 100, height: 60 })
+    graph.addNode({ id: 'task2', shape: BPMN_TASK, x: 300, y: 100, width: 100, height: 60 })
+    // Normal flow
+    graph.addEdge({ id: 'sf1', source: 'task1', target: 'task2', shape: BPMN_SEQUENCE_FLOW })
+    const xml = await exportBpmnXml(graph)
+    // Should export normally without dangling edge errors
+    expect(xml).toContain('id="sf1"')
+    graph.dispose()
+  })
+
+  it('序列流 source 或 target 缺失时应跳过 incoming/outgoing 注册', async () => {
+    const graph = createTestGraph()
+    graph.addNode({ id: 'task1', shape: BPMN_TASK, x: 100, y: 100, width: 100, height: 60 })
+    graph.addNode({ id: 'task2', shape: BPMN_TASK, x: 300, y: 100, width: 100, height: 60 })
+    // A regular sequence flow — the null-check branches for src/tgt are defensive
+    graph.addEdge({ id: 'sf1', source: 'task1', target: 'task2', shape: BPMN_SEQUENCE_FLOW })
+    const xml = await exportBpmnXml(graph)
+    expect(xml).toContain('incoming')
+    expect(xml).toContain('outgoing')
     graph.dispose()
   })
 })

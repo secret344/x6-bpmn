@@ -11,6 +11,8 @@ import {
 import {
   attachBoundaryToHost,
   setupBoundaryAttach,
+  defaultIsValidHostForBoundary,
+  CANCEL_BOUNDARY_HOST_SHAPES,
 } from '../../../src/behaviors/boundary-attach'
 import type { Rect, Point, BoundaryPosition } from '../../../src/behaviors/geometry'
 
@@ -511,7 +513,7 @@ describe('setupBoundaryAttach', () => {
     boundary.setData({ bpmn: { boundaryPosition: { side: 'top', ratio: 0.5 } } })
 
     setupBoundaryAttach(graph)
-    // Resize host
+    // 调整宿主节点尺寸
     graph.emit('node:change:size', { node: host, cell: host })
 
     // boundary 应被重新定位到 top 边 ratio=0.5
@@ -711,5 +713,34 @@ describe('setupBoundaryAttach — 防御性分支', () => {
     setupBoundaryAttach(graph)
     graph.emit('node:change:size', { node: host, cell: host })
     // 不应抛异常
+  })
+})
+
+// ============================================================================
+// defaultIsValidHostForBoundary — 取消边界事件宿主验证（F7）
+// ============================================================================
+
+describe('defaultIsValidHostForBoundary', () => {
+  it('取消边界事件只能附着到 Transaction（BPMN 规范 §13.2.2）', () => {
+    expect(defaultIsValidHostForBoundary('bpmn-transaction', 'bpmn-boundary-event-cancel')).toBe(true)
+    expect(defaultIsValidHostForBoundary('bpmn-user-task', 'bpmn-boundary-event-cancel')).toBe(false)
+    expect(defaultIsValidHostForBoundary('bpmn-sub-process', 'bpmn-boundary-event-cancel')).toBe(false)
+  })
+
+  it('其它边界事件可附着到任意 Activity', () => {
+    expect(defaultIsValidHostForBoundary('bpmn-user-task', 'bpmn-boundary-event')).toBe(true)
+    expect(defaultIsValidHostForBoundary('bpmn-service-task', 'bpmn-boundary-event-timer')).toBe(true)
+    expect(defaultIsValidHostForBoundary('bpmn-sub-process', 'bpmn-boundary-event-error')).toBe(true)
+    expect(defaultIsValidHostForBoundary('bpmn-transaction', 'bpmn-boundary-event-message')).toBe(true)
+  })
+
+  it('非法宿主图形应返回 false', () => {
+    expect(defaultIsValidHostForBoundary('bpmn-start-event', 'bpmn-boundary-event-timer')).toBe(false)
+    expect(defaultIsValidHostForBoundary('bpmn-exclusive-gateway', 'bpmn-boundary-event')).toBe(false)
+  })
+
+  it('CANCEL_BOUNDARY_HOST_SHAPES 仅包含 bpmn-transaction', () => {
+    expect(CANCEL_BOUNDARY_HOST_SHAPES.has('bpmn-transaction')).toBe(true)
+    expect(CANCEL_BOUNDARY_HOST_SHAPES.size).toBe(1)
   })
 })

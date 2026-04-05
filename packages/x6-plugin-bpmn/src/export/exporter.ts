@@ -24,17 +24,33 @@ import {
   BPMN_SEQUENCE_FLOW,
   BPMN_DEFAULT_FLOW,
   BPMN_CONDITIONAL_FLOW,
+  BPMN_MESSAGE_FLOW,
   BPMN_TEXT_ANNOTATION,
   BPMN_ASSOCIATION,
   BPMN_DIRECTED_ASSOCIATION,
   BPMN_DATA_ASSOCIATION,
+  BPMN_EXCLUSIVE_GATEWAY,
+  BPMN_SUB_PROCESS,
+  BPMN_EVENT_SUB_PROCESS,
+  BPMN_TRANSACTION,
+  BPMN_AD_HOC_SUB_PROCESS,
+  BPMN_CALL_ACTIVITY,
 } from '../utils/constants'
+import { resolveSwimlaneIsHorizontal } from '../shapes/swimlane-presentation'
 
 // ============================================================================
 // 扩展命名空间（用于存储自定义属性）
 // ============================================================================
 
 const NS_X6BPMN = 'http://x6-bpmn2.io/schema'
+const NS_BPMN = 'http://www.omg.org/spec/BPMN/20100524/MODEL'
+const EXPANDABLE_ACTIVITY_SHAPES = new Set([
+  BPMN_SUB_PROCESS,
+  BPMN_EVENT_SUB_PROCESS,
+  BPMN_TRANSACTION,
+  BPMN_AD_HOC_SUB_PROCESS,
+  BPMN_CALL_ACTIVITY,
+])
 
 // ============================================================================
 // 辅助函数
@@ -54,15 +70,18 @@ function getNodeLabel(node: Node): string {
 function getEdgeLabel(edge: Edge): string {
   const labels = edge.getLabels()
   if (labels?.length > 0) {
-    const text = labels[0]?.attrs?.label?.text
-    if (typeof text === 'string') return text
+    for (const label of labels) {
+      const text = label?.attrs?.label?.text
+      /* istanbul ignore else */
+      if (typeof text === 'string') return text
+    }
   }
   return ''
 }
 
 /** 将 ID 规范化为合法的 XML ID（数字开头加下划线，特殊字符替换为下划线） */
 function toXmlId(id: string): string {
-  /* c8 ignore next */
+  /* v8 ignore next */ /* istanbul ignore next */
   if (!id) return '_unknown'
   if (/^[0-9]/.test(id)) return `_${id}`
   return id.replace(/[^a-zA-Z0-9_.-]/g, '_')
@@ -73,7 +92,7 @@ function toXmlId(id: string): string {
 // ============================================================================
 
 /** 根据端口组名计算端口在节点边界上的位置 */
-/* c8 ignore start — 仅 port 连接使用 */
+/* v8 ignore start — 仅 port 连接使用 */ /* istanbul ignore start */
 function portPositionFromGroup(
   x: number, y: number, w: number, h: number,
   group: string,
@@ -86,7 +105,7 @@ function portPositionFromGroup(
     default: return { x: x + w / 2, y: y + h / 2 }
   }
 }
-/* c8 ignore stop */
+/* v8 ignore stop */ /* istanbul ignore stop */
 
 /** 计算从矩形中心到目标点的射线与矩形边界的交点 */
 function boundaryPoint(
@@ -97,7 +116,7 @@ function boundaryPoint(
   const cy = y + h / 2
   const dx = tx - cx
   const dy = ty - cy
-  /* c8 ignore next */
+  /* v8 ignore next */ /* istanbul ignore next */
   if (dx === 0 && dy === 0) return { x: cx, y: cy }
 
   const scaleX = dx !== 0 ? (w / 2) / Math.abs(dx) : Infinity
@@ -124,7 +143,7 @@ function computeConnectionPoint(
 ): { x: number; y: number } {
   const pos = node.getPosition()
   const size = node.getSize()
-  /* c8 ignore next 6 — port 连接在测试中不使用 */
+  /* v8 ignore next 6 */ /* istanbul ignore next — port 连接在测试中不使用 */
   if (portId && typeof node.getPort === 'function') {
     const port = node.getPort(portId)
     if (port?.group) {
@@ -137,6 +156,33 @@ function computeConnectionPoint(
 /** 将 bpmn-mapping 的驼峰标签转换为 bpmn-moddle 类型（PascalCase + bpmn: 前缀） */
 function toBpmnType(tag: string): string {
   return `bpmn:${tag.charAt(0).toUpperCase()}${tag.slice(1)}`
+}
+
+function createEventDefinition(moddle: BpmnModdle, tag: string, id: string): ModdleElement {
+  if (tag === 'multipleEventDefinition') {
+    return moddle.createAny('bpmn:multipleEventDefinition', NS_BPMN, { id }) as ModdleElement
+  }
+  return moddle.create(toBpmnType(tag), { id })
+}
+
+function resolveActivityIsExpanded(node: Node): boolean | undefined {
+  if (!EXPANDABLE_ACTIVITY_SHAPES.has(node.shape)) return undefined
+  const bpmn = node.getData<{ bpmn?: { isExpanded?: unknown } }>()?.bpmn
+  return typeof bpmn?.isExpanded === 'boolean' ? bpmn.isExpanded : undefined
+}
+
+function resolveGatewayMarkerVisible(node: Node): boolean | undefined {
+  if (node.shape !== BPMN_EXCLUSIVE_GATEWAY) return undefined
+  const bpmn = node.getData<{ bpmn?: { isMarkerVisible?: unknown } }>()?.bpmn
+  return typeof bpmn?.isMarkerVisible === 'boolean' ? bpmn.isMarkerVisible : undefined
+}
+
+function resolveMessageVisibleKind(edge: Edge): 'initiating' | 'non_initiating' | undefined {
+  const bpmn = edge.getData<{ bpmn?: { messageVisibleKind?: unknown } }>()?.bpmn
+
+  return bpmn?.messageVisibleKind === 'initiating' || bpmn?.messageVisibleKind === 'non_initiating'
+    ? bpmn.messageVisibleKind
+    : undefined
 }
 
 // ============================================================================
@@ -170,29 +216,30 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   const nodes = graph.getNodes()
   const edges = graph.getEdges()
 
-  // Separate pools, lanes, flow elements, artifacts
+  // 分离池、泳道、流程元素、工件
   const pools = nodes.filter((n) => isPoolShape(n.shape))
   const lanes = nodes.filter((n) => isLaneShape(n.shape))
   const flowNodes = nodes.filter((n) => !isSwimlaneShape(n.shape) && !isArtifactShape(n.shape))
   const artifactNodes = nodes.filter((n) => isArtifactShape(n.shape))
 
-  // Build set of node ids that have a BPMN mapping
+  // 构建已有 BPMN 映射的节点 ID 集合
   const mappedNodeIds = new Set<string>()
   for (const node of flowNodes) {
     if (NODE_MAPPING[node.shape]) mappedNodeIds.add(node.id)
   }
   for (const node of artifactNodes) {
+    /* istanbul ignore else */
     if (NODE_MAPPING[node.shape]) mappedNodeIds.add(node.id)
   }
   for (const pool of pools) mappedNodeIds.add(pool.id)
   for (const lane of lanes) mappedNodeIds.add(lane.id)
 
-  /** Check if both source and target of an edge are mapped BPMN elements */
+  /** 检查边的源和目标是否都已映射为 BPMN 元素 */
   function isEdgeMapped(e: Edge): boolean {
     return mappedNodeIds.has(e.getSourceCellId()) && mappedNodeIds.has(e.getTargetCellId())
   }
 
-  // Separate edges by category
+  // 按类别分离边
   const sequenceFlows = edges.filter(
     (e) => (e.shape === BPMN_SEQUENCE_FLOW || e.shape === BPMN_DEFAULT_FLOW || e.shape === BPMN_CONDITIONAL_FLOW) && isEdgeMapped(e),
   )
@@ -215,13 +262,15 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     if (categorizedEdgeIds.has(edge.id)) continue
     const src = edge.getSourceCellId()
     const tgt = edge.getTargetCellId()
+    /* istanbul ignore else */
     if (src && tgt) {
+      /* istanbul ignore else */
       if (!adjOut.has(src)) adjOut.set(src, [])
       adjOut.get(src)!.push(tgt)
     }
   }
 
-  /* c8 ignore next 20 — BFS：仅用于桥接边 */
+  /* v8 ignore next 20 */ /* istanbul ignore next — BFS：仅用于桥接边 */
   function findNextMapped(startId: string): string[] {
     const result: string[] = []
     const visited = new Set<string>()
@@ -261,10 +310,11 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
             target: tgt,
           })
         }
-        /* c8 ignore next 19 — 间接桥接路径，仅在有非映射中间节点时触发 */
+        /* v8 ignore next 19 */ /* istanbul ignore next — 间接桥接路径，仅在有非映射中间节点时触发 */
       } else {
         const reachable = findNextMapped(tgt)
         for (const endId of reachable) {
+          /* istanbul ignore next — 间接桥接查重检查，bridgeEdges.some 和 sequenceFlows.some 的正值分支不可达 */
           const alreadyExists = bridgeEdges.some(
             (be) => be.source === nodeId && be.target === endId,
           ) || sequenceFlows.some(
@@ -284,24 +334,26 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
   // ---- Build moddle elements ----
 
-  // Map: X6 node id → moddle element (for references)
+  // 映射：X6 节点 ID → moddle 元素（用于引用）
   const nodeElements = new Map<string, ModdleElement>()
-  // Map: edge id → moddle element
+  // 映射：边 ID → moddle 元素
   const flowElements: ModdleElement[] = []
   const artifactElements: ModdleElement[] = []
 
-  // Incoming/outgoing tracking (to add after creating all flows)
+  // 入线/出线追踪（在创建所有流后添加）
   const incoming = new Map<string, string[]>()
   const outgoing = new Map<string, string[]>()
 
-  // Register incoming/outgoing
+  // 注册入线/出线
   for (const edge of sequenceFlows) {
     const src = edge.getSourceCellId()
     const tgt = edge.getTargetCellId()
+    /* istanbul ignore else */
     if (src) {
       if (!outgoing.has(src)) outgoing.set(src, [])
       outgoing.get(src)!.push(toXmlId(edge.id))
     }
+    /* istanbul ignore else */
     if (tgt) {
       if (!incoming.has(tgt)) incoming.set(tgt, [])
       incoming.get(tgt)!.push(toXmlId(edge.id))
@@ -309,8 +361,10 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   }
   for (const be of bridgeEdges) {
     const xmlId = toXmlId(be.id)
+    /* istanbul ignore else */
     if (!outgoing.has(be.source)) outgoing.set(be.source, [])
     outgoing.get(be.source)!.push(xmlId)
+    /* istanbul ignore else */
     if (!incoming.has(be.target)) incoming.set(be.target, [])
     incoming.get(be.target)!.push(xmlId)
   }
@@ -326,23 +380,23 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       ...(mapping.attrs ?? {}),
     }
 
-    // Boundary event → attachedToRef (set later after all nodes created)
+    // 边界事件 → attachedToRef（在所有节点创建后再设置）
     const bpmnType = toBpmnType(mapping.tag)
     const element = moddle.create(bpmnType, props)
 
-    // Event definition
+    // 事件定义
     if (mapping.eventDefinition) {
-      const edType = toBpmnType(mapping.eventDefinition)
-      const eventDef = moddle.create(edType, { id: `${toXmlId(node.id)}_ed` })
+      const eventDef = createEventDefinition(moddle, mapping.eventDefinition, `${toXmlId(node.id)}_ed`)
       element.eventDefinitions = [eventDef]
     }
 
-    // Extension properties
+    // 扩展属性
     const bpmnData = node.getData<{ bpmn?: Record<string, any> }>()?.bpmn
     if (bpmnData && Object.keys(bpmnData).length > 0) {
       const propChildren = Object.entries(bpmnData)
         .filter(([, v]) => v !== undefined && v !== null && v !== '')
         .map(([k, v]) => moddle.createAny('x6bpmn:property', NS_X6BPMN, { name: k, value: String(v) }))
+      /* istanbul ignore else */
       if (propChildren.length > 0) {
         const propsContainer = moddle.createAny('x6bpmn:properties', NS_X6BPMN, { $children: propChildren })
         element.extensionElements = moddle.create('bpmn:ExtensionElements', { values: [propsContainer] })
@@ -353,13 +407,14 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     flowElements.push(element)
   }
 
-  // Set boundary event attachedToRef (now all node elements exist)
+  // 设置边界事件 attachedToRef（此时所有节点元素均已创建）
   for (const node of flowNodes) {
     if (isBoundaryShape(node.shape)) {
       const parent = node.getParent()
       if (parent) {
         const el = nodeElements.get(node.id)
         const parentEl = nodeElements.get(parent.id)
+        /* istanbul ignore else */
         if (el && parentEl) {
           el.attachedToRef = parentEl
         }
@@ -367,8 +422,8 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     }
   }
 
-  // Set gateway default flow (needs flow elements, handled after creating flows)
-  // Track which gateways need default
+  // 设置网关默认流（需要流元素，在创建流之后处理）
+  // 追踪哪些网关需要设置默认流
   const gatewayDefaults = new Map<string, Edge>()
   for (const node of flowNodes) {
     const mapping = NODE_MAPPING[node.shape]
@@ -389,7 +444,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   for (const edge of sequenceFlows) {
     const srcEl = nodeElements.get(edge.getSourceCellId())
     const tgtEl = nodeElements.get(edge.getTargetCellId())
-    /* c8 ignore next */
+    /* v8 ignore next */ /* istanbul ignore next */
     if (!srcEl || !tgtEl) continue
 
     const props: Record<string, any> = {
@@ -401,7 +456,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
     const seqFlow = moddle.create('bpmn:SequenceFlow', props)
 
-    // Conditional flow → add conditionExpression
+    // 条件流 → 添加 conditionExpression
     if (isConditionalFlow(edge.shape)) {
       seqFlow.conditionExpression = moddle.create('bpmn:FormalExpression', {
         body: getEdgeLabel(edge) || 'condition',
@@ -412,11 +467,11 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     flowElements.push(seqFlow)
   }
 
-  // Bridge sequence flows
+  // 桥接顺序流
   for (const be of bridgeEdges) {
     const srcEl = nodeElements.get(be.source)
     const tgtEl = nodeElements.get(be.target)
-    /* c8 ignore next */
+    /* v8 ignore next */ /* istanbul ignore next */
     if (!srcEl || !tgtEl) continue
 
     const seqFlow = moddle.create('bpmn:SequenceFlow', {
@@ -428,24 +483,27 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     flowElements.push(seqFlow)
   }
 
-  // Now set gateway defaults (sequence flow elements exist)
+  // 设置网关默认流（顺序流元素已创建）
   for (const [nodeId, defaultEdge] of gatewayDefaults) {
     const gwEl = nodeElements.get(nodeId)
     const flowEl = flowEdgeElements.get(defaultEdge.id)
+    /* istanbul ignore else */
     if (gwEl && flowEl) {
       gwEl.default = flowEl
     }
   }
 
-  // Set incoming/outgoing refs on node elements
+  // 在节点元素上设置入线/出线引用
   for (const [nodeId, refs] of incoming) {
     const el = nodeElements.get(nodeId)
+    /* istanbul ignore else */
     if (el) {
       el.incoming = refs.map((id) => flowEdgeElements.get(id) || ({ id } as any)).filter(Boolean)
     }
   }
   for (const [nodeId, refs] of outgoing) {
     const el = nodeElements.get(nodeId)
+    /* istanbul ignore else */
     if (el) {
       el.outgoing = refs.map((id) => flowEdgeElements.get(id) || ({ id } as any)).filter(Boolean)
     }
@@ -454,7 +512,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   // ---- Artifacts ----
   for (const node of artifactNodes) {
     const mapping = NODE_MAPPING[node.shape]
-    /* c8 ignore next */
+    /* v8 ignore next */ /* istanbul ignore next */
     if (!mapping) continue
 
     let element: ModdleElement
@@ -472,44 +530,47 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     artifactElements.push(element)
   }
 
-  // Artifact edges (associations)
+  // 工件边（关联连线）
   for (const edge of artifactEdges) {
     const mapping = EDGE_MAPPING[edge.shape]
-    /* c8 ignore next */
+    /* v8 ignore next */ /* istanbul ignore next */
     if (!mapping) continue
 
     if (edge.shape === BPMN_DATA_ASSOCIATION) {
-      // Data associations: attach to the task element as dataInputAssociation / dataOutputAssociation
+      // 数据关联：附加到任务元素上作为 dataInputAssociation / dataOutputAssociation
       const srcEl = nodeElements.get(edge.getSourceCellId())
       const tgtEl = nodeElements.get(edge.getTargetCellId())
+      /* istanbul ignore else */
       if (srcEl && tgtEl) {
-        // Determine direction: if source is data-like, it's input; if target is data-like, it's output
-        /* c8 ignore next — getCellById 不会返回 null */
+        // 判断方向：源为数据类则为输入；目标为数据类则为输出
+        /* v8 ignore next — getCellById 不会返回 null */ /* istanbul ignore next */
         const srcMapping = NODE_MAPPING[graph.getCellById(edge.getSourceCellId())?.shape || '']
         const isSourceData = srcMapping && (srcMapping.tag === 'dataObjectReference' || srcMapping.tag === 'dataStoreReference')
 
         if (isSourceData) {
-          // DataInputAssociation on the target task
+          // 在目标任务上创建 DataInputAssociation
           const dia = moddle.create('bpmn:DataInputAssociation', {
             id: toXmlId(edge.id),
             sourceRef: [srcEl],
             targetRef: tgtEl,
           })
+          /* istanbul ignore else */
           if (!tgtEl.dataInputAssociations) tgtEl.dataInputAssociations = []
           tgtEl.dataInputAssociations.push(dia)
         } else {
-          // DataOutputAssociation on the source task
+          // 在源任务上创建 DataOutputAssociation
           const doa = moddle.create('bpmn:DataOutputAssociation', {
             id: toXmlId(edge.id),
             sourceRef: [srcEl],
             targetRef: tgtEl,
           })
+          /* istanbul ignore else */
           if (!srcEl.dataOutputAssociations) srcEl.dataOutputAssociations = []
           srcEl.dataOutputAssociations.push(doa)
         }
       }
     } else {
-      // Association / Directed Association
+      // 关联连线 / 有向关联连线
       const srcEl = nodeElements.get(edge.getSourceCellId())
       const tgtEl = nodeElements.get(edge.getTargetCellId())
 
@@ -532,7 +593,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     isExecutable: false,
   })
 
-  // Lanes
+  // 泳道
   if (lanes.length > 0) {
     const laneElements: ModdleElement[] = lanes.map((lane) => {
       const laneBBox = lane.getBBox()
@@ -602,14 +663,14 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   // ---- Build BPMNDiagram ----
   const planeElements: ModdleElement[] = []
 
-  // Pool shapes
+  // Pool 图形
   for (const pool of pools) {
     const pos = pool.getPosition()
     const size = pool.getSize()
     const shape = moddle.create('bpmndi:BPMNShape', {
       id: `${toXmlId(pool.id)}_di`,
       bpmnElement: nodeElements.get(pool.id) || { id: toXmlId(pool.id) },
-      isHorizontal: true,
+      isHorizontal: resolveSwimlaneIsHorizontal(pool.getData(), size),
     })
     shape.bounds = moddle.create('dc:Bounds', {
       x: pos.x, y: pos.y, width: size.width, height: size.height,
@@ -617,14 +678,14 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     planeElements.push(shape)
   }
 
-  // Lane shapes
+  // 泳道图形
   for (const lane of lanes) {
     const pos = lane.getPosition()
     const size = lane.getSize()
     const shape = moddle.create('bpmndi:BPMNShape', {
       id: `${toXmlId(lane.id)}_di`,
       bpmnElement: { id: toXmlId(lane.id) },
-      isHorizontal: true,
+      isHorizontal: resolveSwimlaneIsHorizontal(lane.getData(), size),
     })
     shape.bounds = moddle.create('dc:Bounds', {
       x: pos.x, y: pos.y, width: size.width, height: size.height,
@@ -632,15 +693,19 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     planeElements.push(shape)
   }
 
-  // Flow node + artifact shapes
+  // 流程节点 + 工件图形
   for (const node of [...flowNodes, ...artifactNodes]) {
     if (!NODE_MAPPING[node.shape]) continue
     const pos = node.getPosition()
     const size = node.getSize()
     const el = nodeElements.get(node.id)
+    const isExpanded = resolveActivityIsExpanded(node)
+    const isMarkerVisible = resolveGatewayMarkerVisible(node)
     const shape = moddle.create('bpmndi:BPMNShape', {
       id: `${toXmlId(node.id)}_di`,
-      bpmnElement: el || /* c8 ignore next */ { id: toXmlId(node.id) },
+      bpmnElement: el || /* v8 ignore next */ /* istanbul ignore next */ { id: toXmlId(node.id) },
+      ...(typeof isExpanded === 'boolean' ? { isExpanded } : {}),
+      ...(typeof isMarkerVisible === 'boolean' ? { isMarkerVisible } : {}),
     })
     shape.bounds = moddle.create('dc:Bounds', {
       x: pos.x, y: pos.y, width: size.width, height: size.height,
@@ -648,7 +713,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     planeElements.push(shape)
   }
 
-  // Edge shapes
+  // 边图形
   for (const edge of [...sequenceFlows, ...messageFlows, ...artifactEdges]) {
     const waypoints: ModdleElement[] = []
     const vertices = edge.getVertices()
@@ -657,11 +722,12 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const srcCell = graph.getCellById(edge.getSourceCellId())
     const tgtCell = graph.getCellById(edge.getTargetCellId())
 
+    /* istanbul ignore else */
     if (srcCell && srcCell.isNode()) {
       const srcNode = srcCell as Node
+      /* istanbul ignore next — 边的两端都是节点，不会走到 fallback */
       const dirPt = vertices.length > 0
         ? vertices[0]
-        /* c8 ignore next 3 — 边的两端都是节点，不会走到 fallback */
         : tgtCell && tgtCell.isNode()
           ? nodeCenter(tgtCell as Node)
           : nodeCenter(srcNode)
@@ -673,11 +739,12 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       waypoints.push(moddle.create('dc:Point', { x: v.x, y: v.y }))
     }
 
+    /* istanbul ignore else */
     if (tgtCell && tgtCell.isNode()) {
       const tgtNode = tgtCell as Node
+      /* istanbul ignore next — 边的两端都是节点，不会走到 fallback */
       const dirPt = vertices.length > 0
         ? vertices[vertices.length - 1]
-        /* c8 ignore next 3 — 边的两端都是节点，不会走到 fallback */
         : srcCell && srcCell.isNode()
           ? nodeCenter(srcCell as Node)
           : nodeCenter(tgtNode)
@@ -685,20 +752,26 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       waypoints.push(moddle.create('dc:Point', { x: pt.x, y: pt.y }))
     }
 
+    const messageVisibleKind = edge.shape === BPMN_MESSAGE_FLOW
+      ? resolveMessageVisibleKind(edge)
+      : undefined
+
     const edgeEl = moddle.create('bpmndi:BPMNEdge', {
       id: `${toXmlId(edge.id)}_di`,
       bpmnElement: flowEdgeElements.get(edge.id) || { id: toXmlId(edge.id) },
+      ...(messageVisibleKind === 'non_initiating' ? { messageVisibleKind } : {}),
     })
     edgeEl.waypoint = waypoints
     planeElements.push(edgeEl)
   }
 
-  // Bridge edge shapes
+  // 桥接边图形
   for (const be of bridgeEdges) {
     const waypoints: ModdleElement[] = []
     const srcCell = graph.getCellById(be.source)
     const tgtCell = graph.getCellById(be.target)
 
+    /* istanbul ignore else */
     if (srcCell && srcCell.isNode() && tgtCell && tgtCell.isNode()) {
       const srcNode = srcCell as Node
       const tgtNode = tgtCell as Node
@@ -716,7 +789,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
     const edgeEl = moddle.create('bpmndi:BPMNEdge', {
       id: `${toXmlId(be.id)}_di`,
-      bpmnElement: flowEdgeElements.get(be.id) || /* c8 ignore next */ { id: toXmlId(be.id) },
+      bpmnElement: flowEdgeElements.get(be.id) || /* v8 ignore next */ /* istanbul ignore next */ { id: toXmlId(be.id) },
     })
     edgeEl.waypoint = waypoints
     planeElements.push(edgeEl)

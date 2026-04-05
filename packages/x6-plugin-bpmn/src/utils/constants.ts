@@ -50,6 +50,14 @@ export const BPMN_BOUNDARY_EVENT_SIGNAL = 'bpmn-boundary-event-signal'
 export const BPMN_BOUNDARY_EVENT_MULTIPLE = 'bpmn-boundary-event-multiple'
 export const BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE = 'bpmn-boundary-event-parallel-multiple'
 export const BPMN_BOUNDARY_EVENT_NON_INTERRUPTING = 'bpmn-boundary-event-non-interrupting'
+// 非中断按类型变体（cancelActivity=false，虚线圆）
+export const BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING = 'bpmn-boundary-event-message-non-interrupting'
+export const BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING = 'bpmn-boundary-event-timer-non-interrupting'
+export const BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING = 'bpmn-boundary-event-escalation-non-interrupting'
+export const BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING = 'bpmn-boundary-event-conditional-non-interrupting'
+export const BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING = 'bpmn-boundary-event-signal-non-interrupting'
+export const BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING = 'bpmn-boundary-event-multiple-non-interrupting'
+export const BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING = 'bpmn-boundary-event-parallel-multiple-non-interrupting'
 
 export const BPMN_END_EVENT = 'bpmn-end-event'
 export const BPMN_END_EVENT_MESSAGE = 'bpmn-end-event-message'
@@ -83,6 +91,8 @@ export const BPMN_INCLUSIVE_GATEWAY = 'bpmn-inclusive-gateway'
 export const BPMN_COMPLEX_GATEWAY = 'bpmn-complex-gateway'
 export const BPMN_EVENT_BASED_GATEWAY = 'bpmn-event-based-gateway'
 export const BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY = 'bpmn-exclusive-event-based-gateway'
+// 并行事件网关（eventGatewayType=Parallel, instantiate=true）
+export const BPMN_PARALLEL_EVENT_BASED_GATEWAY = 'bpmn-parallel-event-based-gateway'
 
 // ---------- 数据元素 ----------
 export const BPMN_DATA_OBJECT = 'bpmn-data-object'

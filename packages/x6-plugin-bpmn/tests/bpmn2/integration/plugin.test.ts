@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Graph } from '@antv/x6'
 
-// We need to handle the `registered` state. Since it's a module-level variable,
+// 需要处理 `registered` 状态。由于它是模块级变量，
 // we re-import fresh each time via dynamic imports or reset via forceRegisterBpmnShapes.
 
 /**
@@ -25,23 +25,23 @@ describe('插件入口（Plugin Entry Point）', () => {
 
   describe('registerBpmnShapes —— 图形批量注册', () => {
     it('默认参数调用时应注册全部图形', async () => {
-      // Use forceRegisterBpmnShapes to ensure fresh registration
+      // 使用 forceRegisterBpmnShapes 确保全新注册
       const { forceRegisterBpmnShapes } = await import('../../../src/index')
       forceRegisterBpmnShapes()
 
-      // 47 events + 13 activities + 6 gateways + 4 data + 2 artifacts + 2 swimlanes = 74 nodes
-      expect(registerNodeSpy).toHaveBeenCalledTimes(74)
+      // 54 events + 13 activities + 7 gateways + 4 data + 2 artifacts + 2 swimlanes = 82 nodes
+      expect(registerNodeSpy).toHaveBeenCalledTimes(82)
       // 7 connections
       expect(registerEdgeSpy).toHaveBeenCalledTimes(7)
     })
 
     it('多次调用应幂等（只注册一次）', async () => {
       const { registerBpmnShapes, forceRegisterBpmnShapes } = await import('../../../src/index')
-      // First force a fresh state
+      // 先强制刷新状态
       forceRegisterBpmnShapes()
       const firstCallCount = registerNodeSpy.mock.calls.length
 
-      // Now call again - should be a no-op
+      // 再次调用应为空操作
       registerBpmnShapes()
       expect(registerNodeSpy).toHaveBeenCalledTimes(firstCallCount)
     })
@@ -57,7 +57,7 @@ describe('插件入口（Plugin Entry Point）', () => {
         swimlanes: false,
         connections: false,
       })
-      expect(registerNodeSpy).toHaveBeenCalledTimes(47)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(54)
       expect(registerEdgeSpy).not.toHaveBeenCalled()
     })
 
@@ -87,7 +87,7 @@ describe('插件入口（Plugin Entry Point）', () => {
         swimlanes: false,
         connections: false,
       })
-      expect(registerNodeSpy).toHaveBeenCalledTimes(6)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(7)
       expect(registerEdgeSpy).not.toHaveBeenCalled()
     })
 
@@ -171,15 +171,15 @@ describe('插件入口（Plugin Entry Point）', () => {
     it('即便已注册过也应强制重新注册', async () => {
       const { registerBpmnShapes, forceRegisterBpmnShapes } = await import('../../../src/index')
 
-      // Force initial registration
+      // 强制初始注册
       forceRegisterBpmnShapes()
       const firstCount = registerNodeSpy.mock.calls.length
 
-      // This should be no-op
+      // 此次调用应为空操作
       registerBpmnShapes()
       expect(registerNodeSpy).toHaveBeenCalledTimes(firstCount)
 
-      // Force should work again
+      // 强制注册应再次生效
       forceRegisterBpmnShapes()
       expect(registerNodeSpy).toHaveBeenCalledTimes(firstCount * 2)
     })
@@ -187,7 +187,7 @@ describe('插件入口（Plugin Entry Point）', () => {
     it('应接受 options 参数', async () => {
       const { forceRegisterBpmnShapes } = await import('../../../src/index')
       forceRegisterBpmnShapes({ events: true, activities: false, gateways: false, data: false, artifacts: false, swimlanes: false, connections: false })
-      expect(registerNodeSpy).toHaveBeenCalledTimes(47)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(54)
     })
   })
 

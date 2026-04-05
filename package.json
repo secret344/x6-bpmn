@@ -17,5 +17,8 @@
     "dev:approval": "cd packages/approval-flow && npm run dev",
     "dev:dialect": "cd packages/dialect-demo && npm run dev",
     "dev:smartengine": "cd packages/smartengine-demo && npm run dev"
+  },
+  "devDependencies": {
+    "@vitest/coverage-istanbul": "^4.1.2"
   }
 }

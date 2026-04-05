@@ -1,10 +1,3 @@
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import { createDemoViteConfig } from '../../scripts/create-demo-vite-config'
 
-export default defineConfig({
-  plugins: [vue()],
-  server: {
-    port: 3002,
-    open: true,
-  },
-})
+export default createDemoViteConfig(3002)

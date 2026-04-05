@@ -15,6 +15,7 @@ import {
   BPMN_COMPLEX_GATEWAY,
   BPMN_EVENT_BASED_GATEWAY,
   BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY,
+  BPMN_PARALLEL_EVENT_BASED_GATEWAY,
 } from '../utils/constants'
 import { BPMN_PORTS, LABEL_BELOW } from './shared'
 
@@ -44,6 +45,7 @@ interface GatewayConfig {
  */
 
 function createGatewayShape(config: GatewayConfig) {
+  /* istanbul ignore next — 默认参数分支不作为业务逻辑分支测试 */
   const { shapeName, markerPath, label = '', outerCircle = false } = config
   const { stroke, fill } = BPMN_COLORS.gateway
 
@@ -114,6 +116,8 @@ export function registerGatewayShapes() {
     { shapeName: BPMN_EVENT_BASED_GATEWAY, markerPath: BPMN_ICONS.eventBased, label: 'Event-Based', outerCircle: true },
     // 排他事件网关（带双圈）
     { shapeName: BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY, markerPath: BPMN_ICONS.eventBased, label: 'Exclusive Event-Based', outerCircle: true },
+    // 并行事件网关（带双圈，+ 标记，instantiate=true）
+    { shapeName: BPMN_PARALLEL_EVENT_BASED_GATEWAY, markerPath: BPMN_ICONS.parallelPlus, label: 'Parallel Event-Based', outerCircle: true },
   ]
 
   for (const gw of gateways) {

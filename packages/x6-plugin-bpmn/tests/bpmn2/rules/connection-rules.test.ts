@@ -17,6 +17,7 @@ import {
 } from '../../../src/rules/connection-rules'
 import {
   validateBpmnConnection,
+  validatePoolBoundary,
   createBpmnValidateConnection,
   createBpmnValidateConnectionWithResult,
   type BpmnConnectionContext,
@@ -28,7 +29,7 @@ import {
 
   BPMN_INTERMEDIATE_THROW_EVENT, BPMN_INTERMEDIATE_THROW_EVENT_MESSAGE,
   BPMN_INTERMEDIATE_CATCH_EVENT, BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE,
-  BPMN_INTERMEDIATE_CATCH_EVENT_TIMER,
+  BPMN_INTERMEDIATE_CATCH_EVENT_TIMER, BPMN_INTERMEDIATE_CATCH_EVENT_LINK,
 
   BPMN_BOUNDARY_EVENT, BPMN_BOUNDARY_EVENT_MESSAGE, BPMN_BOUNDARY_EVENT_TIMER,
   BPMN_BOUNDARY_EVENT_ERROR,
@@ -44,6 +45,7 @@ import {
 
   BPMN_EXCLUSIVE_GATEWAY, BPMN_PARALLEL_GATEWAY, BPMN_INCLUSIVE_GATEWAY,
   BPMN_COMPLEX_GATEWAY, BPMN_EVENT_BASED_GATEWAY,
+  BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY, BPMN_PARALLEL_EVENT_BASED_GATEWAY,
 
   BPMN_DATA_OBJECT, BPMN_DATA_INPUT, BPMN_DATA_OUTPUT, BPMN_DATA_STORE,
 
@@ -53,6 +55,14 @@ import {
   BPMN_SEQUENCE_FLOW, BPMN_CONDITIONAL_FLOW, BPMN_DEFAULT_FLOW,
   BPMN_MESSAGE_FLOW, BPMN_ASSOCIATION, BPMN_DIRECTED_ASSOCIATION,
   BPMN_DATA_ASSOCIATION,
+
+  BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
 } from '../../../src/utils/constants'
 
 // ============================================================================
@@ -115,14 +125,22 @@ describe('getNodeCategory', () => {
     }
   })
 
-  it('应将网关归为 gateway', () => {
+  it('应将排他/包容/复杂网关归为 gateway', () => {
     const gateways = [
-      BPMN_EXCLUSIVE_GATEWAY, BPMN_PARALLEL_GATEWAY, BPMN_INCLUSIVE_GATEWAY,
-      BPMN_COMPLEX_GATEWAY, BPMN_EVENT_BASED_GATEWAY,
+      BPMN_EXCLUSIVE_GATEWAY, BPMN_INCLUSIVE_GATEWAY,
+      BPMN_COMPLEX_GATEWAY,
     ]
     for (const shape of gateways) {
       expect(getNodeCategory(shape)).toBe('gateway')
     }
+  })
+
+  it('应将并行网关归为 parallelGateway', () => {
+    expect(getNodeCategory(BPMN_PARALLEL_GATEWAY)).toBe('parallelGateway')
+  })
+
+  it('应将局陣事件网关归为 eventBasedGateway', () => {
+    expect(getNodeCategory(BPMN_EVENT_BASED_GATEWAY)).toBe('eventBasedGateway')
   })
 
   it('应将数据元素归为 dataElement', () => {
@@ -156,6 +174,7 @@ describe('DEFAULT_CONNECTION_RULES', () => {
   const allCategories: BpmnNodeCategory[] = [
     'startEvent', 'intermediateThrowEvent', 'intermediateCatchEvent',
     'boundaryEvent', 'endEvent', 'task', 'subProcess', 'gateway',
+    'parallelGateway', 'eventBasedGateway',
     'dataElement', 'artifact', 'swimlane', 'unknown',
   ]
 
@@ -294,6 +313,25 @@ describe('validateBpmnConnection', () => {
     it('任务 → 任务（消息流）应通过', () => {
       const result = validateBpmnConnection(
         ctx(BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_MESSAGE_FLOW),
+      )
+      expect(result.valid).toBe(true)
+    })
+
+    it('活动的第一条条件顺序流应失败', () => {
+      const result = validateBpmnConnection(
+        ctx(BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_CONDITIONAL_FLOW, {
+          sourceOutgoingSequenceFlowCount: 0,
+        }),
+      )
+      expect(result.valid).toBe(false)
+      expect(result.reason).toContain('条件顺序流')
+    })
+
+    it('活动在已有其他出向顺序流时允许条件顺序流', () => {
+      const result = validateBpmnConnection(
+        ctx(BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_CONDITIONAL_FLOW, {
+          sourceOutgoingSequenceFlowCount: 1,
+        }),
       )
       expect(result.valid).toBe(true)
     })
@@ -483,6 +521,46 @@ describe('validateBpmnConnection', () => {
         { allowUnknownEdgeTypes: false },
       )
       expect(result.valid).toBe(false)
+    })
+
+    it('省略 when 的声明式约束应默认生效', () => {
+      const result = validateBpmnConnection(
+        ctx(BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_SEQUENCE_FLOW),
+        {
+          customRules: {
+            task: {
+              constraints: [
+                {
+                  forbid: { targetShapes: [BPMN_SERVICE_TASK] },
+                  reason: '命中无条件声明式约束',
+                },
+              ],
+            },
+          },
+        },
+      )
+      expect(result.valid).toBe(false)
+      expect(result.reason).toContain('声明式约束')
+    })
+
+    it('targetCategories 不匹配时应跳过声明式约束', () => {
+      const result = validateBpmnConnection(
+        ctx(BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_SEQUENCE_FLOW),
+        {
+          customRules: {
+            task: {
+              constraints: [
+                {
+                  when: { targetCategories: ['subProcess'] },
+                  forbid: { targetShapes: [BPMN_SERVICE_TASK] },
+                  reason: '不应命中的目标分类约束',
+                },
+              ],
+            },
+          },
+        },
+      )
+      expect(result.valid).toBe(true)
     })
   })
 
@@ -695,7 +773,7 @@ describe('validateBpmnConnection', () => {
 
 describe('createBpmnValidateConnection', () => {
   function mockNode(id: string, shape: string, graph?: any) {
-    return { id, shape, model: graph ? { graph } : undefined }
+    return { id, shape, model: graph ? { graph } : null, getParent: () => null } as any
   }
 
   it('目标无磁吸点时应返回 false', () => {
@@ -774,8 +852,35 @@ describe('createBpmnValidateConnection', () => {
     // 无 graph，count = 0，maxOutgoing=1 时 0 < 1 应放行
     expect(validate({
       targetMagnet: document.createElement('div'),
-      sourceCell: { id: '1', shape: BPMN_USER_TASK, model: undefined },
-      targetCell: { id: '2', shape: BPMN_SERVICE_TASK, model: undefined },
+      sourceCell: { id: '1', shape: BPMN_USER_TASK, model: null, getParent: () => null } as any,
+      targetCell: { id: '2', shape: BPMN_SERVICE_TASK, model: null, getParent: () => null } as any,
+    })).toBe(true)
+  })
+
+  it('节点 getData 返回对象时应正常读取持久化数据', () => {
+    const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
+    expect(validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: { id: '1', shape: BPMN_USER_TASK, model: null, getParent: () => null, getData: () => ({ bpmn: { foo: 'bar' } }) } as any,
+      targetCell: { id: '2', shape: BPMN_SERVICE_TASK, model: null, getParent: () => null, getData: () => ({ bpmn: { baz: 'qux' } }) } as any,
+    })).toBe(true)
+  })
+
+  it('节点 getData 抛异常时应按无持久化数据处理', () => {
+    const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
+    expect(validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: { id: '1', shape: BPMN_USER_TASK, model: null, getParent: () => null, getData: () => { throw new Error('mock data error') } } as any,
+      targetCell: { id: '2', shape: BPMN_SERVICE_TASK, model: null, getParent: () => null, getData: () => ({ bpmn: {} }) } as any,
+    })).toBe(true)
+  })
+
+  it('节点 getData 返回非对象时应按无持久化数据处理', () => {
+    const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
+    expect(validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: { id: '1', shape: BPMN_USER_TASK, model: null, getParent: () => null, getData: () => 'not-an-object' } as any,
+      targetCell: { id: '2', shape: BPMN_SERVICE_TASK, model: null, getParent: () => null, getData: () => null } as any,
     })).toBe(true)
   })
 })
@@ -786,7 +891,7 @@ describe('createBpmnValidateConnection', () => {
 
 describe('createBpmnValidateConnectionWithResult', () => {
   function mockNode(id: string, shape: string, graph?: any) {
-    return { id, shape, model: graph ? { graph } : undefined }
+    return { id, shape, model: graph ? { graph } : null, getParent: () => null } as any
   }
 
   it('目标无磁吸点时应返回失败原因', () => {
@@ -964,5 +1069,368 @@ describe('validateBpmnConnection — 边类型限制与 allowUnknownEdgeTypes', 
     )
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('入线数量已达上限')
+  })
+})
+
+// ============================================================================
+// validatePoolBoundary — Pool 边界约束（F3/F4）
+// ============================================================================
+
+describe('validatePoolBoundary — Pool 边界约束', () => {
+  it('顺序流连接同一 Pool 内的节点应通过', () => {
+    const result = validatePoolBoundary(BPMN_SEQUENCE_FLOW, 'pool-1', 'pool-1')
+    expect(result.valid).toBe(true)
+  })
+
+  it('顺序流跨 Pool 应拒绝（BPMN 2.0 规范 §13.2）', () => {
+    const result = validatePoolBoundary(BPMN_SEQUENCE_FLOW, 'pool-1', 'pool-2')
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('顺序流')
+  })
+
+  it('条件流跨 Pool 应拒绝', () => {
+    const result = validatePoolBoundary(BPMN_CONDITIONAL_FLOW, 'pool-A', 'pool-B')
+    expect(result.valid).toBe(false)
+  })
+
+  it('默认流跨 Pool 应拒绝', () => {
+    const result = validatePoolBoundary(BPMN_DEFAULT_FLOW, 'pool-A', 'pool-B')
+    expect(result.valid).toBe(false)
+  })
+
+  it('消息流连接不同 Pool 的节点应通过（BPMN 2.0 §13.4）', () => {
+    const result = validatePoolBoundary(BPMN_MESSAGE_FLOW, 'pool-1', 'pool-2')
+    expect(result.valid).toBe(true)
+  })
+
+  it('消息流连接同一 Pool 内节点应拒绝', () => {
+    const result = validatePoolBoundary(BPMN_MESSAGE_FLOW, 'pool-1', 'pool-1')
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('消息流')
+  })
+
+  it('关联连线不受 Pool 边界约束', () => {
+    const result = validatePoolBoundary(BPMN_ASSOCIATION, 'pool-1', 'pool-2')
+    expect(result.valid).toBe(true)
+  })
+})
+
+// ============================================================================
+// createBpmnValidateConnection — Pool 边界集成（findPoolId via getParent）
+// ============================================================================
+
+describe('createBpmnValidateConnection — Pool 边界集成', () => {
+  /** Creates a mock node with optional pool parent */
+  function mockNodeInPool(id: string, shape: string, poolId: string | null) {
+    const parent = poolId ? { id: poolId, shape: 'bpmn-pool', getParent: () => null } : null
+    return { id, shape, model: null, getParent: () => parent } as any
+  }
+
+  it('同 Pool 内顺序流应通过', () => {
+    const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
+    expect(validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-1'),
+      targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, 'pool-1'),
+    })).toBe(true)
+  })
+
+  it('跨 Pool 顺序流应拒绝', () => {
+    const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
+    expect(validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-A'),
+      targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, 'pool-B'),
+    })).toBe(false)
+  })
+
+  it('不同 Pool 消息流应通过', () => {
+    const validate = createBpmnValidateConnection(() => BPMN_MESSAGE_FLOW)
+    expect(validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-A'),
+      targetCell: mockNodeInPool('2', BPMN_USER_TASK, 'pool-B'),
+    })).toBe(true)
+  })
+
+  it('无 Pool 父节点时跳过 Pool 边界检查', () => {
+    const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
+    expect(validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNodeInPool('1', BPMN_USER_TASK, null),
+      targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, null),
+    })).toBe(true)
+  })
+
+  it('节点经由 Lane 找到 Pool（两层嵌套）', () => {
+    const pool = { id: 'pool-X', shape: 'bpmn-pool', getParent: () => null }
+    const lane = { id: 'lane-1', shape: 'bpmn-lane', getParent: () => pool }
+    const src = { id: 's1', shape: BPMN_USER_TASK, model: null, getParent: () => lane } as any
+    const tgt = { id: 't1', shape: BPMN_SERVICE_TASK, model: null, getParent: () => lane } as any
+    const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
+    expect(validate({ targetMagnet: document.createElement('div'), sourceCell: src, targetCell: tgt })).toBe(true)
+  })
+})
+
+// ============================================================================
+// createBpmnValidateConnectionWithResult — Pool 边界集成
+// ============================================================================
+
+describe('createBpmnValidateConnectionWithResult — Pool 边界集成', () => {
+  function mockNodeInPool(id: string, shape: string, poolId: string | null) {
+    const parent = poolId ? { id: poolId, shape: 'bpmn-pool', getParent: () => null } : null
+    return { id, shape, model: null, getParent: () => parent } as any
+  }
+
+  it('跨 Pool 顺序流应返回失败结果', () => {
+    const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-A'),
+      targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, 'pool-B'),
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('顺序流')
+  })
+
+  it('同 Pool 内顺序流应返回成功结果', () => {
+    const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-1'),
+      targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, 'pool-1'),
+    })
+    expect(result.valid).toBe(true)
+  })
+})
+
+// ============================================================================
+// 新网关规则验证（F5/F6 — parallelGateway / eventBasedGateway）
+// ============================================================================
+
+describe('并行网关（parallelGateway）连线规则 — F6', () => {
+  it('BPMN_PARALLEL_GATEWAY 应归为 parallelGateway 分类', () => {
+    expect(getNodeCategory(BPMN_PARALLEL_GATEWAY)).toBe('parallelGateway')
+  })
+
+  it('并行网关 → 任务（顺序流）应通过', () => {
+    expect(validateBpmnConnection({ sourceShape: BPMN_PARALLEL_GATEWAY, targetShape: BPMN_USER_TASK, edgeShape: BPMN_SEQUENCE_FLOW }).valid).toBe(true)
+  })
+
+  it('并行网关不允许使用条件流（formal-11-01-03 §10.5.4：并行网关不能有条件分支）', () => {
+    const result = validateBpmnConnection({ sourceShape: BPMN_PARALLEL_GATEWAY, targetShape: BPMN_USER_TASK, edgeShape: BPMN_CONDITIONAL_FLOW })
+    expect(result.valid).toBe(false)
+  })
+
+  it('并行网关不允许使用默认流', () => {
+    const result = validateBpmnConnection({ sourceShape: BPMN_PARALLEL_GATEWAY, targetShape: BPMN_USER_TASK, edgeShape: BPMN_DEFAULT_FLOW })
+    expect(result.valid).toBe(false)
+  })
+})
+
+describe('事件网关（eventBasedGateway）连线规则 — F5', () => {
+  it('三种 EBG 图形均应归为 eventBasedGateway', () => {
+    expect(getNodeCategory(BPMN_EVENT_BASED_GATEWAY)).toBe('eventBasedGateway')
+    expect(getNodeCategory(BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY)).toBe('eventBasedGateway')
+    expect(getNodeCategory(BPMN_PARALLEL_EVENT_BASED_GATEWAY)).toBe('eventBasedGateway')
+  })
+
+  it('事件网关 → 中间捕获事件（顺序流）应通过', () => {
+    expect(validateBpmnConnection({ sourceShape: BPMN_EVENT_BASED_GATEWAY, targetShape: BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE, edgeShape: BPMN_SEQUENCE_FLOW }).valid).toBe(true)
+  })
+
+  it('事件网关 → 接收任务（顺序流）应通过', () => {
+    expect(validateBpmnConnection({ sourceShape: BPMN_EVENT_BASED_GATEWAY, targetShape: BPMN_RECEIVE_TASK, edgeShape: BPMN_SEQUENCE_FLOW }).valid).toBe(true)
+  })
+
+  it('事件网关 → 普通任务（顺序流）应失败', () => {
+    const result = validateBpmnConnection({ sourceShape: BPMN_EVENT_BASED_GATEWAY, targetShape: BPMN_USER_TASK, edgeShape: BPMN_SEQUENCE_FLOW })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('接收任务')
+  })
+
+  it('事件网关 → 非法捕获事件类型应失败', () => {
+    const result = validateBpmnConnection({ sourceShape: BPMN_EVENT_BASED_GATEWAY, targetShape: BPMN_INTERMEDIATE_CATCH_EVENT_LINK, edgeShape: BPMN_SEQUENCE_FLOW })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('中间捕获事件')
+  })
+
+  it('事件网关目标已有其他入向顺序流时应失败', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_EVENT_BASED_GATEWAY,
+      targetShape: BPMN_RECEIVE_TASK,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+      targetIncomingSequenceFlowCount: 1,
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('其他入向顺序流')
+  })
+
+  it('事件网关不允许使用条件流（formal-11-01-03 §10.5.6）', () => {
+    const result = validateBpmnConnection({ sourceShape: BPMN_EVENT_BASED_GATEWAY, targetShape: BPMN_INTERMEDIATE_CATCH_EVENT, edgeShape: BPMN_CONDITIONAL_FLOW })
+    expect(result.valid).toBe(false)
+  })
+
+  it('事件网关不允许直接连接到结束事件', () => {
+    const result = validateBpmnConnection({ sourceShape: BPMN_EVENT_BASED_GATEWAY, targetShape: BPMN_END_EVENT, edgeShape: BPMN_SEQUENCE_FLOW })
+    expect(result.valid).toBe(false)
+  })
+})
+
+describe('非中断边界事件归类 — F2', () => {
+  it('所有非中断边界事件变体均应归为 boundaryEvent', () => {
+    const niShapes = [
+      BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
+    ]
+    for (const shape of niShapes) {
+      expect(getNodeCategory(shape)).toBe('boundaryEvent')
+    }
+  })
+
+  it('非中断边界事件不能有入线（规范：边界事件无入线）', () => {
+    for (const shape of [
+      BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+      BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+    ]) {
+      const result = validateBpmnConnection({ sourceShape: BPMN_USER_TASK, targetShape: shape, edgeShape: BPMN_SEQUENCE_FLOW })
+      expect(result.valid).toBe(false)
+    }
+  })
+})
+
+describe('事件子流程顺序流限制 — F6', () => {
+  it('事件子流程不能作为顺序流源节点', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_EVENT_SUB_PROCESS,
+      targetShape: BPMN_USER_TASK,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('事件子流程')
+  })
+
+  it('事件子流程不能作为顺序流目标节点', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_USER_TASK,
+      targetShape: BPMN_EVENT_SUB_PROCESS,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('事件子流程')
+  })
+
+  it('带 triggeredByEvent 标记的子流程也应禁止顺序流', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_SUB_PROCESS,
+      targetShape: BPMN_USER_TASK,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+      sourceData: { bpmn: { triggeredByEvent: true } },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('事件子流程')
+  })
+})
+
+describe('实例化目标顺序流限制 — F7', () => {
+  it('实例化接收任务不能有入向顺序流', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_USER_TASK,
+      targetShape: BPMN_RECEIVE_TASK,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+      targetData: { bpmn: { instantiate: true } },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('接收任务')
+  })
+
+  it('并行事件网关作为实例化网关时不能有入向顺序流', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_USER_TASK,
+      targetShape: BPMN_PARALLEL_EVENT_BASED_GATEWAY,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('事件网关')
+  })
+
+  it('显式 instantiate=false 的排他事件网关仍允许入向顺序流', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_USER_TASK,
+      targetShape: BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+      targetData: { bpmn: { instantiate: false } },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('未设置 instantiate 的接收任务允许入向顺序流', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_USER_TASK,
+      targetShape: BPMN_RECEIVE_TASK,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+      targetData: { bpmn: {} },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('缺少 bpmn 容器的接收任务也应按非实例化处理', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_USER_TASK,
+      targetShape: BPMN_RECEIVE_TASK,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+      targetData: {},
+    })
+    expect(result.valid).toBe(true)
+  })
+})
+
+describe('事件网关的非顺序流路径', () => {
+  it('事件网关通过关联连接到接收任务时应通过', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_EVENT_BASED_GATEWAY,
+      targetShape: BPMN_RECEIVE_TASK,
+      edgeShape: BPMN_ASSOCIATION,
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('子流程在已有其他出向顺序流时允许条件顺序流', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_SUB_PROCESS,
+      targetShape: BPMN_SERVICE_TASK,
+      edgeShape: BPMN_CONDITIONAL_FLOW,
+      sourceOutgoingSequenceFlowCount: 1,
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('未提供已有出向数量时，子流程的条件顺序流应按 0 处理并失败', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_SUB_PROCESS,
+      targetShape: BPMN_SERVICE_TASK,
+      edgeShape: BPMN_CONDITIONAL_FLOW,
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('条件顺序流')
+  })
+})
+
+describe('validateBpmnConnection — Pool 边界集成检查', () => {
+  it('上下文提供 Pool 信息时应直接阻止跨 Pool 顺序流', () => {
+    const result = validateBpmnConnection({
+      sourceShape: BPMN_USER_TASK,
+      targetShape: BPMN_SERVICE_TASK,
+      edgeShape: BPMN_SEQUENCE_FLOW,
+      sourcePoolId: 'pool-a',
+      targetPoolId: 'pool-b',
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('Pool 边界')
   })
 })

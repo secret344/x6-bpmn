@@ -1,10 +1,9 @@
 /**
  * BPMN 2.0 规范合规性验证
  *
- * Validates that all element types defined in the BPMN 2.0 standard (OMG BPMN 2.0.2)
- * are fully covered by the plugin implementation.
+ * 验证插件实现是否完整覆盖 BPMN 2.0 标准定义的所有元素类型。
  *
- * Reference: OMG BPMN 2.0.2 (ISO/IEC 19510:2013)
+ * 参考：OMG BPMN 2.0.2 (ISO/IEC 19510:2013) / formal-11-01-03.pdf
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Graph } from '@antv/x6'
@@ -27,13 +26,13 @@ describe('BPMN 2.0 规范合规性验证', () => {
 
   describe('§10.4 事件 —— BPMN 2.0 完整覆盖', () => {
     /**
-     * BPMN 2.0 defines the following event categories:
-     * - Start Events (None + 6 types = 7)
-     * - Intermediate Throw Events (None + 6 types = 7)
-     * - Intermediate Catch Events (None + 11 types = 12)
-     * - Boundary Events (None + 10 types + non-interrupting = 12)
-     * - End Events (None + 8 types = 9)
-     * Total: 47 event variants
+     * BPMN 2.0 定义以下事件类别：
+     * - 开始事件（无 + 6 种 = 7）
+     * - 中间抛出事件（无 + 6 种 = 7）
+     * - 中间捕获事件（无 + 11 种 = 12）
+    * - 边界事件（无 + 10 种 + 非中断 = 12，另加 7 种按类型非中断 = 19）
+     * - 结束事件（无 + 8 种 = 9）
+    * 合计：54 种事件变体
      */
 
     it('应实现 §10.4.2 规定的全部 7 种开始事件', () => {
@@ -90,7 +89,7 @@ describe('BPMN 2.0 规范合规性验证', () => {
       }
     })
 
-    it('应实现 §10.4.5 规定的全部 12 种边界事件', () => {
+    it('应实现 §10.4.5 / §13.4.3 规定的全部 12 种边界事件，加上 7 种非中断变体共 19 种', () => {
       const boundaryEvents = [
         allExports.BPMN_BOUNDARY_EVENT,
         allExports.BPMN_BOUNDARY_EVENT_MESSAGE,
@@ -104,8 +103,16 @@ describe('BPMN 2.0 规范合规性验证', () => {
         allExports.BPMN_BOUNDARY_EVENT_MULTIPLE,
         allExports.BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE,
         allExports.BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
+        // 按类型非中断变体（F2）
+        allExports.BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+        allExports.BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+        allExports.BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+        allExports.BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+        allExports.BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+        allExports.BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+        allExports.BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
       ]
-      expect(boundaryEvents).toHaveLength(12)
+      expect(boundaryEvents).toHaveLength(19)
       for (const name of boundaryEvents) {
         expect(name).toBeTruthy()
       }
@@ -129,7 +136,7 @@ describe('BPMN 2.0 规范合规性验证', () => {
       }
     })
 
-    it('应共注册 47 个事件图形', () => {
+    it('应共注册 54 个事件图形', () => {
       allExports.forceRegisterBpmnShapes({
         events: true,
         activities: false,
@@ -139,7 +146,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
         swimlanes: false,
         connections: false,
       })
-      expect(registerNodeSpy).toHaveBeenCalledTimes(47)
+      // 47 原始 + 7 个按类型区分的非中断边界事件变体 = 54
+      expect(registerNodeSpy).toHaveBeenCalledTimes(54)
     })
   })
 
@@ -149,14 +157,14 @@ describe('BPMN 2.0 规范合规性验证', () => {
 
   describe('§10.2/§10.3 活动 —— BPMN 2.0 完整覆盖', () => {
     /**
-     * BPMN 2.0 defines:
-     * - Task (abstract) + 7 specialized task types = 8
-     * - Sub-Process (collapsed)
-     * - Event Sub-Process
-     * - Transaction
-     * - Ad-Hoc Sub-Process
-     * - Call Activity
-     * Total: 13 activity elements
+     * BPMN 2.0 定义：
+     * - 任务（抽象）+ 7 种专用任务 = 8
+     * - 子流程（折叠）
+     * - 事件子流程
+     * - 事务
+     * - 临时子流程
+     * - 调用活动
+     * 合计：13 种活动元素
      */
 
     it('应实现 §10.2.4 规定的全部 8 种任务', () => {
@@ -210,25 +218,27 @@ describe('BPMN 2.0 规范合规性验证', () => {
 
   describe('§10.5 网关 —— BPMN 2.0 完整覆盖', () => {
     /**
-     * BPMN 2.0 defines 6 gateway types:
-     * - Exclusive (XOR)
-     * - Parallel (AND)
-     * - Inclusive (OR)
-     * - Complex
-     * - Event-Based
-     * - Exclusive Event-Based (Instantiate)
+     * BPMN 2.0 定义 7 种网关类型（含并行 EBG）：
+     * - 排他网关（XOR）
+     * - 并行网关（AND）
+     * - 包容网关（OR）
+     * - 复杂网关
+     * - 事件网关（常规）
+     * - 排他事件网关（排他实例化）
+     * - 并行事件网关（并行实例化）
      */
 
-    it('应实现 §10.5 规定的全部 6 种网关', () => {
+    it('应实现 §10.5 规定的全部 6 种网关，以及并行 EBG', () => {
       expect(allExports.BPMN_EXCLUSIVE_GATEWAY).toBe('bpmn-exclusive-gateway')
       expect(allExports.BPMN_PARALLEL_GATEWAY).toBe('bpmn-parallel-gateway')
       expect(allExports.BPMN_INCLUSIVE_GATEWAY).toBe('bpmn-inclusive-gateway')
       expect(allExports.BPMN_COMPLEX_GATEWAY).toBe('bpmn-complex-gateway')
       expect(allExports.BPMN_EVENT_BASED_GATEWAY).toBe('bpmn-event-based-gateway')
       expect(allExports.BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY).toBe('bpmn-exclusive-event-based-gateway')
+      expect(allExports.BPMN_PARALLEL_EVENT_BASED_GATEWAY).toBe('bpmn-parallel-event-based-gateway')
     })
 
-    it('应共注册 6 个网关图形', () => {
+    it('应共注册 7 个网关图形', () => {
       allExports.forceRegisterBpmnShapes({
         events: false,
         activities: false,
@@ -238,7 +248,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
         swimlanes: false,
         connections: false,
       })
-      expect(registerNodeSpy).toHaveBeenCalledTimes(6)
+      // 6 原始 + Parallel EBG = 7
+      expect(registerNodeSpy).toHaveBeenCalledTimes(7)
     })
   })
 
@@ -248,11 +259,11 @@ describe('BPMN 2.0 规范合规性验证', () => {
 
   describe('§10.6 数据元素 —— BPMN 2.0 完整覆盖', () => {
     /**
-     * BPMN 2.0 defines 4 data shapes:
-     * - Data Object
-     * - Data Input
-     * - Data Output
-     * - Data Store
+     * BPMN 2.0 定义 4 种数据图形：
+     * - 数据对象
+     * - 数据输入
+     * - 数据输出
+     * - 数据存储
      */
 
     it('应实现 §10.6 规定的全部 4 种数据元素', () => {
@@ -282,9 +293,9 @@ describe('BPMN 2.0 规范合规性验证', () => {
 
   describe('§10.7 工件 —— BPMN 2.0 完整覆盖', () => {
     /**
-     * BPMN 2.0 defines 2 standard artifact types:
-     * - Text Annotation
-     * - Group
+     * BPMN 2.0 定义 2 种标准工件类型：
+     * - 文本注释
+     * - 组
      */
 
     it('应实现 §10.7 规定的 2 种工件', () => {
@@ -312,9 +323,9 @@ describe('BPMN 2.0 规范合规性验证', () => {
 
   describe('§9.3/§9.4 泳道 —— BPMN 2.0 完整覆盖', () => {
     /**
-     * BPMN 2.0 defines 2 swimlane structures:
-     * - Pool (Participant)
-     * - Lane
+     * BPMN 2.0 定义 2 种泳道结构：
+     * - 池（参与者）
+     * - 泳道
      */
 
     it('应实现 §9.3-9.4 规定的 2 种泳道', () => {
@@ -342,14 +353,14 @@ describe('BPMN 2.0 规范合规性验证', () => {
 
   describe('§10.1/§7.5 连接对象 —— BPMN 2.0 完整覆盖', () => {
     /**
-     * BPMN 2.0 defines 7 flow/connection types:
-     * - Sequence Flow (solid, filled arrow)
-     * - Conditional Sequence Flow (diamond + filled arrow)
-     * - Default Sequence Flow (slash + filled arrow)
-     * - Message Flow (dashed, circle + open arrow)
-     * - Association (dotted, no arrow)
-     * - Directed Association (dotted, open arrow)
-     * - Data Association (dashed, open arrow)
+     * BPMN 2.0 定义 7 种流/连接类型：
+     * - 顺序流（实线，填充箭头）
+     * - 条件顺序流（菱形 + 填充箭头）
+     * - 默认顺序流（斜线 + 填充箭头）
+     * - 消息流（虚线，圆 + 空心箭头）
+     * - 关联连线（点线，无箭头）
+     * - 有向关联（点线，空心箭头）
+     * - 数据关联（虚线，空心箭头）
      */
 
     it('应实现 §7.5 规定的全部 7 种连接线', () => {
@@ -377,7 +388,7 @@ describe('BPMN 2.0 规范合规性验证', () => {
   })
 
   // ============================================================================
-  // BPMN 2.0 Visual Specification Compliance
+  // BPMN 2.0 视觉规范合规性
   // ============================================================================
 
   describe('视觉规范合规性', () => {
@@ -494,18 +505,19 @@ describe('BPMN 2.0 规范合规性验证', () => {
   })
 
   // ============================================================================
-  // Total Element Count Verification
+  // 元素总数验证
   // ============================================================================
 
   describe('图形总数验证', () => {
-    it('应注册 81 个元素（74 个节点 + 7 个连接线）', () => {
+    it('应注册 89 个元素（82 个节点 + 7 个连接线）', () => {
       allExports.forceRegisterBpmnShapes()
-      expect(registerNodeSpy).toHaveBeenCalledTimes(74)
+      // 54 事件 + 13 活动 + 7 网关 + 4 数据 + 2 工件 + 2 泳道 = 82 节点
+      expect(registerNodeSpy).toHaveBeenCalledTimes(82)
       expect(registerEdgeSpy).toHaveBeenCalledTimes(7)
     })
 
-    it('图形数量明细：47 事件 + 13 活动 + 6 网关 + 4 数据 + 2 工件 + 2 泳道 = 74', () => {
-      expect(47 + 13 + 6 + 4 + 2 + 2).toBe(74)
+    it('图形数量明细：54 事件 + 13 活动 + 7 网关 + 4 数据 + 2 工件 + 2 泳道 = 82', () => {
+      expect(54 + 13 + 7 + 4 + 2 + 2).toBe(82)
     })
   })
 })

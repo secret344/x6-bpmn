@@ -69,7 +69,7 @@ function injectNamespaces(xml: string, namespaces: Record<string, string>): stri
   // 查找 <definitions 或 <bpmn:definitions 标签
   const defPattern = /(<(?:bpmn:)?definitions\b)/
   const match = xml.match(defPattern)
-  /* c8 ignore next */
+  /* v8 ignore next */ /* istanbul ignore next */
   if (!match) return xml
 
   let injection = ''
@@ -81,7 +81,7 @@ function injectNamespaces(xml: string, namespaces: Record<string, string>): stri
     }
   }
 
-  /* c8 ignore next */
+  /* v8 ignore next */ /* istanbul ignore next */
   if (!injection) return xml
 
   return xml.replace(defPattern, `$1${injection}`)

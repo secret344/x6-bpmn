@@ -46,6 +46,13 @@ import {
   BPMN_BOUNDARY_EVENT_MULTIPLE,
   BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE,
   BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+  BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
   BPMN_END_EVENT,
   BPMN_END_EVENT_MESSAGE,
   BPMN_END_EVENT_ESCALATION,
@@ -74,6 +81,7 @@ import {
   BPMN_COMPLEX_GATEWAY,
   BPMN_EVENT_BASED_GATEWAY,
   BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY,
+  BPMN_PARALLEL_EVENT_BASED_GATEWAY,
   BPMN_DATA_OBJECT,
   BPMN_DATA_INPUT,
   BPMN_DATA_OUTPUT,
@@ -143,6 +151,7 @@ export const NODE_MAPPING: Record<string, BpmnNodeMapping> = {
   [BPMN_BOUNDARY_EVENT]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' } },
   [BPMN_BOUNDARY_EVENT_MESSAGE]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'messageEventDefinition' },
   [BPMN_BOUNDARY_EVENT_TIMER]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'timerEventDefinition' },
+  // 升级边界事件：规范默认为非中断（cancelActivity=false）
   [BPMN_BOUNDARY_EVENT_ESCALATION]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'escalationEventDefinition' },
   [BPMN_BOUNDARY_EVENT_CONDITIONAL]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'conditionalEventDefinition' },
   [BPMN_BOUNDARY_EVENT_ERROR]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'errorEventDefinition' },
@@ -152,6 +161,14 @@ export const NODE_MAPPING: Record<string, BpmnNodeMapping> = {
   [BPMN_BOUNDARY_EVENT_MULTIPLE]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'multipleEventDefinition' },
   [BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true', parallelMultiple: 'true' }, eventDefinition: 'multipleEventDefinition' },
   [BPMN_BOUNDARY_EVENT_NON_INTERRUPTING]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'false' } },
+  // 按类型区分的非中断边界事件（cancelActivity=false，虚线双圈）
+  [BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'false' }, eventDefinition: 'messageEventDefinition' },
+  [BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'false' }, eventDefinition: 'timerEventDefinition' },
+  [BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'false' }, eventDefinition: 'escalationEventDefinition' },
+  [BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'false' }, eventDefinition: 'conditionalEventDefinition' },
+  [BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'false' }, eventDefinition: 'signalEventDefinition' },
+  [BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'false' }, eventDefinition: 'multipleEventDefinition' },
+  [BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'false', parallelMultiple: 'true' }, eventDefinition: 'multipleEventDefinition' },
 
   // ---- 结束事件 ----
   [BPMN_END_EVENT]: { tag: 'endEvent' },
@@ -188,6 +205,8 @@ export const NODE_MAPPING: Record<string, BpmnNodeMapping> = {
   [BPMN_COMPLEX_GATEWAY]: { tag: 'complexGateway' },
   [BPMN_EVENT_BASED_GATEWAY]: { tag: 'eventBasedGateway' },
   [BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY]: { tag: 'eventBasedGateway', attrs: { eventGatewayType: 'Exclusive' } },
+  // 并行事件网关：实例化新流程实例（BPMN 2.0 formal-11-01-03 §10.5.6）
+  [BPMN_PARALLEL_EVENT_BASED_GATEWAY]: { tag: 'eventBasedGateway', attrs: { eventGatewayType: 'Parallel', instantiate: 'true' } },
 
   // ---- 数据元素 ----
   [BPMN_DATA_OBJECT]: { tag: 'dataObjectReference' },
@@ -198,6 +217,7 @@ export const NODE_MAPPING: Record<string, BpmnNodeMapping> = {
   // ---- 工件 ----
   [BPMN_TEXT_ANNOTATION]: { tag: 'textAnnotation' },
   [BPMN_GROUP]: { tag: 'group' },
+  // 注意：BPMN_POOL 和 BPMN_LANE 通过 isPoolShape/isLaneShape 单独处理
 
   // ---- 泳道 ----
   [BPMN_POOL]: { tag: 'participant' },

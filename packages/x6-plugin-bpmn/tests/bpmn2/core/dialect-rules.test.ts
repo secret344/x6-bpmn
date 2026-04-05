@@ -18,7 +18,15 @@ import {
 } from '../../../src/core/rules/constraints'
 import { validateConnectionWithContext, createContextValidateConnection } from '../../../src/core/rules/validator'
 import type { ConstraintValidateContext, ProfileContext, ResolvedProfile } from '../../../src/core/dialect/types'
-import type { BpmnNodeCategory } from '../../../src/rules/connection-rules'
+import { DEFAULT_CONNECTION_RULES, type BpmnNodeCategory } from '../../../src/rules/connection-rules'
+import {
+  BPMN_CONDITIONAL_FLOW,
+  BPMN_EVENT_BASED_GATEWAY,
+  BPMN_EVENT_SUB_PROCESS,
+  BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE,
+  BPMN_RECEIVE_TASK,
+  BPMN_SEQUENCE_FLOW,
+} from '../../../src/utils/constants'
 
 // ============================================================================
 // 辅助
@@ -558,5 +566,235 @@ describe('createContextValidateConnection', () => {
       targetMagnet: document.createElement('div'),
     })
     expect(result).toBe(true)
+  })
+
+  it('节点 getData 返回对象时应透传到动态规则上下文', () => {
+    const validate = createContextValidateConnection(() => 'bpmn-sequence-flow', ctx)
+    const result = validate({
+      sourceCell: { id: '1', shape: 'bpmn-user-task', getData: () => ({ bpmn: { foo: 'bar' } }) },
+      targetCell: { id: '2', shape: 'bpmn-user-task', getData: () => ({ bpmn: { baz: 'qux' } }) },
+      targetMagnet: document.createElement('div'),
+    })
+    expect(result).toBe(true)
+  })
+
+  it('节点 getData 抛异常时应按空数据处理', () => {
+    const validate = createContextValidateConnection(() => 'bpmn-sequence-flow', ctx)
+    const result = validate({
+      sourceCell: { id: '1', shape: 'bpmn-user-task', getData: () => { throw new Error('mock data error') } },
+      targetCell: { id: '2', shape: 'bpmn-user-task', getData: () => ({ bpmn: {} }) },
+      targetMagnet: document.createElement('div'),
+    })
+    expect(result).toBe(true)
+  })
+
+  it('节点 getData 返回非对象时应按空数据处理', () => {
+    const validate = createContextValidateConnection(() => 'bpmn-sequence-flow', ctx)
+    const result = validate({
+      sourceCell: { id: '1', shape: 'bpmn-user-task', getData: () => 'not-an-object' },
+      targetCell: { id: '2', shape: 'bpmn-user-task', getData: () => null },
+      targetMagnet: document.createElement('div'),
+    })
+    expect(result).toBe(true)
+  })
+
+  it('节点经由 Lane 父节点链找到 Pool 时应保留同 Pool 连线', () => {
+    const validate = createContextValidateConnection(() => 'bpmn-sequence-flow', ctx)
+    const pool = { id: 'pool-1', shape: 'bpmn-pool', getParent: () => null }
+    const lane = { id: 'lane-1', shape: 'bpmn-lane', getParent: () => pool }
+    const result = validate({
+      sourceCell: { id: '1', shape: 'bpmn-user-task', getParent: () => lane },
+      targetCell: { id: '2', shape: 'bpmn-user-task', getParent: () => lane },
+      targetMagnet: document.createElement('div'),
+    })
+    expect(result).toBe(true)
+  })
+})
+
+// ============================================================================
+// validateConnectionWithContext — 分支覆盖补充
+// ============================================================================
+
+describe('validateConnectionWithContext — allowedIncoming 成功路径', () => {
+  it('allowedIncoming 包含该边类型时应通过', () => {
+    const ctx = makeProfileContext(
+      { 'bpmn-task': 'task' },
+      { task: { allowedIncoming: ['bpmn-sequence-flow', 'bpmn-message-flow'] } },
+    )
+    const result = validateConnectionWithContext(
+      { sourceShape: 'bpmn-task', targetShape: 'bpmn-task', edgeShape: 'bpmn-sequence-flow' },
+      ctx,
+    )
+    expect(result.valid).toBe(true)
+  })
+})
+
+describe('validateConnectionWithContext — allowedTargets 成功路径', () => {
+  it('allowedTargets 含目标分类时应通过', () => {
+    const ctx = makeProfileContext(
+      { 'bpmn-start': 'startEvent', 'bpmn-task': 'task' },
+      { startEvent: { allowedTargets: ['task', 'gateway'] } },
+    )
+    const result = validateConnectionWithContext(
+      { sourceShape: 'bpmn-start', targetShape: 'bpmn-task', edgeShape: 'bpmn-sequence-flow' },
+      ctx,
+    )
+    expect(result.valid).toBe(true)
+  })
+})
+
+describe('validateConnectionWithContext — forbiddenTargets 成功路径', () => {
+  it('forbiddenTargets 不含目标分类时应通过', () => {
+    const ctx = makeProfileContext(
+      { 'bpmn-start': 'startEvent', 'bpmn-task': 'task' },
+      { startEvent: { forbiddenTargets: ['endEvent'] } },
+    )
+    const result = validateConnectionWithContext(
+      { sourceShape: 'bpmn-start', targetShape: 'bpmn-task', edgeShape: 'bpmn-sequence-flow' },
+      ctx,
+    )
+    expect(result.valid).toBe(true)
+  })
+})
+
+describe('validateConnectionWithContext — maxOutgoing 未超限路径', () => {
+  it('maxOutgoing 已设置但未超限时应通过', () => {
+    const ctx = makeProfileContext(
+      { 'bpmn-task': 'task' },
+      { task: { maxOutgoing: 3 } },
+    )
+    const result = validateConnectionWithContext(
+      {
+        sourceShape: 'bpmn-task',
+        targetShape: 'bpmn-task',
+        edgeShape: 'bpmn-sequence-flow',
+        sourceOutgoingCount: 2,
+      },
+      ctx,
+    )
+    expect(result.valid).toBe(true)
+  })
+})
+
+describe('validateConnectionWithContext — BPMN 动态规则', () => {
+  it('事件网关只能连接到接收任务或合法捕获事件', () => {
+    const ctx = makeProfileContext(
+      {
+        [BPMN_EVENT_BASED_GATEWAY]: 'eventBasedGateway',
+        'bpmn-user-task': 'task',
+      },
+      DEFAULT_CONNECTION_RULES,
+    )
+    const result = validateConnectionWithContext(
+      {
+        sourceShape: BPMN_EVENT_BASED_GATEWAY,
+        targetShape: 'bpmn-user-task',
+        edgeShape: BPMN_SEQUENCE_FLOW,
+      },
+      ctx,
+    )
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('接收任务')
+  })
+
+  it('事件网关连接接收任务时应通过', () => {
+    const ctx = makeProfileContext(
+      {
+        [BPMN_EVENT_BASED_GATEWAY]: 'eventBasedGateway',
+        [BPMN_RECEIVE_TASK]: 'task',
+      },
+      DEFAULT_CONNECTION_RULES,
+    )
+    const result = validateConnectionWithContext(
+      {
+        sourceShape: BPMN_EVENT_BASED_GATEWAY,
+        targetShape: BPMN_RECEIVE_TASK,
+        edgeShape: BPMN_SEQUENCE_FLOW,
+      },
+      ctx,
+    )
+    expect(result.valid).toBe(true)
+  })
+
+  it('事件网关配置目标已有其他入向顺序流时应失败', () => {
+    const ctx = makeProfileContext(
+      {
+        [BPMN_EVENT_BASED_GATEWAY]: 'eventBasedGateway',
+        [BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE]: 'intermediateCatchEvent',
+      },
+      DEFAULT_CONNECTION_RULES,
+    )
+    const result = validateConnectionWithContext(
+      {
+        sourceShape: BPMN_EVENT_BASED_GATEWAY,
+        targetShape: BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE,
+        edgeShape: BPMN_SEQUENCE_FLOW,
+        targetIncomingSequenceFlowCount: 1,
+      },
+      ctx,
+    )
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('其他入向顺序流')
+  })
+
+  it('事件子流程不能接入顺序流', () => {
+    const ctx = makeProfileContext(
+      {
+        [BPMN_EVENT_SUB_PROCESS]: 'subProcess',
+        'bpmn-user-task': 'task',
+      },
+      DEFAULT_CONNECTION_RULES,
+    )
+    const result = validateConnectionWithContext(
+      {
+        sourceShape: 'bpmn-user-task',
+        targetShape: BPMN_EVENT_SUB_PROCESS,
+        edgeShape: BPMN_SEQUENCE_FLOW,
+      },
+      ctx,
+    )
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('事件子流程')
+  })
+
+  it('跨 Pool 顺序流在 context validator 中也应失败', () => {
+    const ctx = makeProfileContext(
+      {
+        'bpmn-user-task': 'task',
+      },
+      DEFAULT_CONNECTION_RULES,
+    )
+    const result = validateConnectionWithContext(
+      {
+        sourceShape: 'bpmn-user-task',
+        targetShape: 'bpmn-user-task',
+        edgeShape: BPMN_SEQUENCE_FLOW,
+        sourcePoolId: 'pool-a',
+        targetPoolId: 'pool-b',
+      },
+      ctx,
+    )
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('Pool 边界')
+  })
+
+  it('活动的第一条条件顺序流在 context validator 中应失败', () => {
+    const ctx = makeProfileContext(
+      {
+        'bpmn-user-task': 'task',
+      },
+      DEFAULT_CONNECTION_RULES,
+    )
+    const result = validateConnectionWithContext(
+      {
+        sourceShape: 'bpmn-user-task',
+        targetShape: 'bpmn-user-task',
+        edgeShape: BPMN_CONDITIONAL_FLOW,
+        sourceOutgoingSequenceFlowCount: 0,
+      },
+      ctx,
+    )
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('条件顺序流')
   })
 })

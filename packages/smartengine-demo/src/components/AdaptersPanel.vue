@@ -33,7 +33,7 @@
       <div class="ns-info">
         <div class="ns-row">
           <span class="ns-label">前缀</span>
-          <span class="ns-value mono">smartengine:</span>
+          <span class="ns-value mono">smart:</span>
         </div>
         <div class="ns-row">
           <span class="ns-label">URI</span>
@@ -129,7 +129,7 @@ async function refreshPreview() {
       nodeCount: props.graph.getNodes().length,
       edgeCount: props.graph.getEdges().length,
       xmlLength: xml.length,
-      hasSmartengineNS: xml.includes('smartengine'),
+      hasSmartengineNS: xml.includes('xmlns:smart="http://smartengine.alibaba.com/schema"'),
     }
   } catch (e: any) {
     xmlPreview.value = `导出失败: ${e.message}`

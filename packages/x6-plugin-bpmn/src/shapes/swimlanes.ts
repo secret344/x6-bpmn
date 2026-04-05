@@ -3,15 +3,16 @@
  *
  * 包含：池（Pool）和泳道（Lane）。
  * Pool 代表参与者，Lane 在 Pool 内部划分职责区域。
- * 两者均为水平布局（左侧头部 + 右侧内容区）。
+ * 默认注册为水平布局（左侧头部 + 右侧内容区），
+ * 实际节点可通过 BPMNDI isHorizontal 切换为垂直布局。
  */
 
 import { Graph } from '@antv/x6'
 import {
-  BPMN_COLORS,
   BPMN_POOL,
   BPMN_LANE,
 } from '../utils/constants'
+import { buildSwimlaneAttrs } from './swimlane-presentation'
 
 // ============================================================================
 // 注册泳道图形
@@ -32,33 +33,7 @@ export function registerSwimlaneShapes() {
       { tagName: 'rect', selector: 'header' },
       { tagName: 'text', selector: 'headerLabel' },
     ],
-    attrs: {
-      body: {
-        refWidth: '100%',
-        refHeight: '100%',
-        fill: BPMN_COLORS.pool.fill,
-        stroke: BPMN_COLORS.pool.stroke,
-        strokeWidth: 2,
-      },
-      header: {
-        width: 30,
-        refHeight: '100%',
-        fill: BPMN_COLORS.pool.headerFill,
-        stroke: BPMN_COLORS.pool.stroke,
-        strokeWidth: 1,
-      },
-      headerLabel: {
-        textVerticalAnchor: 'middle',
-        textAnchor: 'middle',
-        refX: 15,
-        refY: '50%',
-        fontSize: 14,
-        fontWeight: 'bold',
-        fill: '#333',
-        text: 'Pool',
-        transform: 'rotate(-90)',
-      },
-    },
+    attrs: buildSwimlaneAttrs(BPMN_POOL, 'Pool', true),
     zIndex: -2,
   }, true)
 
@@ -73,32 +48,7 @@ export function registerSwimlaneShapes() {
       { tagName: 'rect', selector: 'header' },
       { tagName: 'text', selector: 'headerLabel' },
     ],
-    attrs: {
-      body: {
-        refWidth: '100%',
-        refHeight: '100%',
-        fill: BPMN_COLORS.lane.fill,
-        stroke: BPMN_COLORS.lane.stroke,
-        strokeWidth: 1,
-      },
-      header: {
-        width: 30,
-        refHeight: '100%',
-        fill: '#f5f5f5',
-        stroke: BPMN_COLORS.lane.stroke,
-        strokeWidth: 1,
-      },
-      headerLabel: {
-        textVerticalAnchor: 'middle',
-        textAnchor: 'middle',
-        refX: 15,
-        refY: '50%',
-        fontSize: 12,
-        fill: '#333',
-        text: 'Lane',
-        transform: 'rotate(-90)',
-      },
-    },
+    attrs: buildSwimlaneAttrs(BPMN_LANE, 'Lane', true),
     zIndex: -1,
   }, true)
 }

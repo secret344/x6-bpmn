@@ -75,6 +75,38 @@ const MODES = {
 
 type ModeId = keyof typeof MODES
 
+function createLabeledNode(graph: Graph, config: {
+  shape: string
+  x: number
+  y: number
+  width?: number
+  height?: number
+  label: string
+  data?: Record<string, unknown>
+}) {
+  const { label, data, ...rest } = config
+  return graph.addNode({
+    ...rest,
+    attrs: { label: { text: label } },
+    data: { ...(data ?? {}), label },
+  })
+}
+
+function createLabeledEdge(graph: Graph, config: {
+  shape: string
+  source: Node | string
+  target: Node | string
+  label?: string
+  data?: Record<string, unknown>
+}) {
+  const { label, data, ...rest } = config
+  return graph.addEdge({
+    ...rest,
+    ...(label ? { labels: [{ attrs: { label: { text: label } } }] } : {}),
+    ...(data ? { data } : {}),
+  })
+}
+
 export function useSmartEngine() {
   // ---------- 核心对象 ----------
 
@@ -242,44 +274,113 @@ export function useSmartEngine() {
 
     if (selectedMode.value === 'smartengine-custom') {
       // 服务编排流程：Start → Service1 → Gateway → Service2/Service3 → End
-      const start = g.addNode({ shape: BPMN_START_EVENT, x: 100, y: 200, data: { label: '开始' } })
-      const svc1 = g.addNode({ shape: BPMN_SERVICE_TASK, x: 250, y: 180, width: 120, height: 60, data: { label: '调用服务A', smartAction: 'invoke', smartType: 'rpc' } })
-      const gw = g.addNode({ shape: BPMN_EXCLUSIVE_GATEWAY, x: 450, y: 195, data: { label: '路由' } })
-      const svc2 = g.addNode({ shape: BPMN_SERVICE_TASK, x: 600, y: 120, width: 120, height: 60, data: { label: '调用服务B', smartServiceName: 'serviceB' } })
-      const svc3 = g.addNode({ shape: BPMN_SERVICE_TASK, x: 600, y: 260, width: 120, height: 60, data: { label: '调用服务C', smartServiceName: 'serviceC' } })
-      const end = g.addNode({ shape: BPMN_END_EVENT, x: 820, y: 200, data: { label: '结束' } })
+      const start = createLabeledNode(g, { shape: BPMN_START_EVENT, x: 100, y: 200, label: '开始' })
+      const svc1 = createLabeledNode(g, {
+        shape: BPMN_SERVICE_TASK,
+        x: 250,
+        y: 180,
+        width: 120,
+        height: 60,
+        label: '调用服务A',
+        data: { smartAction: 'invoke', smartType: 'rpc' },
+      })
+      const gw = createLabeledNode(g, { shape: BPMN_EXCLUSIVE_GATEWAY, x: 450, y: 195, label: '路由' })
+      const svc2 = createLabeledNode(g, {
+        shape: BPMN_SERVICE_TASK,
+        x: 600,
+        y: 120,
+        width: 120,
+        height: 60,
+        label: '调用服务B',
+        data: { smartServiceName: 'serviceB' },
+      })
+      const svc3 = createLabeledNode(g, {
+        shape: BPMN_SERVICE_TASK,
+        x: 600,
+        y: 260,
+        width: 120,
+        height: 60,
+        label: '调用服务C',
+        data: { smartServiceName: 'serviceC' },
+      })
+      const end = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 820, y: 200, label: '结束' })
 
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: start, target: svc1 })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: svc1, target: gw })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: gw, target: svc2 })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: gw, target: svc3 })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: svc2, target: end })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: svc3, target: end })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: start, target: svc1 })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: svc1, target: gw })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: gw, target: svc2, label: '主链路' })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: gw, target: svc3, label: '降级链路' })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: svc2, target: end })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: svc3, target: end })
     } else if (selectedMode.value === 'smartengine-database') {
       // 审批流程：Start → Submit → Approve → Gateway → End/Reject
-      const start = g.addNode({ shape: BPMN_START_EVENT, x: 100, y: 200, data: { label: '开始' } })
-      const submit = g.addNode({ shape: BPMN_USER_TASK, x: 250, y: 180, width: 120, height: 60, data: { label: '提交申请', assignee: '${initiator}' } })
-      const approve = g.addNode({ shape: BPMN_USER_TASK, x: 450, y: 180, width: 120, height: 60, data: { label: '审批', multiInstance: true, multiInstanceType: 'parallel', approvalStrategy: 'any', assignee: '${approverList}' } })
-      const gw = g.addNode({ shape: BPMN_EXCLUSIVE_GATEWAY, x: 650, y: 195, data: { label: '审批结果' } })
-      const endApprove = g.addNode({ shape: BPMN_END_EVENT, x: 820, y: 140, data: { label: '通过' } })
-      const reject = g.addNode({ shape: BPMN_USER_TASK, x: 780, y: 280, width: 120, height: 60, data: { label: '驳回修改', assignee: '${initiator}' } })
+      const start = createLabeledNode(g, { shape: BPMN_START_EVENT, x: 100, y: 200, label: '开始' })
+      const submit = createLabeledNode(g, {
+        shape: BPMN_USER_TASK,
+        x: 250,
+        y: 180,
+        width: 120,
+        height: 60,
+        label: '提交申请',
+        data: { assignee: '${initiator}' },
+      })
+      const approve = createLabeledNode(g, {
+        shape: BPMN_USER_TASK,
+        x: 450,
+        y: 180,
+        width: 120,
+        height: 60,
+        label: '审批',
+        data: {
+          multiInstance: true,
+          multiInstanceType: 'parallel',
+          approvalStrategy: 'any',
+          assignee: '${approverList}',
+        },
+      })
+      const gw = createLabeledNode(g, { shape: BPMN_EXCLUSIVE_GATEWAY, x: 650, y: 195, label: '审批结果' })
+      const endApprove = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 820, y: 140, label: '通过' })
+      const reject = createLabeledNode(g, {
+        shape: BPMN_USER_TASK,
+        x: 780,
+        y: 280,
+        width: 120,
+        height: 60,
+        label: '驳回修改',
+        data: { assignee: '${initiator}' },
+      })
 
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: start, target: submit })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: submit, target: approve })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: approve, target: gw })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: gw, target: endApprove, data: { label: '通过' } })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: gw, target: reject, data: { label: '驳回' } })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: reject, target: submit })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: start, target: submit })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: submit, target: approve })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: approve, target: gw })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: gw, target: endApprove, label: '通过' })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: gw, target: reject, label: '驳回' })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: reject, target: submit, label: '重新提交' })
     } else {
       // 基础模式：混合流程
-      const start = g.addNode({ shape: BPMN_START_EVENT, x: 100, y: 200, data: { label: '开始' } })
-      const task1 = g.addNode({ shape: BPMN_USER_TASK, x: 250, y: 180, width: 120, height: 60, data: { label: '人工处理', smartAction: 'review', smartType: 'manual' } })
-      const task2 = g.addNode({ shape: BPMN_SERVICE_TASK, x: 450, y: 180, width: 120, height: 60, data: { label: '自动处理', smartAction: 'auto', smartType: 'rpc', smartRetry: 3 } })
-      const end = g.addNode({ shape: BPMN_END_EVENT, x: 650, y: 200, data: { label: '结束' } })
+      const start = createLabeledNode(g, { shape: BPMN_START_EVENT, x: 100, y: 200, label: '开始' })
+      const task1 = createLabeledNode(g, {
+        shape: BPMN_USER_TASK,
+        x: 250,
+        y: 180,
+        width: 120,
+        height: 60,
+        label: '人工处理',
+        data: { smartAction: 'review', smartType: 'manual' },
+      })
+      const task2 = createLabeledNode(g, {
+        shape: BPMN_SERVICE_TASK,
+        x: 450,
+        y: 180,
+        width: 120,
+        height: 60,
+        label: '自动处理',
+        data: { smartAction: 'auto', smartType: 'rpc', smartRetry: 3 },
+      })
+      const end = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 650, y: 200, label: '结束' })
 
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: start, target: task1 })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: task1, target: task2 })
-      g.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: task2, target: end })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: start, target: task1 })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: task1, target: task2 })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: task2, target: end })
     }
   }
 

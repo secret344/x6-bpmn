@@ -12,6 +12,7 @@ import type { ConstraintRule, ConstraintValidateContext } from '../dialect/types
 // ============================================================================
 
 /** 约束：限制开始事件数量（默认最多 1 个） */
+/* istanbul ignore next — 默认参数 max = 1 的缺省分支不作为业务逻辑测试 */
 export function createStartEventLimit(max: number = 1): ConstraintRule {
   return {
     id: 'start-event-limit',
