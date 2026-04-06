@@ -2,13 +2,14 @@
  * Pool / Participant 容器约束行为
  *
  * 在存在 Pool 的协作图场景下，约束流程节点必须位于某个 Pool 内部。
- * 若命中更小的 Lane，则优先保持 Lane 嵌套；但 Lane 不是硬性边界。
+ * 若命中更小的 Lane，则优先保持流程节点的 Lane 嵌套；但对流程节点而言，Lane 不是硬性边界。
+ * 对 Lane 本身，则要求保持在所属 Pool 内，避免普通拖拽跨 Pool 改变 Process 分区归属。
  * 主库只负责限制与结果回调，不直接承担 UI 提示。
  */
 
 import type { Graph, Node, Cell } from '@antv/x6'
 import { isBoundaryShape, isSwimlaneShape } from '../export/bpmn-mapping'
-import { BPMN_POOL } from '../utils/constants'
+import { BPMN_LANE, BPMN_POOL } from '../utils/constants'
 
 interface Rect {
   x: number
@@ -40,6 +41,7 @@ export interface PoolContainmentOptions {
 }
 
 const DEFAULT_REASON = '流程节点必须位于池/参与者内部'
+const LANE_REASON = '泳道必须保留在所属池/参与者内部'
 
 type TranslatableNode = Node & {
   translate?: (tx: number, ty: number, options?: unknown) => void
@@ -147,6 +149,26 @@ export function isContainedFlowNode(shape: string): boolean {
   return !isSwimlaneShape(shape) && !isBoundaryShape(shape)
 }
 
+function isContainedNodeByDefault(shape: string): boolean {
+  return shape !== BPMN_POOL && !isBoundaryShape(shape)
+}
+
+function getPoolAncestor(node: Node | null | undefined): Node | null {
+  let current = node as Cell | null | undefined
+  while (current) {
+    if (current.isNode?.() && current.shape === BPMN_POOL) {
+      return current as Node
+    }
+    current = current.getParent?.() as Cell | null | undefined
+  }
+  return null
+}
+
+function resolveContainmentReason(shape: string, customReason?: string): string {
+  if (customReason) return customReason
+  return shape === BPMN_LANE ? LANE_REASON : DEFAULT_REASON
+}
+
 export function getSwimlaneAncestor(node: Node | null | undefined): Node | null {
   let current = node?.getParent?.() as Cell | null | undefined
   while (current) {
@@ -186,8 +208,8 @@ export function validatePoolContainment(
   node: Node,
   options: Pick<PoolContainmentOptions, 'reason' | 'isContainedNode'> = {},
 ): PoolContainmentResult {
-  const reason = options.reason ?? DEFAULT_REASON
-  const isContainedNode = options.isContainedNode ?? isContainedFlowNode
+  const reason = resolveContainmentReason(node.shape, options.reason)
+  const isContainedNode = options.isContainedNode ?? isContainedNodeByDefault
 
   if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) {
     return { valid: true }
@@ -196,6 +218,33 @@ export function validatePoolContainment(
   const rect = nodeRect(node)
   const ancestor = getSwimlaneAncestor(node)
   const container = findContainingSwimlane(graph, rect, node.id)
+
+  if (node.shape === BPMN_LANE) {
+    const owningPool = getPoolAncestor(node)
+
+    if (owningPool) {
+      if (!containsRect(nodeRect(owningPool), rect)) {
+        return { valid: false, reason }
+      }
+
+      if (!container) {
+        return { valid: true, container: owningPool }
+      }
+
+      const containerPool = container.shape === BPMN_POOL ? container : getPoolAncestor(container)
+      return {
+        valid: true,
+        container: containerPool?.id === owningPool.id ? container : owningPool,
+      }
+    }
+
+    if (container) {
+      return { valid: true, container }
+    }
+
+    return { valid: false, reason }
+  }
+
   if (ancestor && containsRect(nodeRect(ancestor), rect)) {
     return { valid: true, container: container ?? ancestor }
   }
@@ -215,8 +264,8 @@ export function setupPoolContainment(
     constrainToContainer = true,
     removeInvalidOnAdd = true,
     onViolation,
-    reason = DEFAULT_REASON,
-    isContainedNode = isContainedFlowNode,
+    reason,
+    isContainedNode = isContainedNodeByDefault,
   } = options
 
   const lastValidState = new WeakMap<Node, NodeState>()

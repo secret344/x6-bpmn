@@ -569,6 +569,27 @@ test.describe('主库浏览器行为回归', () => {
     expect(taskAfter.parentId).toBe(laneAfter.id)
   })
 
+  test('Lane 拖入另一 Pool 时，应回到原 Pool 并保持原父链', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createTwoPoolMessageScenario(page)
+    const laneBefore = await getNodeSnapshot(page, scenario.leftLaneId)
+    const taskBefore = await getNodeSnapshot(page, scenario.sourceTaskId)
+    await takeScreenshot(page, '跨 Pool 拖拽 Lane 前的初始布局')
+
+    await dragNodeBy(page, scenario.leftLaneId, { x: 440, y: 0 }, { startOffset: { x: 250, y: 80 } })
+    await takeScreenshot(page, 'Lane 试图拖入另一 Pool 后自动恢复')
+
+    const laneAfter = await getNodeSnapshot(page, scenario.leftLaneId)
+    const taskAfter = await getNodeSnapshot(page, scenario.sourceTaskId)
+
+    expect(laneAfter.parentId).toBe(scenario.leftPoolId)
+    expectPositionNear(laneAfter, laneBefore)
+    expect(taskAfter.parentId).toBe(laneAfter.id)
+    expectPositionNear(taskAfter, taskBefore)
+  })
+
   test('跨 Pool 连线应按线型区分，消息流往返后保留 terminals', async ({ page }, testInfo) => {
     await waitForHarness(page)
     const takeScreenshot = createBrowserScreenshotTaker(testInfo)

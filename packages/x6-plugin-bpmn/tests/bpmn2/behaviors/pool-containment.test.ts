@@ -369,6 +369,87 @@ describe('validatePoolContainment', () => {
     expect(result.container?.id).toBe('lane')
   })
 
+  it('Lane 未附着但位于 Pool 内时，应返回 Pool 作为建议容器', () => {
+    const pool = createMockNode('pool', 'bpmn-pool', 0, 0, 400, 240)
+    const lane = createMockNode('lane', 'bpmn-lane', 40, 0, 360, 120)
+    const graph = createMockGraph([pool, lane])
+
+    const result = validatePoolContainment(graph, lane)
+    expect(result.valid).toBe(true)
+    expect(result.container?.id).toBe('pool')
+  })
+
+  it('已归属 Pool 的 Lane 被拖入另一 Pool 时应判定为非法', () => {
+    // 规范依据：formal-11-01-03.pdf §9.2.2、§10.7。
+    // Lane 是 Process 内的分区，并包含在 LaneSet / Process 中，不应通过普通拖拽跨 Pool 改变归属。
+    const poolA = createMockNode('pool-a', 'bpmn-pool', 0, 0, 400, 240)
+    const poolB = createMockNode('pool-b', 'bpmn-pool', 520, 0, 400, 240)
+    const lane = createMockNode('lane', 'bpmn-lane', 560, 0, 320, 120)
+    lane.__setParent(poolA)
+    const graph = createMockGraph([poolA, poolB, lane])
+
+    const result = validatePoolContainment(graph, lane)
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('泳道')
+  })
+
+  it('Lane 所属 Pool 暂未出现在图节点列表时，应回退为沿用所属 Pool', () => {
+    const offscreenPool = createMockNode('pool', 'bpmn-pool', 0, 0, 400, 240)
+    const visiblePool = createMockNode('visible-pool', 'bpmn-pool', 520, 0, 400, 240)
+    const lane = createMockNode('lane', 'bpmn-lane', 40, 0, 360, 120)
+    lane.__setParent(offscreenPool)
+    const graph = createMockGraph([visiblePool, lane])
+
+    const result = validatePoolContainment(graph, lane)
+    expect(result.valid).toBe(true)
+    expect(result.container?.id).toBe('pool')
+  })
+
+  it('Lane 同时命中异 Pool 容器时，仍应以所属 Pool 为准', () => {
+    const owningPool = createMockNode('owning-pool', 'bpmn-pool', 0, 0, 500, 260)
+    const foreignPool = createMockNode('foreign-pool', 'bpmn-pool', 20, 0, 380, 200)
+    const lane = createMockNode('lane', 'bpmn-lane', 40, 0, 320, 120)
+    lane.__setParent(owningPool)
+    const graph = createMockGraph([owningPool, foreignPool, lane])
+
+    const result = validatePoolContainment(graph, lane)
+    expect(result.valid).toBe(true)
+    expect(result.container?.id).toBe('owning-pool')
+  })
+
+  it('Lane 命中同 Pool 下的子泳道时，应允许返回该 Lane 容器', () => {
+    const owningPool = createMockNode('owning-pool', 'bpmn-pool', 0, 0, 500, 260)
+    const nestedLane = createMockNode('nested-lane', 'bpmn-lane', 20, 0, 380, 200)
+    nestedLane.__setParent(owningPool)
+    const lane = createMockNode('lane', 'bpmn-lane', 40, 0, 320, 120)
+    lane.__setParent(owningPool)
+    const graph = createMockGraph([owningPool, nestedLane, lane])
+
+    const result = validatePoolContainment(graph, lane)
+    expect(result.valid).toBe(true)
+    expect(result.container?.id).toBe('nested-lane')
+  })
+
+  it('Lane 未附着且不在任何 Pool 内时应失败', () => {
+    const pool = createMockNode('pool', 'bpmn-pool', 0, 0, 400, 240)
+    const lane = createMockNode('lane', 'bpmn-lane', 460, 260, 320, 120)
+    const graph = createMockGraph([pool, lane])
+
+    const result = validatePoolContainment(graph, lane)
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('泳道')
+  })
+
+  it('自定义失败文案应优先于默认容器文案', () => {
+    const pool = createMockNode('pool', 'bpmn-pool', 0, 0, 400, 240)
+    const lane = createMockNode('lane', 'bpmn-lane', 460, 260, 320, 120)
+    const graph = createMockGraph([pool, lane])
+
+    const result = validatePoolContainment(graph, lane, { reason: '自定义泳道错误' })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toBe('自定义泳道错误')
+  })
+
   it('存在 Pool 且节点在外部时应失败', () => {
     const pool = createMockNode('pool', 'bpmn-pool', 0, 0, 400, 240)
     const task = createMockNode('task', 'bpmn-user-task', 420, 260, 100, 60)
@@ -432,7 +513,7 @@ describe('setupPoolContainment', () => {
     expect(task.getParent()?.id).toBe('lane')
   })
 
-  it('node:added 时泳道节点应直接跳过', () => {
+  it('node:added 时位于 Pool 内的泳道应自动嵌入到 Pool', () => {
     const pool = createMockNode('pool', 'bpmn-pool', 0, 0, 400, 240)
     const lane = createMockNode('lane', 'bpmn-lane', 40, 0, 360, 120)
     const graph = createMockGraph([pool, lane])
@@ -441,7 +522,8 @@ describe('setupPoolContainment', () => {
     emitGraphEvent(graph, 'node:added', { node: lane })
 
     expect(lane.remove).not.toHaveBeenCalled()
-    expect(pool.embed).not.toHaveBeenCalled()
+    expect(pool.embed).toHaveBeenCalledWith(lane)
+    expect(lane.getParent()?.id).toBe('pool')
   })
 
   it('node:added 时边界事件应直接跳过，避免打断后续附着流程', () => {
@@ -641,15 +723,35 @@ describe('setupPoolContainment', () => {
     expect(task.getParent()?.id).toBe('lane-b')
   })
 
-  it('node:moving 时泳道节点应直接跳过', () => {
-    const pool = createMockNode('pool', 'bpmn-pool', 0, 0, 400, 240)
+  it('node:moving 时 Lane 跨 Pool 拖拽应回退到原 Pool 内位置', () => {
+    const onViolation = vi.fn()
+    const poolA = createMockNode('pool-a', 'bpmn-pool', 0, 0, 400, 240)
+    const poolB = createMockNode('pool-b', 'bpmn-pool', 520, 0, 400, 240)
     const lane = createMockNode('lane', 'bpmn-lane', 40, 0, 360, 120)
-    const graph = createMockGraph([pool, lane])
+    lane.__setParent(poolA)
+    const graph = createMockGraph([poolA, poolB, lane])
 
-    setupPoolContainment(graph)
-    lane.setPosition(60, 0)
+    setupPoolContainment(graph, { onViolation })
+    graph.emit('node:added', { node: lane })
+
+    lane.setPosition(560, 0)
     graph.emit('node:moving', { node: lane })
 
+    expect(onViolation).toHaveBeenCalledOnce()
+    expect(lane.setPosition).toHaveBeenLastCalledWith(40, 0, { silent: false })
+    expect(lane.getParent()?.id).toBe('pool-a')
+  })
+
+  it('node:moving 时边界事件应直接跳过', () => {
+    const pool = createMockNode('pool', 'bpmn-pool', 0, 0, 400, 240)
+    const boundary = createMockNode('boundary', 'bpmn-boundary-event-timer', 100, 20, 36, 36)
+    const graph = createMockGraph([pool, boundary])
+
+    setupPoolContainment(graph)
+    boundary.setPosition(420, 260)
+    graph.emit('node:moving', { node: boundary })
+
+    expect(boundary.setPosition).not.toHaveBeenLastCalledWith(100, 20, { silent: false })
     expect(pool.embed).not.toHaveBeenCalled()
   })
 
