@@ -1461,7 +1461,7 @@ describe('validatePoolBoundary — Pool 边界约束', () => {
     expect(result.valid).toBe(false)
   })
 
-  it('消息流连接不同 Pool 的节点应通过（BPMN 2.0 §13.4）', () => {
+  it('消息流连接不同 Pool 的节点应通过（formal-11-01-03 §9.3）', () => {
     const result = validatePoolBoundary(BPMN_MESSAGE_FLOW, 'pool-1', 'pool-2')
     expect(result.valid).toBe(true)
   })

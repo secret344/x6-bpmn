@@ -7,6 +7,12 @@ These rules apply to all AI coding agents in this workspace.
 - For package-specific work, also follow local instruction files.
 - If rules conflict, use the stricter testing requirement.
 
+## BPMN Specification Authority
+- For BPMN semantics, constraints, rule text, and behavioral conclusions, use `packages/bpmn2-spec/formal-11-01-03.pdf` as the final authority.
+- If repository descriptions, comments, tests, extracted notes, or secondary references disagree, re-check the PDF source text and align the code and wording to the PDF.
+- Treat `packages/bpmn2-spec/BPMN2_详细规范/` as a supporting reference only; if it differs from the PDF, the PDF wins.
+- Do not present a BPMN rule as a normative restriction unless the PDF text supports that conclusion. If the PDF is silent or only weakly suggestive, label the behavior as implementation policy or current product behavior instead.
+
 ## Codex and Claude Alignment
 - Keep `.codex/CODEX.md` and `.claude/CLAUDE.md` consistent with this file.
 - If any quality gate changes here, update both Codex and Claude constraint files in the same change.

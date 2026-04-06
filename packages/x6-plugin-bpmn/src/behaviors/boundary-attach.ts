@@ -87,7 +87,7 @@ export interface BoundaryAttachOptions {
 // 默认的宿主/边界事件判断
 // ============================================================================
 
-/** 默认可作为边界事件宿主的 Activity 图形集合 */
+/** 当前实现中可作为边界事件宿主的 Activity 图形集合 */
 const DEFAULT_HOST_SHAPES = new Set([
   BPMN_TASK,
   BPMN_USER_TASK,
@@ -106,6 +106,7 @@ const DEFAULT_HOST_SHAPES = new Set([
 /**
  * 取消边界事件的合法宿主集合。
  * 规范要求：Cancel 边界事件只能附着到事务子流程（Transaction Sub-Process）边界。
+ * 规范来源：formal-11-01-03 §10.4.5 Cancel Event。
  */
 export const CANCEL_BOUNDARY_HOST_SHAPES = new Set([BPMN_TRANSACTION])
 
@@ -115,7 +116,7 @@ const CANCEL_BOUNDARY_SHAPES = new Set([BPMN_BOUNDARY_EVENT_CANCEL])
 /**
  * 默认的边界事件宿主验证器（能识别边界事件类型）。
  * - 取消边界事件：只能附着到 Transaction Sub-Process
- * - 其它边界事件：可附着到任意 Activity
+ * - 其它边界事件：当前实现允许附着到 DEFAULT_HOST_SHAPES 中登记的 Activity 图形
  */
 export function defaultIsValidHostForBoundary(hostShape: string, boundaryShape: string): boolean {
   if (CANCEL_BOUNDARY_SHAPES.has(boundaryShape)) {

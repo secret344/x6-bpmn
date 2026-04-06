@@ -18,6 +18,7 @@ import {
   createBehaviorTestGraph,
   destroyBehaviorTestGraph,
   dragNodeLinearly,
+  emitGraphEvent,
   getNodeCenter,
   getNodeRect,
   registerBehaviorTestShapes,
@@ -514,7 +515,7 @@ describe('boundary attach real graph interactions', () => {
     const beforeX = boundary.getPosition().x
 
     host.resize(260, 140)
-    graph.emit('node:change:size', { node: host, cell: host })
+    emitGraphEvent(graph, 'node:change:size', { node: host, cell: host })
 
     expect(boundary.getParent()?.id).toBe(host.id)
     expect(distanceToRectEdge(getNodeCenter(boundary), getNodeRect(host))).toBeCloseTo(0, 5)
@@ -555,11 +556,11 @@ describe('boundary attach real graph interactions', () => {
     })
 
     transaction.embed(cancelBoundary)
-    graph.emit('node:embedded', { node: cancelBoundary, currentParent: transaction, previousParent: null })
+    emitGraphEvent(graph, 'node:embedded', { node: cancelBoundary, currentParent: transaction, previousParent: null })
     expect(cancelBoundary.getData<{ bpmn?: { boundaryPosition?: BoundaryPosition } }>()?.bpmn?.boundaryPosition).toBeDefined()
 
     task.embed(cancelBoundary)
-    graph.emit('node:embedded', { node: cancelBoundary, currentParent: task, previousParent: transaction })
+    emitGraphEvent(graph, 'node:embedded', { node: cancelBoundary, currentParent: task, previousParent: transaction })
     expect(cancelBoundary.getData<{ bpmn?: { boundaryPosition?: BoundaryPosition } }>()?.bpmn?.boundaryPosition?.side).toBeDefined()
     expect(defaultIsValidHostForBoundary(task.shape, cancelBoundary.shape)).toBe(false)
 
@@ -640,7 +641,7 @@ describe('setupBoundaryAttach', () => {
     // 手动设置父子关系
     host.embed(boundary)
     setupBoundaryAttach(graph)
-    graph.emit('node:embedded', { node: boundary, currentParent: host, previousParent: null })
+    emitGraphEvent(graph, 'node:embedded', { node: boundary, currentParent: host, previousParent: null })
 
     // boundary 应被 snap 到边框
     const data = boundary.getData()
@@ -652,7 +653,7 @@ describe('setupBoundaryAttach', () => {
     const graph = mockGraph()
     const task = mockNode('t1', 'bpmn-user-task', 100, 100, 200, 100)
     setupBoundaryAttach(graph)
-    graph.emit('node:embedded', { node: task, currentParent: null, previousParent: null })
+    emitGraphEvent(graph, 'node:embedded', { node: task, currentParent: null, previousParent: null })
     // 不应抛异常
   })
 
@@ -731,7 +732,7 @@ describe('setupBoundaryAttach', () => {
 
     setupBoundaryAttach(graph)
     // 调整宿主节点尺寸
-    graph.emit('node:change:size', { node: host, cell: host })
+    emitGraphEvent(graph, 'node:change:size', { node: host, cell: host })
 
     // boundary 应被重新定位到 top 边 ratio=0.5
     const bPos = boundary.getPosition()
@@ -745,7 +746,7 @@ describe('setupBoundaryAttach', () => {
     const graph = mockGraph()
     const task = mockNode('t1', 'bpmn-data-object', 100, 100, 50, 50)
     setupBoundaryAttach(graph)
-    graph.emit('node:change:size', { node: task, cell: task })
+    emitGraphEvent(graph, 'node:change:size', { node: task, cell: task })
     // 不应抛异常
   })
 
@@ -761,7 +762,7 @@ describe('setupBoundaryAttach', () => {
       isBoundaryEvent: (s) => s === 'my-boundary',
     })
 
-    graph.emit('node:embedded', { node: boundary, currentParent: host, previousParent: null })
+    emitGraphEvent(graph, 'node:embedded', { node: boundary, currentParent: host, previousParent: null })
     expect(boundary.getData().bpmn?.boundaryPosition).toBeDefined()
   })
 
@@ -788,7 +789,7 @@ describe('setupBoundaryAttach', () => {
 
     // 没有 embed，getParent() === null
     setupBoundaryAttach(graph)
-    graph.emit('node:embedded', { node: boundary, currentParent: null, previousParent: null })
+    emitGraphEvent(graph, 'node:embedded', { node: boundary, currentParent: null, previousParent: null })
     expect(boundary.getData().bpmn?.boundaryPosition).toBeUndefined()
   })
 
@@ -855,7 +856,7 @@ describe('setupBoundaryAttach', () => {
     // 不设 boundaryPosition
 
     setupBoundaryAttach(graph)
-    graph.emit('node:change:size', { node: host, cell: host })
+    emitGraphEvent(graph, 'node:change:size', { node: host, cell: host })
     // 不应抛异常，boundary 位置不变
   })
 
@@ -867,7 +868,7 @@ describe('setupBoundaryAttach', () => {
     host.embed(edge)
 
     setupBoundaryAttach(graph)
-    graph.emit('node:change:size', { node: host, cell: host })
+    emitGraphEvent(graph, 'node:change:size', { node: host, cell: host })
     // 不应抛异常
   })
 })
@@ -920,7 +921,7 @@ describe('setupBoundaryAttach — 防御性分支', () => {
 
     host.embed(boundary)
     setupBoundaryAttach(graph)
-    graph.emit('node:embedded', { node: boundary, currentParent: host, previousParent: null })
+    emitGraphEvent(graph, 'node:embedded', { node: boundary, currentParent: host, previousParent: null })
 
     // 应仍然正常写入 boundaryPosition
     const data = boundary.getData()
@@ -934,7 +935,7 @@ describe('setupBoundaryAttach — 防御性分支', () => {
 
     host.embed(boundary)
     setupBoundaryAttach(graph)
-    graph.emit('node:embedded', { node: boundary, currentParent: host, previousParent: null })
+    emitGraphEvent(graph, 'node:embedded', { node: boundary, currentParent: host, previousParent: null })
 
     // 现在手动将 parent 设为 null，再触发 setBoundaryPos
     boundary.setParent(null)
@@ -975,7 +976,7 @@ describe('setupBoundaryAttach — 防御性分支', () => {
     // host 无任何子节点，getChildren() 返回 null
 
     setupBoundaryAttach(graph)
-    graph.emit('node:change:size', { node: host, cell: host })
+    emitGraphEvent(graph, 'node:change:size', { node: host, cell: host })
     // 不应抛异常
   })
 })
@@ -985,13 +986,13 @@ describe('setupBoundaryAttach — 防御性分支', () => {
 // ============================================================================
 
 describe('defaultIsValidHostForBoundary', () => {
-  it('取消边界事件只能附着到 Transaction（formal-11-01-03 Cancel Event）', () => {
+  it('取消边界事件只能附着到 Transaction（formal-11-01-03 §10.4.5 Cancel Event）', () => {
     expect(defaultIsValidHostForBoundary('bpmn-transaction', 'bpmn-boundary-event-cancel')).toBe(true)
     expect(defaultIsValidHostForBoundary('bpmn-user-task', 'bpmn-boundary-event-cancel')).toBe(false)
     expect(defaultIsValidHostForBoundary('bpmn-sub-process', 'bpmn-boundary-event-cancel')).toBe(false)
   })
 
-  it('其它边界事件可附着到任意 Activity', () => {
+  it('其它边界事件可附着到当前实现支持的 Activity 宿主', () => {
     expect(defaultIsValidHostForBoundary('bpmn-user-task', 'bpmn-boundary-event')).toBe(true)
     expect(defaultIsValidHostForBoundary('bpmn-service-task', 'bpmn-boundary-event-timer')).toBe(true)
     expect(defaultIsValidHostForBoundary('bpmn-sub-process', 'bpmn-boundary-event-error')).toBe(true)

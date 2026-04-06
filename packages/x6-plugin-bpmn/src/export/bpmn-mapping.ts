@@ -151,7 +151,7 @@ export const NODE_MAPPING: Record<string, BpmnNodeMapping> = {
   [BPMN_BOUNDARY_EVENT]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' } },
   [BPMN_BOUNDARY_EVENT_MESSAGE]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'messageEventDefinition' },
   [BPMN_BOUNDARY_EVENT_TIMER]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'timerEventDefinition' },
-  // 升级边界事件：规范默认为非中断（cancelActivity=false）
+  // 升级边界事件：该图形导出为显式中断配置，避免依赖 XML 默认值推断
   [BPMN_BOUNDARY_EVENT_ESCALATION]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'escalationEventDefinition' },
   [BPMN_BOUNDARY_EVENT_CONDITIONAL]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'conditionalEventDefinition' },
   [BPMN_BOUNDARY_EVENT_ERROR]: { tag: 'boundaryEvent', attrs: { cancelActivity: 'true' }, eventDefinition: 'errorEventDefinition' },

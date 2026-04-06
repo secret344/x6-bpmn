@@ -148,9 +148,15 @@ When adding, changing, or verifying any BPMN connection rule, node constraint, P
    Cite that section number (e.g. `§13.2.2`) in the test or code comment as the authoritative source.
 3. 若规范中未覆盖某行为，不得将其视为约束，应在 PR 说明中注明。
    If the spec does not cover a behavior, do not treat it as a constraint; note it in the PR description.
+4. 若仓库中的描述、测试名称、注释、已有总结或中文详解与规范不一致，必须回查 PDF 原文并以 PDF 为准，同步修正实现或表述。
+  If repository descriptions, test names, comments, prior summaries, or the Chinese reference differ from the spec, re-check the original PDF text and use the PDF as the authority, then align the implementation or wording.
+5. 若 PDF 仅能支持弱推导、不能支持明确禁止，不得把该结论写成“规范要求”；应改写为“当前实现限制”或“产品约束”。
+  If the PDF supports only a weak inference and not an explicit prohibition, do not write the conclusion as a normative BPMN requirement; describe it as a current implementation limit or product constraint instead.
 
 ### 禁止事项 / Prohibited
 - 禁止在本指令文件内写死具体 BPMN 约束条文（如"顺序流不得跨 Pool"）。
   Do not hardcode specific BPMN constraint statements in this instruction file (e.g. "sequence flow must not cross pools").
 - 禁止以非规范来源（博客、经验总结等）作为约束依据。
   Do not use non-specification sources (blog posts, experience summaries, etc.) as the basis for constraints.
+- 禁止在未回查 `formal-11-01-03.pdf` 原文前，仅依据仓库现有表述复述或扩大解释 BPMN 约束。
+  Do not restate or broaden BPMN constraints based only on repository wording before checking the original `formal-11-01-03.pdf` text.

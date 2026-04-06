@@ -30,6 +30,12 @@ Run in `packages/x6-plugin-bpmn`:
 - Use `packages/bpmn2-spec` to check normative BPMN rules, `packages/bpmn-moddle` to check BPMN 2.0 XML/moddle implementation details, and `packages/bpmn-js` to compare against community modeler behavior and source structure.
 - If a submodule issue is identified, write the reminder or follow-up note to root `tip.md` instead of modifying the submodule.
 
+## BPMN specification authority
+- Use `packages/bpmn2-spec/formal-11-01-03.pdf` as the final source for BPMN semantics, constraints, and rule wording.
+- If repository text, tests, comments, extracted notes, or secondary references disagree, re-check the PDF source and align the implementation and wording to it.
+- Treat `packages/bpmn2-spec/BPMN2_详细规范/` as supplemental only; if it conflicts with the PDF, the PDF is authoritative.
+- Do not claim a BPMN restriction is normative unless the PDF directly supports it. If support is missing or only indirect, describe it as implementation policy or current behavior instead.
+
 ## Completion checklist for plugin edits
 1. Updated code and related business tests.
 2. Executed required test command(s).

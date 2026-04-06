@@ -40,8 +40,8 @@ export interface PoolContainmentOptions {
   isContainedNode?: (shape: string) => boolean
 }
 
-const DEFAULT_REASON = '流程节点必须位于池/参与者内部'
-const LANE_REASON = '泳道必须保留在所属池/参与者内部'
+const DEFAULT_REASON = '当前实现中，流程节点需保留在池/参与者内部'
+const LANE_REASON = '当前实现中，泳道需保留在所属池/参与者内部'
 
 type TranslatableNode = Node & {
   translate?: (tx: number, ty: number, options?: unknown) => void
