@@ -131,12 +131,11 @@ Recommended validation order:
 ```bash
 cd packages/x6-plugin-bpmn && npm run test:browser
 cd packages/x6-plugin-bpmn && npm run test:coverage
-cd packages/example && npm run test:e2e
 ```
 
-如果只改了局部逻辑，至少运行主库测试；涉及规则、导入导出或运行时行为时，按上面的顺序做完整验证。
+如果只改了局部逻辑，至少运行主库测试；涉及规则、导入导出或运行时行为时，按上面的顺序做完整验证。示例项目不再保留独立自动化测试入口。
 
-If you only change a small isolated path, run the plugin tests at minimum. For rule, import/export, or runtime behavior changes, use the full validation order above.
+If you only change a small isolated path, run the plugin tests at minimum. For rule, import/export, or runtime behavior changes, use the full validation order above. The example app no longer keeps a separate automated test entry.
 
 ## 7. 相关文档 / Related Documents
 

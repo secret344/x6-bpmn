@@ -262,11 +262,11 @@ export function dragNodeLinearly(
   const stepY = delta.y / stepCount
 
   for (let index = 0; index < stepCount; index += 1) {
-    node.translate(stepX, stepY)
-    emitGraphEvent(graph, 'node:moving', { node })
+    node.translate(stepX, stepY, { ui: true })
+    emitGraphEvent(graph, 'node:moving', { node, options: { ui: true } })
   }
 
-  emitGraphEvent(graph, 'node:moved', { node })
+  emitGraphEvent(graph, 'node:moved', { node, options: { ui: true } })
 }
 
 /**

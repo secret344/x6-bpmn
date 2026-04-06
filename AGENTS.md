@@ -27,6 +27,12 @@ These rules apply to all AI coding agents in this workspace.
 - Do not add synthetic tests that only chase coverage numbers.
 - Every new test must map to a real BPMN or SmartEngine business rule, export path, adapter behavior, or regression scenario.
 - If a branch is hard to test, explain the business reason and add the closest meaningful scenario instead of artificial assertions.
+- Headless browser tests must generate and assert visual snapshots; artifact-only screenshots are not sufficient verification.
+- Browser regression specs must live under `packages/x6-plugin-bpmn/tests/browser/*.spec.ts` and reuse the existing spec file when the scenario belongs to the same behavior area; do not create parallel duplicate spec files for the same regression theme.
+- Snapshot baselines for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/<spec-file>.ts-snapshots/`, grouped by test-case folders.
+- Runtime screenshot artifacts for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/artifacts/screenshots/`, grouped by the same test-case folders.
+- Runtime screenshot artifacts must be generated directly into that fixed artifact directory during test execution so they remain available for manual verification.
+- Do not create extra flat files, sibling snapshot folders, or alternate artifact directories for an existing browser spec, and do not rely on post-run moving or cleanup to normalize screenshot locations.
 
 ## Submodule Policy
 - Do not directly modify content inside git submodules under `packages/**`.

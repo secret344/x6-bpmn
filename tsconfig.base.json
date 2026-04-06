@@ -5,6 +5,7 @@
     "moduleResolution": "bundler",
     "baseUrl": ".",
     "paths": {
+      "@x6-bpmn2/plugin": ["packages/x6-plugin-bpmn/src/index.ts"],
       "@antv/x6-plugin-selection": ["node_modules/@antv/x6/lib/plugin/selection/index.d.ts"],
       "@antv/x6-plugin-transform": ["node_modules/@antv/x6/lib/plugin/transform/index.d.ts"],
       "@antv/x6-plugin-snapline": ["node_modules/@antv/x6/lib/plugin/snapline/index.d.ts"],

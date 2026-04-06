@@ -24,6 +24,7 @@ import {
 } from '../../helpers/behavior-test-graph'
 import {
   BPMN_BOUNDARY_EVENT_CANCEL,
+  BPMN_EVENT_SUB_PROCESS,
   BPMN_BOUNDARY_EVENT_TIMER,
   BPMN_TRANSACTION,
   BPMN_USER_TASK,
@@ -340,7 +341,7 @@ describe('attachBoundaryToHost', () => {
     } as any
   }
 
-  function mockGraph() {
+  function mockGraph(nodes: any[] = []) {
     const handlers: Record<string, Function[]> = {}
     return {
       on: (event: string, fn: Function) => {
@@ -389,11 +390,11 @@ describe('attachBoundaryToHost', () => {
 })
 
 describe('boundary attach real graph interactions', () => {
-  it('线性拖拽边界事件时应始终贴着宿主边框移动', () => {
+  it('默认配置下线性拖拽边界事件时应始终贴着宿主边框移动', () => {
     registerBehaviorTestShapes([BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
 
     const graph = createBehaviorTestGraph()
-    const dispose = setupBoundaryAttach(graph, { detachDistance: Number.POSITIVE_INFINITY })
+    const dispose = setupBoundaryAttach(graph)
     const host = graph.addNode({
       id: 'host',
       shape: BPMN_USER_TASK,
@@ -422,7 +423,40 @@ describe('boundary attach real graph interactions', () => {
     destroyBehaviorTestGraph(graph)
   })
 
-  it('线性拖离宿主超过阈值时应解除附着', () => {
+  it('默认配置下线性拖离宿主时仍应保持附着并沿边框滑动', () => {
+    registerBehaviorTestShapes([BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
+
+    const graph = createBehaviorTestGraph()
+    const dispose = setupBoundaryAttach(graph)
+    const host = graph.addNode({
+      id: 'host',
+      shape: BPMN_USER_TASK,
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 100,
+    })
+    const boundary = graph.addNode({
+      id: 'boundary',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      x: 182,
+      y: 82,
+      width: 36,
+      height: 36,
+    })
+
+    attachBoundaryToHost(graph, boundary, host)
+    dragNodeLinearly(graph, boundary, { x: 320, y: 240 }, 8)
+
+    expect(boundary.getParent()?.id).toBe(host.id)
+    expect(distanceToRectEdge(getNodeCenter(boundary), getNodeRect(host))).toBeCloseTo(0, 5)
+    expect(boundary.getData<{ bpmn?: { boundaryPosition?: BoundaryPosition } }>()?.bpmn?.boundaryPosition).toBeDefined()
+
+    dispose()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('显式配置有限阈值后，线性拖离宿主超过阈值时应解除附着', () => {
     registerBehaviorTestShapes([BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
 
     const graph = createBehaviorTestGraph()
@@ -564,7 +598,7 @@ describe('setupBoundaryAttach', () => {
     return self
   }
 
-  function mockGraph() {
+  function mockGraph(nodes: any[] = []) {
     const handlers: Record<string, Function[]> = {}
     return {
       on: (event: string, fn: Function) => {
@@ -577,19 +611,24 @@ describe('setupBoundaryAttach', () => {
       emit: (event: string, data: any) => {
         for (const fn of handlers[event] || []) fn(data)
       },
+      getCellById: (id: string) => nodes.find(node => node.id === id) ?? null,
       _handlers: handlers,
     } as any
   }
 
-  it('应绑定三个事件并返回 dispose 函数', () => {
+  it('应绑定五个事件并返回 dispose 函数', () => {
     const graph = mockGraph()
     const dispose = setupBoundaryAttach(graph)
     expect(graph._handlers['node:embedded']?.length).toBe(1)
     expect(graph._handlers['node:moving']?.length).toBe(1)
+    expect(graph._handlers['node:moved']?.length).toBe(1)
+    expect(graph._handlers['node:change:parent']?.length).toBe(1)
     expect(graph._handlers['node:change:size']?.length).toBe(1)
     dispose()
     expect(graph._handlers['node:embedded']?.length).toBe(0)
     expect(graph._handlers['node:moving']?.length).toBe(0)
+    expect(graph._handlers['node:moved']?.length).toBe(0)
+    expect(graph._handlers['node:change:parent']?.length).toBe(0)
     expect(graph._handlers['node:change:size']?.length).toBe(0)
   })
 
@@ -634,7 +673,25 @@ describe('setupBoundaryAttach', () => {
     expect(data.bpmn?.boundaryPosition).toBeDefined()
   })
 
-  it('node:moving — 拖离超过 detachDistance 应解除绑定', () => {
+  it('node:moving — 默认配置下拖到宿主外侧仍应保持附着', () => {
+    const graph = mockGraph()
+    const host = mockNode('host', 'bpmn-user-task', 100, 100, 200, 100)
+    const boundary = mockNode('b1', 'bpmn-boundary-event', 150, 80, 36, 36)
+
+    host.embed(boundary)
+    boundary.setData({ bpmn: { boundaryPosition: { side: 'top', ratio: 0.5 } } })
+
+    setupBoundaryAttach(graph)
+
+    boundary.setPosition(500, 500)
+    graph.emit('node:moving', { node: boundary })
+
+    expect(boundary.getParent()?.id).toBe(host.id)
+    const data = boundary.getData()
+    expect(data.bpmn?.boundaryPosition).toBeDefined()
+  })
+
+  it('node:moving — 显式配置有限 detachDistance 后拖离应解除绑定', () => {
     const graph = mockGraph()
     const host = mockNode('host', 'bpmn-user-task', 100, 100, 200, 100)
     const boundary = mockNode('b1', 'bpmn-boundary-event', 150, 80, 36, 36)
@@ -744,6 +801,52 @@ describe('setupBoundaryAttach', () => {
     // 无 parent，不应抛异常
   })
 
+  it('node:moving — 直拖导致 parent 暂失时应按 attachedToRef 恢复附着', () => {
+    const host = mockNode('host', 'bpmn-user-task', 100, 100, 200, 100)
+    const boundary = mockNode('b1', 'bpmn-boundary-event', 150, 80, 36, 36)
+    const graph = mockGraph([host, boundary])
+
+    boundary.setData({ bpmn: { boundaryPosition: { side: 'top', ratio: 0.5 }, attachedToRef: 'host' } })
+
+    setupBoundaryAttach(graph)
+
+    boundary.setPosition(500, 500)
+    graph.emit('node:moving', { node: boundary })
+
+    expect(boundary.getParent()?.id).toBe(host.id)
+    const data = boundary.getData()
+    expect(data.bpmn?.boundaryPosition).toBeDefined()
+  })
+
+  it('node:change:parent — 直拖导致 parent 暂失时也应按 attachedToRef 恢复附着', () => {
+    const host = mockNode('host', 'bpmn-user-task', 100, 100, 200, 100)
+    const boundary = mockNode('b1', 'bpmn-boundary-event', 150, 80, 36, 36)
+    const graph = mockGraph([host, boundary])
+
+    boundary.setData({ bpmn: { boundaryPosition: { side: 'top', ratio: 0.5 }, attachedToRef: 'host' } })
+
+    setupBoundaryAttach(graph)
+
+    boundary.setPosition(500, 500)
+    graph.emit('node:change:parent', { node: boundary, current: null, previous: host })
+
+    expect(boundary.getParent()?.id).toBe(host.id)
+    const data = boundary.getData()
+    expect(data.bpmn?.boundaryPosition).toBeDefined()
+  })
+
+  it('node:moving — attachedToRef 指向无效宿主时应安全跳过', () => {
+    const boundary = mockNode('b1', 'bpmn-boundary-event', 150, 80, 36, 36)
+    const graph = mockGraph([boundary])
+
+    boundary.setData({ bpmn: { boundaryPosition: { side: 'top', ratio: 0.5 }, attachedToRef: 'missing-host' } })
+
+    setupBoundaryAttach(graph)
+
+    expect(() => graph.emit('node:moving', { node: boundary })).not.toThrow()
+    expect(boundary.getParent()).toBeNull()
+  })
+
   it('node:change:size — 子节点无 boundaryPosition 时跳过', () => {
     const graph = mockGraph()
     const host = mockNode('host', 'bpmn-user-task', 100, 100, 200, 100)
@@ -799,12 +902,13 @@ describe('setupBoundaryAttach — 防御性分支', () => {
     return self
   }
 
-  function mkGraph() {
+  function mkGraph(nodes: any[] = []) {
     const handlers: Record<string, Function[]> = {}
     return {
       on: (e: string, fn: Function) => { handlers[e] = handlers[e] || []; handlers[e].push(fn) },
       off: (e: string, fn: Function) => { handlers[e] = (handlers[e] || []).filter(f => f !== fn) },
       emit: (e: string, d: any) => { for (const fn of handlers[e] || []) fn(d) },
+      getCellById: (id: string) => nodes.find(node => node.id === id) ?? null,
       _handlers: handlers,
     } as any
   }
@@ -892,6 +996,10 @@ describe('defaultIsValidHostForBoundary', () => {
     expect(defaultIsValidHostForBoundary('bpmn-service-task', 'bpmn-boundary-event-timer')).toBe(true)
     expect(defaultIsValidHostForBoundary('bpmn-sub-process', 'bpmn-boundary-event-error')).toBe(true)
     expect(defaultIsValidHostForBoundary('bpmn-transaction', 'bpmn-boundary-event-message')).toBe(true)
+  })
+
+  it('事件子流程不能附着边界事件（formal-11-01-03 §13.4.4）', () => {
+    expect(defaultIsValidHostForBoundary(BPMN_EVENT_SUB_PROCESS, 'bpmn-boundary-event-timer')).toBe(false)
   })
 
   it('非法宿主图形应返回 false', () => {

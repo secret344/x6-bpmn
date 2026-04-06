@@ -29,6 +29,8 @@
   },
   "devDependencies": {
     "@antv/x6": "^3.1.7",
+    "@antv/x6-plugin-selection": "^3.0.0",
+    "@antv/x6-plugin-transform": "^3.0.0",
     "@vitest/coverage-v8": "^4.1.2",
     "jsdom": "^29.0.1",
     "tsup": "^8.5.1",

@@ -1,7 +1,8 @@
 /**
  * Pool / Participant 容器约束行为
  *
- * 在存在 Pool 的协作图场景下，约束流程节点必须位于某个 Pool / Lane 内部。
+ * 在存在 Pool 的协作图场景下，约束流程节点必须位于某个 Pool 内部。
+ * 若命中更小的 Lane，则优先保持 Lane 嵌套；但 Lane 不是硬性边界。
  * 主库只负责限制与结果回调，不直接承担 UI 提示。
  */
 
@@ -44,6 +45,19 @@ type TranslatableNode = Node & {
   translate?: (tx: number, ty: number, options?: unknown) => void
 }
 
+type SizableNode = Node & {
+  resize?: (width: number, height: number, options?: unknown) => void
+  setSize?: (width: number, height: number, options?: unknown) => void
+}
+
+interface NodeState {
+  x: number
+  y: number
+  width: number
+  height: number
+  container: Node | null
+}
+
 function nodeRect(node: Pick<Node, 'getPosition' | 'getSize'>): Rect {
   const position = node.getPosition()
   const size = node.getSize()
@@ -76,6 +90,22 @@ function hasPoolNodes(graph: Graph): boolean {
   }
 }
 
+function hasEmbeddedChild(parent: Node | null | undefined, child: Node): boolean {
+  /* istanbul ignore next -- 当前调用方只会在存在候选容器时传入 parent，此分支保留为防御性兜底 */
+  if (!parent) return false
+
+  try {
+    if (typeof parent.getChildren !== 'function') {
+      return child.getParent?.()?.id === parent.id
+    }
+
+    const children = parent.getChildren?.() as Cell[] | null | undefined
+    return Array.isArray(children) && children.some((candidate) => candidate.id === child.id)
+  } catch {
+    return false
+  }
+}
+
 function restoreNodePosition(node: Node, position: { x: number; y: number }): void {
   const current = node.getPosition()
   const deltaX = position.x - current.x
@@ -86,15 +116,31 @@ function restoreNodePosition(node: Node, position: { x: number; y: number }): vo
   const translatableNode = node as TranslatableNode
   if (typeof translatableNode.translate === 'function') {
     try {
-      // 优先使用 translate，确保 X6 递归同步已嵌入的附着节点。
-      translatableNode.translate(deltaX, deltaY)
+      // 保持视图同步，避免浏览器拖拽回退时只更新模型而不刷新渲染。
+      translatableNode.translate(deltaX, deltaY, { silent: false })
       return
     } catch {
       // translate 失败时退回绝对定位，避免主链路中断。
     }
   }
 
-  node.setPosition(position.x, position.y)
+  node.setPosition(position.x, position.y, { silent: false })
+}
+
+function restoreNodeSize(node: Node, size: { width: number; height: number }): void {
+  const current = node.getSize()
+  if (current.width === size.width && current.height === size.height) return
+
+  const sizableNode = node as SizableNode
+
+  if (typeof sizableNode.resize === 'function') {
+    sizableNode.resize(size.width, size.height, { silent: false })
+    return
+  }
+
+  if (typeof sizableNode.setSize === 'function') {
+    sizableNode.setSize(size.width, size.height, { silent: false })
+  }
 }
 
 export function isContainedFlowNode(shape: string): boolean {
@@ -120,11 +166,16 @@ export function findContainingSwimlane(
   const rect = 'x' in target ? target : nodeRect(target)
 
   try {
-    return graph.getNodes()
+    const candidates = graph.getNodes()
       .filter((node) => isSwimlaneShape(node.shape))
       .filter((node) => node.id !== excludeNodeId)
       .filter((node) => containsRect(nodeRect(node), rect))
-      .sort((left, right) => area(nodeRect(left)) - area(nodeRect(right)))[0] ?? null
+      .sort((left, right) => area(nodeRect(left)) - area(nodeRect(right)))
+
+    const laneCandidate = candidates.find((node) => node.shape !== BPMN_POOL)
+    if (laneCandidate) return laneCandidate
+
+    return candidates[0] ?? null
   } catch {
     return null
   }
@@ -144,11 +195,11 @@ export function validatePoolContainment(
 
   const rect = nodeRect(node)
   const ancestor = getSwimlaneAncestor(node)
+  const container = findContainingSwimlane(graph, rect, node.id)
   if (ancestor && containsRect(nodeRect(ancestor), rect)) {
-    return { valid: true, container: ancestor }
+    return { valid: true, container: container ?? ancestor }
   }
 
-  const container = findContainingSwimlane(graph, rect, node.id)
   if (container) {
     return { valid: true, container }
   }
@@ -168,25 +219,100 @@ export function setupPoolContainment(
     isContainedNode = isContainedFlowNode,
   } = options
 
-  const lastValidState = new WeakMap<Node, { x: number; y: number; container: Node | null }>()
+  const lastValidState = new WeakMap<Node, NodeState>()
+  const activeDragState = new WeakMap<Node, NodeState>()
+  const activeDragNodes = new WeakSet<Node>()
+  const activeDragNodeRefs = new Set<Node>()
+  const activeDragViolationReason = new WeakMap<Node, string>()
   const lastViolationReason = new WeakMap<Node, string>()
+  const restoringNodes = new WeakSet<Node>()
+  const lockedSelectionDragNodes = new WeakSet<Node>()
+  const lockedSelectionDragNodeRefs = new Set<Node>()
+
+  const ownerDocument = (
+    graph as Graph & { container?: { ownerDocument?: Document | null } }
+  ).container?.ownerDocument
 
   function rememberValidState(node: Node, container?: Node | null): void {
     const position = node.getPosition()
+    const size = node.getSize()
     lastValidState.set(node, {
       x: position.x,
       y: position.y,
+      width: size.width,
+      height: size.height,
       container: container ?? getSwimlaneAncestor(node),
     })
+  }
+
+  function captureCurrentValidState(node: Node): NodeState | null {
+    const result = validatePoolContainment(graph, node, { reason, isContainedNode })
+    if (!result.valid) {
+      return null
+    }
+
+    const position = node.getPosition()
+    const size = node.getSize()
+    return {
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height,
+      container: result.container as Node | null,
+    }
   }
 
   function clearViolation(node: Node): void {
     lastViolationReason.delete(node)
   }
 
+  function beginDragState(node: Node): void {
+    if (activeDragNodes.has(node)) return
+
+    activeDragNodes.add(node)
+    activeDragNodeRefs.add(node)
+    activeDragViolationReason.delete(node)
+
+    const baselineState = lastValidState.get(node) ?? captureCurrentValidState(node)
+    if (!baselineState) return
+
+    lastValidState.set(node, { ...baselineState })
+    activeDragState.set(node, { ...baselineState })
+  }
+
+  function endDragState(node: Node): void {
+    activeDragNodes.delete(node)
+    activeDragNodeRefs.delete(node)
+    activeDragState.delete(node)
+    activeDragViolationReason.delete(node)
+    lockedSelectionDragNodes.delete(node)
+    lockedSelectionDragNodeRefs.delete(node)
+  }
+
+  function onBatchStop({ name }: { name?: string }): void {
+    if (name !== 'move-selection') return
+
+    for (const node of Array.from(activeDragNodeRefs)) {
+      endDragState(node)
+    }
+  }
+
+  function onPointerRelease(): void {
+    for (const node of Array.from(activeDragNodeRefs)) {
+      endDragState(node)
+    }
+  }
+
   function notifyViolation(result: PoolContainmentResult, node: Node): void {
     const key = result.reason as string
-    if (lastViolationReason.get(node) === key) return
+    if (activeDragNodes.has(node)) {
+      if (activeDragViolationReason.get(node) === key) return
+      activeDragViolationReason.set(node, key)
+    } else {
+      if (lastViolationReason.get(node) === key) return
+      lastViolationReason.set(node, key)
+    }
+
     lastViolationReason.set(node, key)
     try {
       onViolation?.(result, node)
@@ -203,9 +329,11 @@ export function setupPoolContainment(
     }
 
     const currentAncestor = getSwimlaneAncestor(node)
-    const nextContainer = result.container as Node
-    if (currentAncestor?.id !== nextContainer.id) {
-      currentAncestor?.unembed?.(node)
+    const nextContainer = result.container ?? null
+    if (nextContainer && (currentAncestor?.id !== nextContainer.id || !hasEmbeddedChild(nextContainer, node))) {
+      if (currentAncestor?.id !== nextContainer.id) {
+        currentAncestor?.unembed?.(node)
+      }
       nextContainer.embed(node)
     }
 
@@ -215,17 +343,27 @@ export function setupPoolContainment(
   }
 
   function restoreLastValidState(node: Node): void {
-    const lastState = lastValidState.get(node)
+    const lastState = activeDragState.get(node) ?? lastValidState.get(node)
     if (!lastState) return
 
-    restoreNodePosition(node, { x: lastState.x, y: lastState.y })
+    restoringNodes.add(node)
 
-    const currentAncestor = getSwimlaneAncestor(node)
-    const expectedContainer = lastState.container ?? findContainingSwimlane(graph, node, node.id)
-    if (!expectedContainer || currentAncestor?.id === expectedContainer.id) return
+    try {
+      restoreNodeSize(node, { width: lastState.width, height: lastState.height })
+      restoreNodePosition(node, { x: lastState.x, y: lastState.y })
 
-    currentAncestor?.unembed?.(node)
-    expectedContainer.embed(node)
+      const currentAncestor = getSwimlaneAncestor(node)
+      const expectedContainer = lastState.container ?? findContainingSwimlane(graph, node, node.id)
+      if (!expectedContainer) return
+      if (currentAncestor?.id === expectedContainer.id && hasEmbeddedChild(expectedContainer, node)) return
+
+      if (currentAncestor?.id !== expectedContainer.id) {
+        currentAncestor?.unembed?.(node)
+      }
+      expectedContainer.embed(node)
+    } finally {
+      restoringNodes.delete(node)
+    }
   }
 
   function onNodeAdded({ node }: { node: Node }) {
@@ -237,7 +375,9 @@ export function setupPoolContainment(
   }
 
   function onNodeMoving({ node }: { node: Node }) {
+    if (restoringNodes.has(node)) return
     if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) return
+    beginDragState(node)
     if (syncContainment(node)) return
     if (!constrainToContainer) return
 
@@ -245,9 +385,44 @@ export function setupPoolContainment(
   }
 
   function onNodeMoved({ node }: { node: Node }) {
+    if (restoringNodes.has(node)) return
+    if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) {
+      endDragState(node)
+      return
+    }
+
+    try {
+      if (syncContainment(node)) return
+      if (!constrainToContainer) return
+
+      restoreLastValidState(node)
+    } finally {
+      endDragState(node)
+    }
+  }
+
+  function onNodeChanged({ node, options }: { node: Node; options?: { ui?: boolean; silent?: boolean; selection?: string } }) {
+    if (restoringNodes.has(node)) return
+    if (options?.ui || options?.silent) return
     if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) return
+
+    const isSelectionDrag = Boolean(options?.selection)
+    if (isSelectionDrag) {
+      beginDragState(node)
+    }
+
+    if (isSelectionDrag && lockedSelectionDragNodes.has(node)) {
+      restoreLastValidState(node)
+      return
+    }
+
     if (syncContainment(node)) return
     if (!constrainToContainer) return
+
+    if (isSelectionDrag) {
+      lockedSelectionDragNodes.add(node)
+      lockedSelectionDragNodeRefs.add(node)
+    }
 
     restoreLastValidState(node)
   }
@@ -263,10 +438,22 @@ export function setupPoolContainment(
   graph.on('node:added', onNodeAdded)
   graph.on('node:moving', onNodeMoving)
   graph.on('node:moved', onNodeMoved)
+  graph.on('node:change:position', onNodeChanged)
+  graph.on('node:change:size', onNodeChanged)
+  graph.on('node:change:parent', onNodeChanged)
+  graph.model?.on?.('batch:stop', onBatchStop)
+  ownerDocument?.addEventListener?.('mouseup', onPointerRelease, true)
+  ownerDocument?.addEventListener?.('touchend', onPointerRelease, true)
 
   return () => {
     graph.off('node:added', onNodeAdded)
     graph.off('node:moving', onNodeMoving)
     graph.off('node:moved', onNodeMoved)
+    graph.off('node:change:position', onNodeChanged)
+    graph.off('node:change:size', onNodeChanged)
+    graph.off('node:change:parent', onNodeChanged)
+    graph.model?.off?.('batch:stop', onBatchStop)
+    ownerDocument?.removeEventListener?.('mouseup', onPointerRelease, true)
+    ownerDocument?.removeEventListener?.('touchend', onPointerRelease, true)
   }
 }

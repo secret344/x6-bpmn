@@ -1,4 +1,6 @@
-import { Graph, type Cell, type Node } from '@antv/x6'
+import { Graph, type Cell, type Edge, type Node } from '@antv/x6'
+import { Selection } from '@antv/x6-plugin-selection'
+import { Transform } from '@antv/x6-plugin-transform'
 import {
   registerBpmnShapes,
   setupPoolContainment,
@@ -7,6 +9,7 @@ import {
   exportBpmnXml,
   importBpmnXml,
   createBpmnValidateConnection,
+  createBpmnValidateEdge,
   BPMN_BOUNDARY_EVENT_TIMER,
   BPMN_LANE,
   BPMN_MESSAGE_FLOW,
@@ -14,7 +17,7 @@ import {
   BPMN_SEQUENCE_FLOW,
   BPMN_SERVICE_TASK,
   BPMN_USER_TASK,
-} from '../../../dist/index.mjs'
+} from '../../../src/index'
 
 type NodeSnapshot = {
   id: string
@@ -56,19 +59,10 @@ declare global {
       createPoolLaneTaskBoundaryScenario: () => ScenarioIds
       createTwoPoolMessageScenario: () => MessageScenarioIds
       getNodeSnapshot: (id: string) => NodeSnapshot
+      getSelectedCellIds: () => string[]
       getEdgeSnapshotByShape: (shape: string) => EdgeSnapshot
-      validateConnection: (args: { shape: string; sourceId: string; targetId: string }) => boolean
-      addEdge: (args: { shape: string; sourceId: string; targetId: string }) => EdgeSnapshot
-      translateNode: (id: string, delta: { x: number; y: number }) => void
-      resizeNode: (id: string, size: { width: number; height: number }) => void
+      getEdgeCountByShape: (shape: string) => number
       roundtripXml: () => Promise<string>
-      simulateInvalidMoveWithParentLoss: (args: {
-        nodeId: string
-        parentId: string
-        x: number
-        y: number
-        eventName?: 'node:moving' | 'node:moved'
-      }) => void
     }
   }
 }
@@ -82,21 +76,60 @@ if (!container) {
   throw new Error('未找到浏览器测试画布容器')
 }
 
-const graph = new Graph({
+let graph!: Graph
+
+graph = new Graph({
   container,
   width: 1200,
   height: 800,
   embedding: { enabled: true },
   connecting: {
-    createEdge() {
+    createEdge(): Edge {
       return graph.createEdge({ shape: currentEdgeShape })
     },
     validateConnection: createBpmnValidateConnection(() => currentEdgeShape),
+    validateEdge: createBpmnValidateEdge(() => currentEdgeShape),
   },
 })
 
+graph.use(
+  new Selection({
+    enabled: true,
+    multiple: false,
+    rubberband: false,
+    movable: true,
+    showNodeSelectionBox: true,
+  }),
+)
+graph.use(
+  new Transform({
+    resizing: { enabled: true },
+    rotating: { enabled: false },
+  }),
+)
+
 setupBoundaryAttach(graph)
 setupPoolContainment(graph)
+
+const edgeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-edge-shape]'))
+
+function setCurrentEdgeShape(shape: string): void {
+  currentEdgeShape = shape
+  edgeButtons.forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.edgeShape === shape)
+  })
+}
+
+edgeButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    const shape = button.dataset.edgeShape
+    if (shape) {
+      setCurrentEdgeShape(shape)
+    }
+  })
+})
+
+setCurrentEdgeShape(BPMN_SEQUENCE_FLOW)
 
 function emitGraphEvent(eventName: 'node:added' | 'node:moving' | 'node:moved', payload: { node: Node }): void {
   const eventGraph = graph as Graph & {
@@ -115,6 +148,8 @@ function emitGraphEvent(eventName: 'node:added' | 'node:moving' | 'node:moved', 
 }
 
 function clear(): void {
+  setCurrentEdgeShape(BPMN_SEQUENCE_FLOW)
+
   const resettableGraph = graph as Graph & { resetCells?: (cells: Cell[]) => void }
   if (typeof resettableGraph.resetCells === 'function') {
     resettableGraph.resetCells([])
@@ -144,6 +179,15 @@ function getNodeSnapshot(id: string): NodeSnapshot {
   }
 }
 
+function getSelectedCellIds(): string[] {
+  const selectableGraph = graph as Graph & { getSelectedCells?: () => Cell[] }
+  if (typeof selectableGraph.getSelectedCells !== 'function') {
+    return []
+  }
+
+  return selectableGraph.getSelectedCells().map((cell) => cell.id)
+}
+
 function getEdgeSnapshotByShape(shape: string): EdgeSnapshot {
   const edge = graph.getEdges().find((candidate) => candidate.shape === shape)
   if (!edge) {
@@ -156,6 +200,26 @@ function getEdgeSnapshotByShape(shape: string): EdgeSnapshot {
     sourceId: edge.getSourceCellId?.() ?? null,
     targetId: edge.getTargetCellId?.() ?? null,
   }
+}
+
+function getEdgeCountByShape(shape: string): number {
+  return graph.getEdges().filter((candidate) => candidate.shape === shape).length
+}
+
+function getNodeLayerPriority(node: Node): number {
+  if (node.shape === BPMN_POOL) return 0
+  if (node.shape === BPMN_LANE) return 1
+  if (node.shape.startsWith('bpmn-boundary-event')) return 3
+  return 2
+}
+
+function normalizeNodeLayers(): void {
+  graph.getNodes()
+    .slice()
+    .sort((left, right) => getNodeLayerPriority(left) - getNodeLayerPriority(right))
+    .forEach((node) => {
+      node.toFront()
+    })
 }
 
 function createPoolLaneTaskScenario(): ScenarioIds {
@@ -196,6 +260,7 @@ function createPoolLaneTaskScenario(): ScenarioIds {
   })
   lane.embed(task)
   emitGraphEvent('node:added', { node: task })
+  normalizeNodeLayers()
 
   return {
     poolId: pool.id,
@@ -223,6 +288,7 @@ function createPoolLaneTaskBoundaryScenario(): ScenarioIds {
   }
 
   attachBoundaryToHost(graph, boundary, task as Node)
+  normalizeNodeLayers()
 
   return {
     ...scenario,
@@ -304,6 +370,7 @@ function createTwoPoolMessageScenario(): MessageScenarioIds {
   })
   rightLane.embed(targetTask)
   emitGraphEvent('node:added', { node: targetTask })
+  normalizeNodeLayers()
 
   return {
     leftPoolId: leftPool.id,
@@ -315,88 +382,11 @@ function createTwoPoolMessageScenario(): MessageScenarioIds {
   }
 }
 
-function validateConnection(args: { shape: string; sourceId: string; targetId: string }): boolean {
-  const source = graph.getCellById(args.sourceId)
-  const target = graph.getCellById(args.targetId)
-  const validate = graph.options.connecting?.validateConnection
-
-  if (!source?.isNode?.() || !target?.isNode?.() || typeof validate !== 'function') {
-    throw new Error('无法执行浏览器连线校验')
-  }
-
-  currentEdgeShape = args.shape
-  return validate({
-    edge: graph.createEdge({ shape: args.shape }),
-    sourceCell: source,
-    targetCell: target,
-    targetMagnet: {} as object,
-  })
-}
-
-function addEdge(args: { shape: string; sourceId: string; targetId: string }): EdgeSnapshot {
-  const source = graph.getCellById(args.sourceId)
-  const target = graph.getCellById(args.targetId)
-  if (!source?.isNode?.() || !target?.isNode?.()) {
-    throw new Error('无法定位待连线的源节点或目标节点')
-  }
-
-  const edge = graph.addEdge({
-    shape: args.shape,
-    source,
-    target,
-  })
-
-  return {
-    id: edge.id,
-    shape: edge.shape,
-    sourceId: edge.getSourceCellId?.() ?? null,
-    targetId: edge.getTargetCellId?.() ?? null,
-  }
-}
-
-function translateNode(id: string, delta: { x: number; y: number }): void {
-  const cell = graph.getCellById(id)
-  if (!cell?.isNode?.()) {
-    throw new Error(`无法定位待移动节点: ${id}`)
-  }
-
-  ;(cell as Node).translate(delta.x, delta.y)
-}
-
-function resizeNode(id: string, size: { width: number; height: number }): void {
-  const cell = graph.getCellById(id)
-  if (!cell?.isNode?.()) {
-    throw new Error(`无法定位待缩放节点: ${id}`)
-  }
-
-  ;(cell as Node).resize(size.width, size.height)
-}
-
 async function roundtripXml(): Promise<string> {
   const xml = await exportBpmnXml(graph, { processName: '浏览器测试流程' })
   await importBpmnXml(graph, xml, { zoomToFit: false })
+  normalizeNodeLayers()
   return xml
-}
-
-function simulateInvalidMoveWithParentLoss(args: {
-  nodeId: string
-  parentId: string
-  x: number
-  y: number
-  eventName?: 'node:moving' | 'node:moved'
-}): void {
-  const { nodeId, parentId, x, y, eventName = 'node:moved' } = args
-  const parent = graph.getCellById(parentId)
-  const cell = graph.getCellById(nodeId)
-
-  if (!parent?.isNode?.() || !cell?.isNode?.()) {
-    throw new Error(`无法定位待恢复父链的节点: ${nodeId}`)
-  }
-
-  const node = cell as Node
-  ;(parent as Node).unembed(node)
-  node.setPosition(x, y)
-  emitGraphEvent(eventName, { node })
 }
 
 window.__x6PluginBrowserHarness = {
@@ -405,11 +395,8 @@ window.__x6PluginBrowserHarness = {
   createPoolLaneTaskBoundaryScenario,
   createTwoPoolMessageScenario,
   getNodeSnapshot,
+  getSelectedCellIds,
   getEdgeSnapshotByShape,
-  validateConnection,
-  addEdge,
-  translateNode,
-  resizeNode,
+  getEdgeCountByShape,
   roundtripXml,
-  simulateInvalidMoveWithParentLoss,
 }

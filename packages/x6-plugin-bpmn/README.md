@@ -187,7 +187,7 @@ If you change `src/**` or `tests/**`, run at least `npm run test`; for cross-mod
 2. 示例 `packages/example`：负责宿主接入后的端到端交互和 UI 事件链。
 
 1. Plugin `packages/x6-plugin-bpmn`: owns rules, import/export, runtime behaviors, and core structural regression in a real browser.
-2. Example `packages/example`: owns host integration, end-to-end interaction, and UI event chains.
+2. Example `packages/example`: provides manual integration and UI verification only; automated regression is maintained in the plugin package.
 
 推荐验证顺序如下：
 
@@ -196,13 +196,11 @@ Recommended validation order:
 ```bash
 npm run test:coverage
 npm run test:browser
-cd ../example && npm run test:e2e
 ```
 
 ```bash
 npm run test:coverage
 npm run test:browser
-cd ../example && npm run test:e2e
 ```
 
 `npm run test:browser` 使用 `packages/x6-plugin-bpmn/tests/browser` 下的独立 Playwright harness，补足 jsdom 不稳定的真实图实例场景。

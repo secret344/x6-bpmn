@@ -58,7 +58,11 @@ export type ElementSpec =
   | AssociationSpec
   | DataAssociationSpec
 
-export interface StartEventSpec {
+interface FlowContainerChildSpec {
+  parentRef?: string
+}
+
+export interface StartEventSpec extends FlowContainerChildSpec {
   kind: 'startEvent'
   id: string
   name?: string
@@ -67,7 +71,7 @@ export interface StartEventSpec {
   parallelMultiple?: boolean
 }
 
-export interface EndEventSpec {
+export interface EndEventSpec extends FlowContainerChildSpec {
   kind: 'endEvent'
   id: string
   name?: string
@@ -75,7 +79,7 @@ export interface EndEventSpec {
   incoming?: string[]
 }
 
-export interface TaskSpec {
+export interface TaskSpec extends FlowContainerChildSpec {
   kind: 'task' | 'userTask' | 'serviceTask' | 'scriptTask' | 'sendTask' |
         'receiveTask' | 'manualTask' | 'businessRuleTask'
   id: string
@@ -86,7 +90,7 @@ export interface TaskSpec {
   dataOutputAssociations?: string[]
 }
 
-export interface IntermediateThrowEventSpec {
+export interface IntermediateThrowEventSpec extends FlowContainerChildSpec {
   kind: 'intermediateThrowEvent'
   id: string
   name?: string
@@ -95,7 +99,7 @@ export interface IntermediateThrowEventSpec {
   outgoing?: string[]
 }
 
-export interface IntermediateCatchEventSpec {
+export interface IntermediateCatchEventSpec extends FlowContainerChildSpec {
   kind: 'intermediateCatchEvent'
   id: string
   name?: string
@@ -104,7 +108,7 @@ export interface IntermediateCatchEventSpec {
   outgoing?: string[]
 }
 
-export interface BoundaryEventSpec {
+export interface BoundaryEventSpec extends FlowContainerChildSpec {
   kind: 'boundaryEvent'
   id: string
   name?: string
@@ -114,7 +118,7 @@ export interface BoundaryEventSpec {
   parallelMultiple?: boolean
 }
 
-export interface GatewaySpec {
+export interface GatewaySpec extends FlowContainerChildSpec {
   kind: 'exclusiveGateway' | 'parallelGateway' | 'inclusiveGateway' |
         'complexGateway' | 'eventBasedGateway'
   id: string
@@ -124,20 +128,20 @@ export interface GatewaySpec {
   outgoing?: string[]
 }
 
-export interface SubProcessSpec {
+export interface SubProcessSpec extends FlowContainerChildSpec {
   kind: 'subProcess' | 'transaction' | 'adHocSubProcess' | 'callActivity'
   id: string
   name?: string
   triggeredByEvent?: boolean
 }
 
-export interface DataObjectSpec {
+export interface DataObjectSpec extends FlowContainerChildSpec {
   kind: 'dataObjectReference'
   id: string
   name?: string
 }
 
-export interface DataStoreSpec {
+export interface DataStoreSpec extends FlowContainerChildSpec {
   kind: 'dataStoreReference'
   id: string
   name?: string
@@ -167,7 +171,7 @@ export interface LaneSpec {
   flowNodeRefs?: string[]
 }
 
-export interface SequenceFlowSpec {
+export interface SequenceFlowSpec extends FlowContainerChildSpec {
   kind: 'sequenceFlow'
   id: string
   sourceRef: string
@@ -249,12 +253,12 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
 
   // ---- Build elements ----
   const nodeRegistry = new Map<string, ModdleElement>()
-  const allProcessElements: ModdleElement[] = []
 
   // We need two passes: first create all nodes, then create flows (refs)
   const flowSpecsDeferred: SequenceFlowSpec[] = []
   const assocSpecsDeferred: AssociationSpec[] = []
   const dataAssocSpecsDeferred: DataAssociationSpec[] = []
+  const associationElements = new Map<string, ModdleElement>()
 
   // default flow map: gateway id → seq flow id
   const gatewayDefaultMap = new Map<string, string>()
@@ -277,7 +281,6 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
 
       const moddleEl = createFlowElement(moddle, el)
       nodeRegistry.set(el.id, moddleEl)
-      allProcessElements.push(moddleEl)
     }
   }
 
@@ -315,7 +318,6 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
       })
     }
     flowElements.set(sf.id, seqFlow)
-    allProcessElements.push(seqFlow)
   }
 
   // Handle gateway defaults
@@ -345,7 +347,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
     }
     if (assoc.direction) props.associationDirection = assoc.direction
     const assocEl = moddle.create('bpmn:Association', props)
-    allProcessElements.push(assocEl)
+    associationElements.set(assoc.id, assocEl)
   }
 
   // Create data associations and attach to tasks
@@ -383,21 +385,45 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
       isExecutable: proc.isExecutable ?? false,
     })
 
-    // Flow elements belonging to this process
-    const procFlowEls = allProcessElements.filter((el) => {
-      // Check if this element belongs to this process (by checking if its id is in this process's elements list)
-      const elIds = new Set(proc.elements.map((e) => e.id))
-      const flowIds = new Set(flowSpecsDeferred.filter((sf) =>
-        proc.elements.some((e) => e.id === sf.id || e.id === sf.sourceRef || e.id === sf.targetRef),
-      ).map((sf) => sf.id))
-      const assocIds = new Set(assocSpecsDeferred.filter((a) =>
-        proc.elements.some((e) => e.id === a.id || e.id === a.sourceRef || e.id === a.targetRef),
-      ).map((a) => a.id))
-      const elemId: string = (el as any).id || ''
-      return elIds.has(elemId) || flowIds.has(elemId) || assocIds.has(elemId)
-    })
+    const processFlowElements: ModdleElement[] = []
+    const containerChildren = new Map<string, ModdleElement[]>()
 
-    processEl.flowElements = procFlowEls
+    for (const el of proc.elements) {
+      if (el.kind === 'laneSet' || el.kind === 'dataInputAssociation' || el.kind === 'dataOutputAssociation') {
+        continue
+      }
+
+      const elementId = el.id
+      const builtElement = el.kind === 'sequenceFlow'
+        ? flowElements.get(elementId)
+        : el.kind === 'association'
+          ? associationElements.get(elementId)
+          : nodeRegistry.get(elementId)
+
+      if (!builtElement) {
+        continue
+      }
+
+      const parentRef = (el as FlowContainerChildSpec).parentRef
+      if (parentRef) {
+        const children = containerChildren.get(parentRef) ?? []
+        children.push(builtElement)
+        containerChildren.set(parentRef, children)
+        continue
+      }
+
+      processFlowElements.push(builtElement)
+    }
+
+    for (const [containerId, children] of containerChildren) {
+      const container = nodeRegistry.get(containerId)
+      if (!container) {
+        throw new Error(`BpmnBuilder: unknown parentRef "${containerId}"`)
+      }
+      container.flowElements = [...(container.flowElements ?? []), ...children]
+    }
+
+    processEl.flowElements = processFlowElements
 
     if (laneSetSpec) {
       const lanes = laneSetSpec.lanes.map((lane) => {

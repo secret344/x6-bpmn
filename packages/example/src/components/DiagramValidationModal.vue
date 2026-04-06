@@ -106,7 +106,7 @@ const summary = computed(() => ({
 
 const sections = computed(() => sectionMeta.map((section) => ({
   ...section,
-  items: report.value?.issues.filter((item) => item.category === section.key) ?? [],
+  items: report.value?.issues.filter((item: ValidationIssue) => item.category === section.key) ?? [],
 })))
 
 const defaultActiveKeys = computed(() => sectionMeta.map((section) => section.key))

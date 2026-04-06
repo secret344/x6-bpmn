@@ -82,9 +82,12 @@ const minimapRef = ref<HTMLDivElement>();
 declare global {
   interface Window {
     __x6BpmnExampleGraph?: Graph;
+    __x6BpmnExampleReady?: boolean;
     __x6BpmnExampleApi?: {
       exportXml: () => Promise<string>;
       importXml: (xml: string) => Promise<void>;
+      getSelectedCellIds: () => string[];
+      isReady: () => boolean;
     };
   }
 }
@@ -174,6 +177,10 @@ registerBpmnShapes();
 
 onMounted(async () => {
   await nextTick();
+  if (typeof window !== "undefined") {
+    window.__x6BpmnExampleReady = false;
+  }
+
   const container = graphContainerRef.value!;
   const minimapContainer = minimapRef.value!;
 
@@ -210,7 +217,7 @@ onMounted(async () => {
       allowLoop: false,
       highlight: true,
       router: {
-        name: "manhattan",
+        name: "orth",
         args: { padding: 20 },
       },
       connector: {
@@ -518,15 +525,25 @@ onMounted(async () => {
 
   // 加载示例流程
   createSampleProcess(graph);
-  setTimeout(() => graph?.zoomToFit({ padding: 40, maxScale: 1 }), 200);
+
+  const markReady = () => {
+    graph?.zoomToFit({ padding: 40, maxScale: 1 });
+    if (typeof window !== "undefined") {
+      window.__x6BpmnExampleReady = true;
+    }
+  };
+
+  setTimeout(markReady, 200);
 
   emit("graphReady", graph);
 
   if (typeof window !== "undefined") {
     window.__x6BpmnExampleGraph = graph;
     window.__x6BpmnExampleApi = {
-      exportXml: () => exportBpmnXml(graph, { processName: "BPMN流程" }),
-      importXml: (xml: string) => importBpmnXml(graph, xml),
+      exportXml: () => exportBpmnXml(graph!, { processName: "BPMN流程" }),
+      importXml: (xml: string) => importBpmnXml(graph!, xml),
+      getSelectedCellIds: () => graph!.getSelectedCells().map((cell) => cell.id),
+      isReady: () => Boolean(window.__x6BpmnExampleReady),
     };
   }
 });
@@ -540,6 +557,7 @@ onUnmounted(() => {
   resizeObserver = null;
   if (typeof window !== "undefined" && window.__x6BpmnExampleGraph === graph) {
     delete window.__x6BpmnExampleGraph;
+    delete window.__x6BpmnExampleReady;
     delete window.__x6BpmnExampleApi;
   }
   graph?.dispose();

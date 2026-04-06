@@ -152,7 +152,7 @@ onMounted(async () => {
       allowBlank: false,
       allowLoop: false,
       highlight: true,
-      router: { name: 'manhattan', args: { padding: 20 } },
+      router: { name: 'orth', args: { padding: 20 } },
       connector: { name: 'rounded', args: { radius: 8 } },
       createEdge() {
         return graph!.createEdge({ shape: currentEdgeType.value })

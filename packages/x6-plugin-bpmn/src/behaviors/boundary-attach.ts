@@ -7,7 +7,7 @@
  * ① 拖放吸附 — 边界事件落在 Activity 边框附近时，snap 到边框并建立 embed
  * ② 边框约束 — 已吸附的边界事件拖拽时只能沿宿主边框移动
  * ③ 宿主 resize — 宿主尺寸变化后重新计算边界事件位置
- * ④ 脱离检测 — 拖离宿主足够远时解除绑定
+ * ④ 脱离检测 — 显式启用有限阈值时，拖离宿主足够远后解除绑定
  *
  * X6 已内置的能力（无需重新实现）：
  * - 子节点跟随父节点移动（Cell.translate 自动递归 children）
@@ -27,7 +27,6 @@ import {
   BPMN_MANUAL_TASK,
   BPMN_SUB_PROCESS,
   BPMN_TRANSACTION,
-  BPMN_EVENT_SUB_PROCESS,
   BPMN_AD_HOC_SUB_PROCESS,
   BPMN_CALL_ACTIVITY,
   BPMN_BOUNDARY_EVENT_CANCEL,
@@ -52,7 +51,8 @@ export interface BoundaryAttachOptions {
    * 脱离距离阈值 (px)。
    * 已吸附的边界事件中心到宿主边框距离 > 此值时解除绑定。
    * 设为 Infinity 禁止脱离（只能通过边框滑动）。
-   * @default 60
+    * 默认禁止脱离，只有显式传入有限阈值时才允许拖离宿主。
+    * @default Infinity
    */
   detachDistance?: number
 
@@ -99,7 +99,6 @@ const DEFAULT_HOST_SHAPES = new Set([
   BPMN_MANUAL_TASK,
   BPMN_SUB_PROCESS,
   BPMN_TRANSACTION,
-  BPMN_EVENT_SUB_PROCESS,
   BPMN_AD_HOC_SUB_PROCESS,
   BPMN_CALL_ACTIVITY,
 ])
@@ -149,6 +148,16 @@ function setBoundaryPos(node: Node, pos: BoundaryPosition): void {
       attachedToRef,
     },
   }, { silent: true })
+}
+
+/** 清除边界事件附着数据 */
+function clearBoundaryAttachment(node: Node): void {
+  /* v8 ignore next — getData() 在实际场景中始终有值 */ /* istanbul ignore next */
+  const data = node.getData() || {}
+  const bpmn = { ...(data.bpmn || {}) }
+  delete bpmn.boundaryPosition
+  delete bpmn.attachedToRef
+  node.setData({ ...data, bpmn }, { silent: true, overwrite: true })
 }
 
 /** 获取节点的中心点 */
@@ -224,7 +233,7 @@ export function setupBoundaryAttach(
 ): () => void {
   const {
     snapDistance = 30,
-    detachDistance = 60,
+    detachDistance = Number.POSITIVE_INFINITY,
     constrainToEdge = true,
     isBoundaryEvent: isBE = isBoundaryShape,
   } = options
@@ -235,6 +244,23 @@ export function setupBoundaryAttach(
     (options.isValidHost
       ? (host, _boundary) => options.isValidHost!(host)
       : defaultIsValidHostForBoundary)
+
+  function resolveAttachedHost(node: Node): Node | null {
+    const parent = node.getParent() as Node | null
+    if (parent && resolvedHostValidator(parent.shape, node.shape)) {
+      return parent
+    }
+
+    const attachedToRef = node.getData<{ bpmn?: { attachedToRef?: string } }>()?.bpmn?.attachedToRef
+    if (!attachedToRef) return null
+
+    const host = graph.getCellById(attachedToRef)
+    if (!host?.isNode?.() || !resolvedHostValidator(host.shape, node.shape)) {
+      return null
+    }
+
+    return host as Node
+  }
 
   // ------------------------------------------------------------------
   // ① node:embedded — 嵌入完成后 snap 到边框
@@ -260,30 +286,32 @@ export function setupBoundaryAttach(
   }
 
   // ------------------------------------------------------------------
-  // ② node:moving — 已吸附的边界事件沿边框约束移动 / 脱离检测
+  // ② node:moving / node:moved / node:change:parent
+  //    已吸附的边界事件沿边框约束移动 / 脱离检测 / 父链恢复
   //
-  // X6 在用户拖拽节点时连续触发此事件。
+  // X6 在用户拖拽节点时、拖拽结束后或父链变化时都会触发这些事件。
   // ------------------------------------------------------------------
   function onNodeMoving({ node }: { node: Node }) {
     if (!isBE(node.shape)) return
-    const parent = node.getParent() as Node | null
-    if (!parent || !resolvedHostValidator(parent.shape, node.shape)) return
+    const host = resolveAttachedHost(node)
+    if (!host) return
 
     const center = nodeCenter(node)
-    const hostRect = nodeRect(parent)
+    const hostRect = nodeRect(host)
     const snap = snapToRectEdge(center, hostRect)
 
-    // 脱离检测：距离超过阈值则 unembed
+    // 脱离检测：仅在显式配置有限阈值时允许拖离宿主
     if (snap.distance > detachDistance) {
-      parent.unembed(node)
-      // 清除附着数据
-      /* v8 ignore next — getData() 在实际场景中始终有值 */ /* istanbul ignore next */
-      const data = node.getData() || {}
-      const bpmn = { ...(data.bpmn || {}) }
-      delete bpmn.boundaryPosition
-      delete bpmn.attachedToRef
-      node.setData({ ...data, bpmn }, { silent: true, overwrite: true })
+      if (node.getParent()?.id === host.id) {
+        host.unembed(node)
+      }
+      clearBoundaryAttachment(node)
       return
+    }
+
+    if (node.getParent()?.id !== host.id) {
+      host.embed(node)
+      node.toFront()
     }
 
     // 边框约束：强制 snap 到最近的边框点
@@ -318,6 +346,8 @@ export function setupBoundaryAttach(
   // ------------------------------------------------------------------
   graph.on('node:embedded', onNodeEmbedded)
   graph.on('node:moving', onNodeMoving)
+  graph.on('node:moved', onNodeMoving)
+  graph.on('node:change:parent', onNodeMoving)
   graph.on('node:change:size', onNodeChangeSize)
 
   // ------------------------------------------------------------------
@@ -326,6 +356,8 @@ export function setupBoundaryAttach(
   return () => {
     graph.off('node:embedded', onNodeEmbedded)
     graph.off('node:moving', onNodeMoving)
+    graph.off('node:moved', onNodeMoving)
+    graph.off('node:change:parent', onNodeMoving)
     graph.off('node:change:size', onNodeChangeSize)
   }
 }

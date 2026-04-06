@@ -38,6 +38,20 @@ applyTo:
   Avoid test cases whose only purpose is touching lines for coverage.
 - 在能断言业务结果时，避免仅检查存在性的弱断言。
   Avoid weak assertions like existence-only checks if business outcomes can be asserted.
+- 无头浏览器测试必须生成并断言视觉快照，不能只保留截图产物或仅验证流程通过。
+  Headless browser tests must generate and assert visual snapshots; saving screenshot artifacts or asserting pass/fail alone is insufficient.
+- 若预期的界面变化会更新基线快照，需在回归中显式更新快照并复核差异是否符合业务预期。
+  When intended UI changes require new baselines, update the snapshots explicitly during regression and review the visual diffs against expected business behavior.
+- 浏览器回归测试文件必须放在 `packages/x6-plugin-bpmn/tests/browser/*.spec.ts`；若同一行为域已有对应 spec，必须复用该文件，不得为同类回归再创建平行重复 spec。
+  Browser regression specs must live under `packages/x6-plugin-bpmn/tests/browser/*.spec.ts`; if a spec already exists for the same behavior area, reuse it instead of creating a parallel duplicate spec.
+- 某个浏览器 spec 的快照基线只能放在 `packages/x6-plugin-bpmn/tests/browser/<spec-file>.ts-snapshots/` 下，并按测试用例目录归档。
+  Snapshot baselines for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/<spec-file>.ts-snapshots/`, organized by test-case folders.
+- 某个浏览器 spec 的运行期截图产物只能放在 `packages/x6-plugin-bpmn/tests/browser/artifacts/screenshots/` 下，并与快照使用相同的测试用例目录结构。
+  Runtime screenshot artifacts for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/artifacts/screenshots/`, using the same test-case folder structure as snapshots.
+- 运行期截图产物必须在测试执行时直接落盘到该固定目录，以便人工核验；不得先写到其他位置，再通过事后迁移或清理来修正目录结构。
+  Runtime screenshot artifacts must be written directly to that fixed directory during test execution so they remain available for manual verification; do not write them elsewhere first and normalize the structure later via moving or cleanup.
+- 不得为已有 browser spec 另建平铺 png、兄弟级 snapshot 目录或替代 artifact 目录；同一用例只允许在既有目录内更新文件，避免重复创建。
+  Do not create flat png files, sibling snapshot folders, or alternate artifact directories for an existing browser spec; update files only within the existing directory structure to avoid duplicate creation.
 
 ## 推荐回归流程 / Recommended regression flow
 1. 通过失败测试复现问题。Reproduce problem via failing test.

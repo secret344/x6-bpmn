@@ -15,6 +15,7 @@ const X6_ALIAS_ENTRIES = {
   '@antv/x6-plugin-clipboard': 'node_modules/@antv/x6/es/plugin/clipboard/index.js',
   '@antv/x6-plugin-minimap': 'node_modules/@antv/x6/es/plugin/minimap/index.js',
   '@antv/x6-vue-shape': 'node_modules/@antv/x6-vue-shape/es/index.js',
+  '@x6-bpmn2/plugin': 'packages/x6-plugin-bpmn/src/index.ts',
 } as const
 
 function createX6Aliases() {
@@ -29,6 +30,9 @@ function createX6Aliases() {
 export function createDemoViteConfig(port: number) {
   return defineConfig({
     plugins: [vue()],
+    optimizeDeps: {
+      exclude: ['@x6-bpmn2/plugin'],
+    },
     resolve: {
       alias: createX6Aliases(),
     },

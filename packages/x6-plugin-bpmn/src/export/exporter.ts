@@ -61,6 +61,15 @@ const FLOW_CONTAINER_SHAPES = new Set([
   BPMN_AD_HOC_SUB_PROCESS,
 ])
 
+interface ProcessBuildContext {
+  id: string
+  process: ModdleElement
+  poolId: string | null
+  rootFlowElements: ModdleElement[]
+  nestedFlowElements: Map<string, ModdleElement[]>
+  artifactElements: ModdleElement[]
+}
+
 // ============================================================================
 // 辅助函数
 // ============================================================================
@@ -157,6 +166,23 @@ function getAncestorSwimlane(node: Node): Node | null {
   return null
 }
 
+function getAncestorPool(node: Node): Node | null {
+  if (isPoolShape(node.shape)) {
+    return node
+  }
+
+  let current = node.getParent()
+
+  while (current) {
+    if (current.isNode() && isPoolShape(current.shape)) {
+      return current as Node
+    }
+    current = current.getParent()
+  }
+
+  return null
+}
+
 function getAncestorFlowContainer(node: Node): Node | null {
   let current = node.getParent()
 
@@ -218,6 +244,49 @@ function resolveMessageVisibleKind(edge: Edge): 'initiating' | 'non_initiating' 
   return bpmn?.messageVisibleKind === 'initiating' || bpmn?.messageVisibleKind === 'non_initiating'
     ? bpmn.messageVisibleKind
     : undefined
+}
+
+function resolvePoolProcessRef(pool: Node): string | null {
+  const processRef = pool.getData<{ bpmn?: { processRef?: unknown } }>()?.bpmn?.processRef
+
+  if (typeof processRef !== 'string') {
+    return null
+  }
+
+  const normalized = processRef.trim()
+  return normalized ? toXmlId(normalized) : null
+}
+
+function buildProcessId(baseId: string, index: number, total: number): string {
+  const normalized = toXmlId(baseId || 'Process_1')
+
+  if (total <= 1) {
+    return normalized
+  }
+
+  const numberedSuffix = normalized.match(/^(.*?_)(\d+)$/)
+  if (numberedSuffix) {
+    return `${numberedSuffix[1]}${index + 1}`
+  }
+
+  return `${normalized}_${index + 1}`
+}
+
+function ensureUniqueProcessId(candidate: string, usedIds: Set<string>): string {
+  if (!usedIds.has(candidate)) {
+    usedIds.add(candidate)
+    return candidate
+  }
+
+  let counter = 2
+  let nextCandidate = `${candidate}_${counter}`
+  while (usedIds.has(nextCandidate)) {
+    counter += 1
+    nextCandidate = `${candidate}_${counter}`
+  }
+
+  usedIds.add(nextCandidate)
+  return nextCandidate
 }
 
 // ============================================================================
@@ -376,28 +445,118 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     }
   }
 
+  const usedProcessIds = new Set<string>()
+  const processContexts: ProcessBuildContext[] = []
+  const processContextByPoolId = new Map<string, ProcessBuildContext>()
+  let fallbackProcessContext: ProcessBuildContext | null = null
+
+  const createProcessContext = (candidateId: string, name: string, poolId: string | null): ProcessBuildContext => {
+    const uniqueId = ensureUniqueProcessId(candidateId, usedProcessIds)
+    const context: ProcessBuildContext = {
+      id: uniqueId,
+      process: moddle.create('bpmn:Process', {
+        id: uniqueId,
+        name,
+        isExecutable: false,
+      }),
+      poolId,
+      rootFlowElements: [],
+      nestedFlowElements: new Map<string, ModdleElement[]>(),
+      artifactElements: [],
+    }
+
+    processContexts.push(context)
+    if (poolId) {
+      processContextByPoolId.set(poolId, context)
+    }
+    return context
+  }
+
+  if (pools.length === 0) {
+    fallbackProcessContext = createProcessContext(toXmlId(processId), processName, null)
+  } else {
+    pools.forEach((pool, index) => {
+      const candidateId = resolvePoolProcessRef(pool) ?? buildProcessId(processId, index, pools.length)
+      const candidateName = pools.length === 1
+        ? processName || getNodeLabel(pool)
+        : getNodeLabel(pool) || processName
+      createProcessContext(candidateId, candidateName, pool.id)
+    })
+  }
+
+  const getFallbackProcessContext = (): ProcessBuildContext => {
+    if (fallbackProcessContext) {
+      return fallbackProcessContext
+    }
+
+    fallbackProcessContext = createProcessContext(`${toXmlId(processId)}_unassigned`, processName, null)
+    return fallbackProcessContext
+  }
+
+  const processContextByNodeId = new Map<string, ProcessBuildContext>()
+
+  const resolveProcessContextForNode = (node: Node): ProcessBuildContext => {
+    const poolId = getAncestorPool(node)?.id ?? null
+    if (poolId) {
+      const context = processContextByPoolId.get(poolId)
+      /* istanbul ignore next -- 多 Pool 场景会先为每个 pool 建立 process 上下文，缺失映射仅作防御性兜底 */
+      if (context) {
+        return context
+      }
+    }
+
+    return getFallbackProcessContext()
+  }
+
+  const resolveProcessContextForCellId = (cellId: string | null): ProcessBuildContext | null => {
+    /* istanbul ignore next -- 边归属解析只会传入已映射的终端 id，空值分支仅作防御性兜底 */
+    if (!cellId) {
+      return null
+    }
+
+    const cached = processContextByNodeId.get(cellId)
+    if (cached) {
+      return cached
+    }
+
+    const cell = graph.getCellById(cellId)
+    /* istanbul ignore next -- 归属解析只针对已映射节点，缺失 cell 仅作防御性兜底 */
+    if (!cell?.isNode?.()) {
+      return null
+    }
+
+    const context = resolveProcessContextForNode(cell as Node)
+    processContextByNodeId.set(cellId, context)
+    return context
+  }
+
+  const resolveProcessContextForEdge = (sourceId: string | null, targetId: string | null): ProcessBuildContext => {
+    /* istanbul ignore next -- 当前导出路径中的边终端都会解析到源端所属 process，后续分支仅保留给异常图数据兜底 */
+    return resolveProcessContextForCellId(sourceId)
+      ?? resolveProcessContextForCellId(targetId)
+      ?? getFallbackProcessContext()
+  }
+
   // ---- Build moddle elements ----
 
   // 映射：X6 节点 ID → moddle 元素（用于引用）
   const nodeElements = new Map<string, ModdleElement>()
   // 映射：边 ID → moddle 元素
-  const rootFlowElements: ModdleElement[] = []
-  const nestedFlowElements = new Map<string, ModdleElement[]>()
-  const artifactElements: ModdleElement[] = []
+  const swimlaneElements = new Map<string, ModdleElement>()
 
-  const appendFlowElement = (ownerId: string | null, element: ModdleElement): void => {
+  const appendFlowElement = (context: ProcessBuildContext, ownerId: string | null, element: ModdleElement): void => {
     if (!ownerId) {
-      rootFlowElements.push(element)
+      context.rootFlowElements.push(element)
       return
     }
 
-    const bucket = nestedFlowElements.get(ownerId)
+    const bucket = context.nestedFlowElements.get(ownerId)
     if (bucket) {
       bucket.push(element)
       return
     }
 
-    nestedFlowElements.set(ownerId, [element])
+    context.nestedFlowElements.set(ownerId, [element])
   }
 
   const resolveFlowOwnerId = (node: Node): string | null => getAncestorFlowContainer(node)?.id ?? null
@@ -449,6 +608,8 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   for (const node of flowNodes) {
     const mapping = nodeMapping[node.shape]
     if (!mapping) continue
+    const processContext = resolveProcessContextForNode(node)
+    processContextByNodeId.set(node.id, processContext)
 
     const props: Record<string, any> = {
       id: toXmlId(node.id),
@@ -480,7 +641,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     }
 
     nodeElements.set(node.id, element)
-    appendFlowElement(resolveFlowOwnerId(node), element)
+    appendFlowElement(processContext, resolveFlowOwnerId(node), element)
   }
 
   // 设置边界事件 attachedToRef（此时所有节点元素均已创建）
@@ -540,7 +701,11 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     }
 
     flowEdgeElements.set(edge.id, seqFlow)
-    appendFlowElement(resolveFlowOwnerIdForEdge(edge.getSourceCellId(), edge.getTargetCellId()), seqFlow)
+    appendFlowElement(
+      resolveProcessContextForEdge(edge.getSourceCellId(), edge.getTargetCellId()),
+      resolveFlowOwnerIdForEdge(edge.getSourceCellId(), edge.getTargetCellId()),
+      seqFlow,
+    )
   }
 
   // 桥接顺序流
@@ -556,7 +721,11 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       targetRef: tgtEl,
     })
     flowEdgeElements.set(be.id, seqFlow)
-    appendFlowElement(resolveFlowOwnerIdForEdge(be.source, be.target), seqFlow)
+    appendFlowElement(
+      resolveProcessContextForEdge(be.source, be.target),
+      resolveFlowOwnerIdForEdge(be.source, be.target),
+      seqFlow,
+    )
   }
 
   // 设置网关默认流（顺序流元素已创建）
@@ -603,7 +772,9 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       })
     }
     nodeElements.set(node.id, element)
-    artifactElements.push(element)
+    const processContext = resolveProcessContextForNode(node)
+    processContextByNodeId.set(node.id, processContext)
+    processContext.artifactElements.push(element)
   }
 
   // 工件边（关联连线）
@@ -658,63 +829,71 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       if (edge.shape === BPMN_DIRECTED_ASSOCIATION) {
         props.associationDirection = 'One'
       }
-      artifactElements.push(moddle.create('bpmn:Association', props))
+      resolveProcessContextForEdge(edge.getSourceCellId(), edge.getTargetCellId())
+        .artifactElements
+        .push(moddle.create('bpmn:Association', props))
     }
   }
 
-  // ---- Build process ----
-  const process = moddle.create('bpmn:Process', {
-    id: processId,
-    name: processName,
-    isExecutable: false,
-  })
-  const swimlaneElements = new Map<string, ModdleElement>()
+  // ---- Build processes ----
+  for (const lane of lanes) {
+    processContextByNodeId.set(lane.id, resolveProcessContextForNode(lane))
+  }
 
-  // 泳道
-  if (lanes.length > 0) {
-    const laneElements: ModdleElement[] = lanes.map((lane) => {
-      const laneBBox = lane.getBBox()
-      const refs = flowNodes
-        .filter((n) => {
-          const ancestor = getAncestorSwimlane(n)
-          if (ancestor?.id === lane.id) return true
+  for (const context of processContexts) {
+    const laneNodes = lanes.filter((lane) => processContextByNodeId.get(lane.id) === context)
 
-          const pos = n.getPosition()
-          const size = n.getSize()
-          const cx = pos.x + size.width / 2
-          const cy = pos.y + size.height / 2
-          return (
-            cx >= laneBBox.x &&
-            cx <= laneBBox.x + laneBBox.width &&
-            cy >= laneBBox.y &&
-            cy <= laneBBox.y + laneBBox.height
-          )
+    if (laneNodes.length > 0) {
+      const laneElements: ModdleElement[] = laneNodes.map((lane) => {
+        const laneBBox = lane.getBBox()
+        const refs = flowNodes
+          .filter((node) => processContextByNodeId.get(node.id) === context)
+          .filter((node) => {
+            const ancestor = getAncestorSwimlane(node)
+            if (ancestor?.id === lane.id) return true
+
+            const pos = node.getPosition()
+            const size = node.getSize()
+            const cx = pos.x + size.width / 2
+            const cy = pos.y + size.height / 2
+            return (
+              cx >= laneBBox.x &&
+              cx <= laneBBox.x + laneBBox.width &&
+              cy >= laneBBox.y &&
+              cy <= laneBBox.y + laneBBox.height
+            )
+          })
+          .map((node) => nodeElements.get(node.id))
+          .filter(Boolean) as ModdleElement[]
+
+        const laneElement = moddle.create('bpmn:Lane', {
+          id: toXmlId(lane.id),
+          name: getNodeLabel(lane),
+          flowNodeRef: refs,
         })
-        .map((n) => nodeElements.get(n.id))
-        .filter(Boolean) as ModdleElement[]
-
-      const laneElement = moddle.create('bpmn:Lane', {
-        id: toXmlId(lane.id),
-        name: getNodeLabel(lane),
-        flowNodeRef: refs,
+        swimlaneElements.set(lane.id, laneElement)
+        nodeElements.set(lane.id, laneElement)
+        return laneElement
       })
-      swimlaneElements.set(lane.id, laneElement)
-      nodeElements.set(lane.id, laneElement)
-      return laneElement
-    })
 
-    process.laneSets = [moddle.create('bpmn:LaneSet', { id: 'LaneSet_1', lanes: laneElements })]
-  }
+      context.process.laneSets = [
+        moddle.create('bpmn:LaneSet', {
+          id: `LaneSet_${context.id}`,
+          lanes: laneElements,
+        }),
+      ]
+    }
 
-  process.flowElements = rootFlowElements
-  for (const [containerId, elements] of nestedFlowElements) {
-    const containerElement = nodeElements.get(containerId)
-    /* istanbul ignore next -- owner ids come from existing flow-container ancestor nodes, so the moddle container always exists */
-    if (!containerElement) continue
-    containerElement.flowElements = elements
-  }
-  if (artifactElements.length > 0) {
-    process.artifacts = artifactElements
+    context.process.flowElements = context.rootFlowElements
+    for (const [containerId, elements] of context.nestedFlowElements) {
+      const containerElement = nodeElements.get(containerId)
+      /* istanbul ignore next -- owner ids come from existing flow-container ancestor nodes, so the moddle container always exists */
+      if (!containerElement) continue
+      containerElement.flowElements = elements
+    }
+    if (context.artifactElements.length > 0) {
+      context.process.artifacts = context.artifactElements
+    }
   }
 
   // ---- Build collaboration (if pools or message flows exist) ----
@@ -723,13 +902,15 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   let collaboration: ModdleElement | null = null
 
   if (hasCollaboration) {
-    const participants: ModdleElement[] = pools.map((pool) =>
-      moddle.create('bpmn:Participant', {
+    const participants: ModdleElement[] = pools.map((pool) => {
+      /* istanbul ignore next -- participant 与 pool processContext 在上文已一一建立映射，兜底仅防御非法中间状态 */
+      const processContext = processContextByPoolId.get(pool.id) ?? getFallbackProcessContext()
+      return moddle.create('bpmn:Participant', {
         id: toXmlId(pool.id),
         name: getNodeLabel(pool),
-        processRef: process,
-      }),
-    )
+        processRef: processContext.process,
+      })
+    })
     pools.forEach((pool, index) => {
       const participant = participants[index] as ModdleElement
       swimlaneElements.set(pool.id, participant)
@@ -893,7 +1074,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
   const plane = moddle.create('bpmndi:BPMNPlane', {
     id: 'BPMNPlane_1',
-    bpmnElement: hasCollaboration ? collaboration : process,
+    bpmnElement: hasCollaboration ? collaboration : processContexts[0]?.process,
   })
   plane.planeElement = planeElements
 
@@ -910,7 +1091,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   if (collaboration) {
     rootElements.push(collaboration)
   }
-  rootElements.push(process)
+  rootElements.push(...processContexts.map((context) => context.process))
   definitions.rootElements = rootElements
   definitions.diagrams = [diagram]
 
