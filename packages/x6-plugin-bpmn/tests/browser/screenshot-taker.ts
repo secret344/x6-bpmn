@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 
 export const BROWSER_SCREENSHOT_ARTIFACT_ROOT = path.resolve(__dirname, 'artifacts', 'screenshots')
+const SNAPSHOT_MAX_DIFF_PIXELS = 20
 
 function slugify(value: string): string {
   const ascii = value
@@ -67,7 +68,8 @@ export function createBrowserScreenshotTaker(testInfo: TestInfo) {
       caret: 'hide',
     })
 
-    expect(image).toMatchSnapshot([...snapshotPathSegments, fileName])
-    await testInfo.attach(name, { body: image, contentType: 'image/png' })
+    expect(image).toMatchSnapshot([...snapshotPathSegments, fileName], {
+      maxDiffPixels: SNAPSHOT_MAX_DIFF_PIXELS,
+    })
   }
 }

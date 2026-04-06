@@ -35,3 +35,6 @@ coverage/
 .cache/
 .eslintcache
 .parcel-cache/
+
+# 浏览器测试运行产物
+packages/x6-plugin-bpmn/tests/browser/artifacts/
