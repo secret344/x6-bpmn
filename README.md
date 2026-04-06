@@ -1,101 +1,213 @@
 # x6-bpmn2
 
-基于 [AntV X6 v2](https://x6.antv.antgroup.com/) 的 **BPMN 2.0 完整图形套件** —— 包含插件库、交互行为扩展和可运行的示例应用。
+一个面向 BPMN 2.0 与流程方言扩展的 X6 工作区：既包含可发布的主库，也包含几个用于验证设计和交互的示例应用。
 
----
+An X6 workspace for BPMN 2.0 and process-dialect extensions. It contains the publishable core plugin as well as several demo applications used to validate architecture and interaction design.
 
-## 仓库结构
+## 1. 仓库定位 / Repository Purpose
 
-```
-x6-bpmn2/
-├── packages/
-│   ├── x6-plugin-bpmn/   # 核心插件（npm 包 @x6-bpmn2/plugin）
-│   ├── example/           # 完整 BPMN 编辑器示例（Vue 3 + Vite）
-│   ├── approval-flow/     # 审批流设计器示例（Vue 3 + Vite）
-│   └── bpmn2-spec/        # BPMN 2.0 规范文档（git submodule）
-└── docs/
-    ├── custom-extension-guide.md   # 局部定制指南
-    ├── dynamic-config-architecture.md # 动态方言架构说明
-    └── runtime-constraints-design.md  # 运行时约束设计
-```
+这个仓库不是单一示例项目，而是一个分层工作区：
 
-## 核心包：@x6-bpmn2/plugin
+This repository is not a single demo app. It is a layered workspace:
 
-> 详细文档见 [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md)
+- `packages/x6-plugin-bpmn` 是主库，负责图形注册、方言系统、规则、导入导出、运行时行为。
+- `packages/example` 是标准 BPMN 编辑器示例，用来验证主库的基础能力。
+- `packages/dialect-demo` 用来验证方言扩展、Profile 编译与按实例绑定。
+- `packages/smartengine-demo` 用来验证 SmartEngine 相关方言与宿主集成方式。
+- `packages/approval-flow` 是偏业务表达的示例，用来观察主库在具体场景中的落地效果。
+- `packages/bpmn2-spec`、`packages/bpmn-moddle`、`packages/bpmn-js` 是只读参照子模块，不参与当前 workspace 的构建与安装。
 
-**功能：**
-- **78+ BPMN 图形**：覆盖 BPMN 2.0 全部节点和连接线（事件 / 活动 / 网关 / 数据元素 / 工件 / 泳道 / 连接线）
-- **XML 导入导出**：基于 `bpmn-moddle`，支持标准 BPMN 2.0 XML 双向转换
-- **边界事件吸附**：`setupBoundaryAttach` — 拖放自动 snap、边框约束、宿主 resize 联动
-- **表单数据管理**：内置 `loadBpmnFormData` / `saveBpmnFormData`
-- **连接规则验证**：`createBpmnValidateConnection` 按 BPMN 规范校验连线合法性
+- `packages/x6-plugin-bpmn` is the main library. It owns shape registration, dialect infrastructure, rules, import/export, and runtime behaviors.
+- `packages/example` is the standard BPMN editor demo used to validate baseline plugin capabilities.
+- `packages/dialect-demo` validates dialect extension, profile compilation, and per-graph binding.
+- `packages/smartengine-demo` validates SmartEngine-related dialects and host integration patterns.
+- `packages/approval-flow` is a more business-oriented demo that shows how the plugin lands in a concrete scenario.
+- `packages/bpmn2-spec`, `packages/bpmn-moddle`, and `packages/bpmn-js` are read-only reference submodules and are not part of the active workspace build/install flow.
 
-## 快速开始
+## 2. 新人先看什么 / Where Newcomers Should Start
+
+如果你是第一次进入这个仓库，建议按下面顺序阅读：
+
+If this is your first time in the repository, read in this order:
+
+1. 本 README：先理解工作区里有哪些包、每个包负责什么。
+2. [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md)：看整体结构、关键运行链路、改动入口。
+3. [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md)：进入主库视角，看公开 API、模块职责和源码阅读顺序。
+4. [packages/x6-plugin-bpmn/src/index.ts](packages/x6-plugin-bpmn/src/index.ts)：看主库总入口导出了什么。
+5. 按你的任务再深入到 `src/core`、`src/rules`、`src/import`、`src/export` 或某个 demo。
+
+1. This README: understand which packages exist and what each one is for.
+2. [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md): get the overall structure, key runtime flows, and common change entry points.
+3. [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md): switch to the plugin view and learn the public API, module responsibilities, and code reading order.
+4. [packages/x6-plugin-bpmn/src/index.ts](packages/x6-plugin-bpmn/src/index.ts): inspect the main library entry and exported surfaces.
+5. Then go deeper into `src/core`, `src/rules`, `src/import`, `src/export`, or a specific demo based on your task.
+
+## 3. 工作区地图 / Workspace Map
+
+| 路径 / Path | 作用 / Purpose | 新人何时看 / When to read |
+|---|---|---|
+| `packages/x6-plugin-bpmn` | 主库，所有通用能力都在这里实现 | 任何主功能、规则、导入导出、行为相关任务都先看这里 |
+| `packages/example` | 标准 BPMN 编辑器示例 | 想看主库怎样被最直接地接入时看这里 |
+| `packages/dialect-demo` | 方言系统示例 | 想看 `DialectManager`、`Profile`、`bind()` 的宿主用法时看这里 |
+| `packages/smartengine-demo` | SmartEngine 相关示例 | 想看 BPMN2 基础能力如何被业务方言扩展时看这里 |
+| `packages/approval-flow` | 业务风格示例 | 想看更贴近业务编辑器的画布表达时看这里 |
+| `docs` | 架构说明与专题文档 | 需要理解设计取舍、扩展方式、运行时约束时看这里 |
+| `packages/bpmn2-spec` | BPMN 2.0 官方规范与中文辅助材料 | 修改规范性约束前必须查这里 |
+| `packages/bpmn-moddle` | BPMN XML/moddle 参考实现 | 查 XML 解析、序列化语义时看这里 |
+| `packages/bpmn-js` | 社区 BPMN 设计器参考实现 | 对照建模器交互、社区实现时看这里 |
+
+| Path | Purpose | When to read |
+|---|---|---|
+| `packages/x6-plugin-bpmn` | Main library with all reusable capabilities | Read this first for any core feature, rule, import/export, or runtime behavior work |
+| `packages/example` | Standard BPMN editor demo | Read when you want the most direct host integration example |
+| `packages/dialect-demo` | Dialect-system demo | Read when you want to see `DialectManager`, `Profile`, and `bind()` in a host app |
+| `packages/smartengine-demo` | SmartEngine-related demo | Read when you want to see BPMN2 capabilities extended into a business dialect |
+| `packages/approval-flow` | Business-flavored demo | Read when you want a more domain-oriented editor example |
+| `docs` | Architecture and topic-specific documents | Read when you need design rationale, extension guidance, or runtime constraint details |
+| `packages/bpmn2-spec` | BPMN 2.0 official specification and Chinese reference material | Mandatory before changing specification-driven constraints |
+| `packages/bpmn-moddle` | BPMN XML/moddle reference implementation | Read when checking XML parsing or serialization behavior |
+| `packages/bpmn-js` | Community BPMN modeler reference implementation | Read when comparing editor interactions and community behavior |
+
+## 4. 关键运行链路 / Key Runtime Flows
+
+最常见的四条链路如下：
+
+The four most common flows are:
+
+1. 图形注册：`registerBpmnShapes()` -> X6 全局注册表 -> demo 或宿主开始创建节点与边。
+2. 方言绑定：`ProfileRegistry` -> `compileProfile()` -> `createProfileContext()` -> `DialectManager.bind(graph, dialectId)`。
+3. XML 导入：`parseBpmnXml()` -> `loadBpmnGraph()` -> 运行时行为补齐。
+4. XML 导出：图形与数据遍历 -> `NODE_MAPPING` / `EDGE_MAPPING` -> `bpmn-moddle` 序列化。
+
+1. Shape registration: `registerBpmnShapes()` -> X6 global registry -> demo or host starts creating nodes and edges.
+2. Dialect binding: `ProfileRegistry` -> `compileProfile()` -> `createProfileContext()` -> `DialectManager.bind(graph, dialectId)`.
+3. XML import: `parseBpmnXml()` -> `loadBpmnGraph()` -> runtime behaviors rehydrate what pure graph loading cannot express alone.
+4. XML export: graph and data traversal -> `NODE_MAPPING` / `EDGE_MAPPING` -> `bpmn-moddle` serialization.
+
+这些链路的详细阅读入口已经整理在 [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md)。
+
+Detailed entry points for these flows are collected in [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md).
+
+## 5. 常用命令 / Common Commands
 
 ```bash
-# 安装依赖（根目录）
+# 根目录安装依赖
 npm install
 
-# 启动示例编辑器
+# 启动标准示例
 npm run dev
 
-# 启动审批流示例
+# 启动其它示例
 npm run dev:approval
-```
-
-## 开发命令
-
-| 命令 | 说明 |
-|------|------|
-| `npm run dev` | 启动 example 示例（热更新） |
-| `npm run dev:approval` | 启动 approval-flow 示例 |
-| `npm run build:plugin` | 构建插件（输出到 `dist/`） |
-| `npm run build:example` | 构建示例应用 |
-| `npm run build` | 构建插件 + 示例 |
-
-## 插件开发
-
-```bash
-cd packages/x6-plugin-bpmn
-
-# 开发模式（监听变更，自动重新构建）
-npm run dev
-
-# 运行测试
-npm test
+npm run dev:dialect
+npm run dev:smartengine
 
 # 构建
+npm run build:plugin
 npm run build
+
+# 主库测试
+npm run test
+npm run test:coverage
 ```
 
-## 示例应用
+```bash
+# Install dependencies at repo root
+npm install
 
-[packages/example](packages/example) 展示了完整的 BPMN 编辑器，包含：
+# Start the baseline demo
+npm run dev
 
-- 图形面板（拖放 78+ BPMN 元素）
-- 属性面板（节点配置）
-- 工具栏（导入 / 导出 XML、undo/redo、fit）
-- 边界事件吸附交互（拖放到 Activity 边框自动吸附）
-- 内置员工请假审批流示例（含 3 种边界事件）
+# Start other demos
+npm run dev:approval
+npm run dev:dialect
+npm run dev:smartengine
 
-## 许可
+# Build
+npm run build:plugin
+npm run build
+
+# Plugin tests
+npm run test
+npm run test:coverage
+```
+
+## 6. 目录结构 / Directory Layout
+
+```text
+x6-bpmn2/
+├── packages/
+│   ├── x6-plugin-bpmn/
+│   ├── example/
+│   ├── approval-flow/
+│   ├── dialect-demo/
+│   ├── smartengine-demo/
+│   ├── bpmn2-spec/        # 只读规范参照
+│   ├── bpmn-moddle/       # 只读 XML/moddle 参照
+│   └── bpmn-js/           # 只读建模器参照
+├── docs/
+│   ├── project-onboarding-guide.md
+│   ├── custom-extension-guide.md
+│   ├── dynamic-config-architecture.md
+│   └── runtime-constraints-design.md
+├── package.json
+└── AGENTS.md
+```
+
+```text
+x6-bpmn2/
+├── packages/
+│   ├── x6-plugin-bpmn/
+│   ├── example/
+│   ├── approval-flow/
+│   ├── dialect-demo/
+│   ├── smartengine-demo/
+│   ├── bpmn2-spec/        # read-only spec reference
+│   ├── bpmn-moddle/       # read-only XML/moddle reference
+│   └── bpmn-js/           # read-only modeler reference
+├── docs/
+│   ├── project-onboarding-guide.md
+│   ├── custom-extension-guide.md
+│   ├── dynamic-config-architecture.md
+│   └── runtime-constraints-design.md
+├── package.json
+└── AGENTS.md
+```
+
+## 7. 规则与参照 / Rules and References
+
+在这个仓库里，BPMN 约束、XML 行为和社区交互的权威来源分别是：
+
+In this repository, the authoritative references for BPMN constraints, XML behavior, and community interactions are:
+
+- [packages/bpmn2-spec/formal-11-01-03.pdf](packages/bpmn2-spec/formal-11-01-03.pdf)：官方 BPMN 2.0 规范。
+- [packages/bpmn-moddle](packages/bpmn-moddle)：BPMN XML/moddle 参考实现。
+- [packages/bpmn-js](packages/bpmn-js)：社区 BPMN 建模器参考实现。
+
+- [packages/bpmn2-spec/formal-11-01-03.pdf](packages/bpmn2-spec/formal-11-01-03.pdf): the official BPMN 2.0 specification.
+- [packages/bpmn-moddle](packages/bpmn-moddle): the BPMN XML/moddle reference implementation.
+- [packages/bpmn-js](packages/bpmn-js): the community BPMN modeler reference implementation.
+
+这些子模块在当前工作区中保持只读；若发现问题，应记录到根目录 `tip.md`，而不是直接修改子模块内容。
+
+These submodules are read-only in the current workspace. If you discover an issue, record it in root `tip.md` instead of editing submodule contents directly.
+
+## 8. 进一步阅读 / Further Reading
+
+- [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md)：新人快速理解整体结构、改动入口与阅读顺序。
+- [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md)：主库公开 API、模块职责与代码阅读建议。
+- [docs/dynamic-config-architecture.md](docs/dynamic-config-architecture.md)：方言系统当前架构、六层模型与 graph 绑定链路。
+- [docs/custom-extension-guide.md](docs/custom-extension-guide.md)：宿主如何按最小代价扩展图形、Profile 与 XML 语义。
+- [docs/runtime-constraints-design.md](docs/runtime-constraints-design.md)：当前运行时限制能力、行为边界与后续演进原则。
+
+- [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md): the fastest way for a newcomer to understand the whole structure, change entry points, and reading order.
+- [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md): public API, module responsibilities, and code reading advice for the main library.
+- [docs/dynamic-config-architecture.md](docs/dynamic-config-architecture.md): the current dialect architecture, six-layer model, and graph-binding flow.
+- [docs/custom-extension-guide.md](docs/custom-extension-guide.md): how a host extends shapes, profiles, and XML semantics with the smallest viable change.
+- [docs/runtime-constraints-design.md](docs/runtime-constraints-design.md): the current runtime guard stack, behavior boundary, and future extension rules.
+
+## 9. 许可 / License
 
 MIT
 
----
-
-## BPMN 2.0 规范参考
-
-项目以 [git submodule](packages/bpmn2-spec) 方式引入了中文版 BPMN 2.0 规范文档：
-
-- [packages/bpmn2-spec/BPMN2_nodes_简版.md](packages/bpmn2-spec/BPMN2_nodes_简版.md) — 节点快速参考
-- [packages/bpmn2-spec/BPMN2_详细规范/](packages/bpmn2-spec/BPMN2_详细规范/) — 按章节细分的完整规范
-- [packages/bpmn2-spec/formal-11-01-03.pdf](packages/bpmn2-spec/formal-11-01-03.pdf) — OMG 官方规范原文（PDF）
-
-首次克隆时需同步 submodule：
-
-```bash
-git clone --recurse-submodules <repo-url>
-# 或已克隆后执行
-git submodule update --init
-```
+MIT

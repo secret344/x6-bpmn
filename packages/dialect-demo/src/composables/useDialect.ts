@@ -56,9 +56,6 @@ import {
   normalizeFieldValue,
   getFieldDefaultValue,
   type FieldValidateContext,
-
-  // Profile-driven validation
-  createContextValidateConnection,
 } from '@x6-bpmn2/plugin'
 
 // ============================================================================
@@ -357,12 +354,6 @@ export function useDialect() {
     return validateFields(data, fields, ctx, resolvedProfile.value.dataModel)
   }
 
-  /** 创建 Profile 驱动的连接验证函数 */
-  function createValidateConnection(edgeShapeGetter: () => string) {
-    if (!currentContext.value) return undefined
-    return createContextValidateConnection(edgeShapeGetter, currentContext.value)
-  }
-
   return {
     // 核心对象
     registry,
@@ -394,7 +385,6 @@ export function useDialect() {
     getFieldsFor,
     getDefaultData,
     validateNodeFields,
-    createValidateConnection,
   }
 }
 

@@ -22,6 +22,10 @@ describe('smartengineBaseProfile', () => {
     expect(smartengineBaseProfile.meta.parent).toBe('bpmn2')
   })
 
+  it('应在 SmartEngine 层定义单开始事件限制', () => {
+    expect(smartengineBaseProfile.rules!.constraints!.map((rule) => rule.id)).toContain('start-event-limit')
+  })
+
   it('应定义 SmartEngine 命名空间', () => {
     expect(smartengineBaseProfile.serialization!.namespaces!.smart).toContain('smartengine')
   })
@@ -199,6 +203,11 @@ describe('ProfileRegistry 编译 SmartEngine profiles', () => {
     expect(resolved.dataModel.fields.assignee).toBeDefined()
     expect(resolved.serialization.namespaces.smart).toContain('smartengine')
     expect(resolved.serialization.namespaces.bpmn).toContain('omg.org')
+    expect(resolved.rules.constraints.map((rule) => rule.id)).toEqual([
+      'require-start-event',
+      'require-end-event',
+      'start-event-limit',
+    ])
   })
 
   it('smartengine-custom 编译后应有 disabled 节点', () => {

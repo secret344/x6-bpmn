@@ -133,10 +133,15 @@ export function loadBpmnGraph(
   options: LoadBpmnOptions = {},
 ): void {
   const { clearGraph = true, zoomToFit = true } = options
+  const embedRelations: Array<{ childId: string; parentId: string }> = []
 
   // 清空已有图形（可选）
   if (clearGraph) {
-    graph.clearCells()
+    if (typeof graph.resetCells === 'function') {
+      graph.resetCells([])
+    } else {
+      graph.clearCells()
+    }
   }
 
   // ---------- 加载节点 ----------
@@ -152,9 +157,12 @@ export function loadBpmnGraph(
 
     /* istanbul ignore else — xml-parser 始终提供 attrs 对象 */
     if (nodeData.attrs) nodeConfig.attrs = nodeData.attrs
-    if (nodeData.parent) nodeConfig.parent = nodeData.parent
 
     const node = graph.addNode(nodeConfig)
+
+    if (nodeData.parent) {
+      embedRelations.push({ childId: node.id, parentId: nodeData.parent })
+    }
 
     // 恢复扩展业务数据（来自 BPMN extensionElements）
     if (nodeData.data) {
@@ -182,6 +190,15 @@ export function loadBpmnGraph(
         node.setAttrByPath('marker/display', isMarkerVisible ? 'block' : 'none')
       }
     }
+  }
+
+  // ---------- 重建真实嵌套关系 ----------
+  for (const relation of embedRelations) {
+    const parent = graph.getCellById(relation.parentId)
+    const child = graph.getCellById(relation.childId)
+
+    if (!parent?.isNode?.() || !child?.isNode?.()) continue
+    parent.embed(child)
   }
 
   // ---------- 加载边 ----------

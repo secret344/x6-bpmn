@@ -225,6 +225,8 @@ export interface BpmnValidationResult {
   valid: boolean
   /** 验证失败时的原因描述 */
   reason?: string
+  /** 失败类型，未提供时默认视为规则校验失败 */
+  kind?: 'exception'
 }
 
 /**
@@ -512,10 +514,10 @@ const FLOW_NODE_CATEGORIES: BpmnNodeCategory[] = [
  */
 export const DEFAULT_CONNECTION_RULES: Record<BpmnNodeCategory, BpmnConnectionRule> = {
   // ========== 开始事件 ==========
-  // 不可有入线（它是流程的起点）
-  // 出线：顺序流系列，目标为流程节点（不含开始事件自身和边界事件）
+  // 入线：仅允许关联线，不允许流程流入线
+  // 出线：顺序流系列与关联线，目标为流程节点（不含开始事件自身和边界事件）
   startEvent: {
-    noIncoming: true,
+    allowedIncoming: ASSOCIATION_TYPES,
     allowedOutgoing: [...SEQUENCE_FLOW_TYPES, ...ASSOCIATION_TYPES],
     forbiddenTargets: ['startEvent', 'boundaryEvent', 'dataElement', 'swimlane'],
   },
@@ -536,18 +538,18 @@ export const DEFAULT_CONNECTION_RULES: Record<BpmnNodeCategory, BpmnConnectionRu
   },
 
   // ========== 边界事件 ==========
-  // 只能有出线，不可有入线（它依附于活动）
+  // 入线：仅允许关联线，不允许流程流入线（它依附于活动）
   boundaryEvent: {
-    noIncoming: true,
+    allowedIncoming: ASSOCIATION_TYPES,
     allowedOutgoing: [...SEQUENCE_FLOW_TYPES, ...ASSOCIATION_TYPES],
     forbiddenTargets: ['startEvent', 'boundaryEvent', 'dataElement', 'swimlane'],
   },
 
   // ========== 结束事件 ==========
-  // 不可有出线（它是流程的终点）
+  // 出线：仅允许关联线，不允许流程流出线（它是流程的终点）
   endEvent: {
-    noOutgoing: true,
     allowedIncoming: [...SEQUENCE_FLOW_TYPES, ...ASSOCIATION_TYPES],
+    allowedOutgoing: ASSOCIATION_TYPES,
     forbiddenSources: ['endEvent', 'dataElement', 'swimlane'],
   },
 

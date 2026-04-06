@@ -40,7 +40,7 @@ export function createSampleProcess(graph: Graph) {
     attrs: { headerLabel: { text: '员工请假审批流程' } },
   })
 
-  graph.addNode({
+  const applicantLane = graph.addNode({
     shape: BPMN_LANE,
     x: 70,
     y: 40,
@@ -50,7 +50,7 @@ export function createSampleProcess(graph: Graph) {
     parent: pool.id,
   })
 
-  graph.addNode({
+  const approverLane = graph.addNode({
     shape: BPMN_LANE,
     x: 70,
     y: 240,
@@ -60,12 +60,16 @@ export function createSampleProcess(graph: Graph) {
     parent: pool.id,
   })
 
+  pool.embed(applicantLane)
+  pool.embed(approverLane)
+
   // ========== 开始事件 ==========
   const start = graph.addNode({
     shape: BPMN_START_EVENT,
     x: 120,
     y: 120,
     attrs: { label: { text: '发起\n申请' } },
+    parent: applicantLane.id,
   })
 
   // ========== 申请人任务 ==========
@@ -74,6 +78,7 @@ export function createSampleProcess(graph: Graph) {
     x: 210,
     y: 105,
     attrs: { label: { text: '填写\n请假单' } },
+    parent: applicantLane.id,
   })
 
   // ========== 数据对象 ==========
@@ -82,6 +87,7 @@ export function createSampleProcess(graph: Graph) {
     x: 230,
     y: 190,
     attrs: { label: { text: '请假单' } },
+    parent: applicantLane.id,
   })
 
   // ========== 注释 ==========
@@ -90,6 +96,7 @@ export function createSampleProcess(graph: Graph) {
     x: 110,
     y: 50,
     attrs: { label: { text: '员工通过\nOA系统发起' } },
+    parent: applicantLane.id,
   })
 
   // ========== 边界事件 ==========
@@ -129,6 +136,7 @@ export function createSampleProcess(graph: Graph) {
     x: 370,
     y: 300,
     attrs: { label: { text: '天数?' } },
+    parent: approverLane.id,
   })
 
   // ========== 主管审批 ==========
@@ -137,6 +145,7 @@ export function createSampleProcess(graph: Graph) {
     x: 470,
     y: 260,
     attrs: { label: { text: '主管\n审批' } },
+    parent: approverLane.id,
   })
 
   // ========== 总监审批 ==========
@@ -145,6 +154,7 @@ export function createSampleProcess(graph: Graph) {
     x: 470,
     y: 370,
     attrs: { label: { text: '总监\n审批' } },
+    parent: approverLane.id,
   })
 
   // ========== 审批结果网关 ==========
@@ -153,6 +163,7 @@ export function createSampleProcess(graph: Graph) {
     x: 620,
     y: 300,
     attrs: { label: { text: '通过?' } },
+    parent: approverLane.id,
   })
 
   // ========== 发送通知 ==========
@@ -161,6 +172,7 @@ export function createSampleProcess(graph: Graph) {
     x: 730,
     y: 285,
     attrs: { label: { text: '发送\n通知' } },
+    parent: approverLane.id,
   })
 
   // ========== 更新考勤 ==========
@@ -169,6 +181,7 @@ export function createSampleProcess(graph: Graph) {
     x: 730,
     y: 105,
     attrs: { label: { text: '更新\n考勤系统' } },
+    parent: applicantLane.id,
   })
 
   // ========== 数据存储 ==========
@@ -177,6 +190,7 @@ export function createSampleProcess(graph: Graph) {
     x: 870,
     y: 105,
     attrs: { label: { text: '考勤\n数据库' } },
+    parent: applicantLane.id,
   })
 
   // ========== 驳回 — 修改申请 ==========
@@ -185,6 +199,7 @@ export function createSampleProcess(graph: Graph) {
     x: 730,
     y: 395,
     attrs: { label: { text: '修改\n申请' } },
+    parent: approverLane.id,
   })
 
   // ========== 重新提交网关 ==========
@@ -193,6 +208,7 @@ export function createSampleProcess(graph: Graph) {
     x: 880,
     y: 400,
     attrs: { label: { text: '重新\n提交?' } },
+    parent: approverLane.id,
   })
 
   // ========== 结束事件 ==========
@@ -201,6 +217,7 @@ export function createSampleProcess(graph: Graph) {
     x: 1000,
     y: 120,
     attrs: { label: { text: '审批\n完成' } },
+    parent: applicantLane.id,
   })
 
   const endCancel = graph.addNode({
@@ -208,6 +225,7 @@ export function createSampleProcess(graph: Graph) {
     x: 1000,
     y: 405,
     attrs: { label: { text: '撤销\n申请' } },
+    parent: approverLane.id,
   })
 
   // 错误结束（异常终止）
@@ -216,7 +234,26 @@ export function createSampleProcess(graph: Graph) {
     x: 1000,
     y: 280,
     attrs: { label: { text: '异常\n终止' } },
+    parent: approverLane.id,
   })
+
+  applicantLane.embed(start)
+  applicantLane.embed(fillForm)
+  applicantLane.embed(leaveForm)
+  applicantLane.embed(annotation)
+  applicantLane.embed(updateAttendance)
+  applicantLane.embed(attendanceDB)
+  applicantLane.embed(endOk)
+
+  approverLane.embed(gw1)
+  approverLane.embed(managerApprove)
+  approverLane.embed(directorApprove)
+  approverLane.embed(gw2)
+  approverLane.embed(notify)
+  approverLane.embed(rejectModify)
+  approverLane.embed(gw3)
+  approverLane.embed(endCancel)
+  approverLane.embed(endError)
 
   // ========== 附着边界事件到宿主任务 ==========
   // 定时器边界 → 主管审批（超时提醒）

@@ -1,6 +1,6 @@
 <template>
   <div class="graph-canvas">
-    <div ref="graphContainerRef" class="graph-container"></div>
+    <div ref="graphContainerRef" class="graph-container" data-testid="graph-container"></div>
     <div ref="minimapRef" class="minimap-container"></div>
 
     <!-- 连线类型浮动选择器 -->
@@ -31,7 +31,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from "vue";
-import { Graph } from "@antv/x6";
+import { Graph, type Node } from "@antv/x6";
+import { Message } from "@arco-design/web-vue";
 import { Selection } from "@antv/x6-plugin-selection";
 import { Transform } from "@antv/x6-plugin-transform";
 import { Snapline } from "@antv/x6-plugin-snapline";
@@ -41,8 +42,13 @@ import { History } from "@antv/x6-plugin-history";
 import { MiniMap } from "@antv/x6-plugin-minimap";
 import {
   registerBpmnShapes,
+  getShapeLabel,
+  exportBpmnXml,
+  importBpmnXml,
   createBpmnValidateConnection,
+  createBpmnValidateEdge,
   setupBoundaryAttach,
+  setupPoolContainment,
   attachBoundaryToHost,
   isBoundaryShape,
   distanceToRectEdge,
@@ -73,9 +79,20 @@ const emit = defineEmits<{
 const graphContainerRef = ref<HTMLDivElement>();
 const minimapRef = ref<HTMLDivElement>();
 
+declare global {
+  interface Window {
+    __x6BpmnExampleGraph?: Graph;
+    __x6BpmnExampleApi?: {
+      exportXml: () => Promise<string>;
+      importXml: (xml: string) => Promise<void>;
+    };
+  }
+}
+
 let graph: Graph | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let disposeBoundaryAttach: (() => void) | null = null;
+let disposePoolContainment: (() => void) | null = null;
 
 /** 可作为边界事件宿主的 Activity 图形集合 */
 const ACTIVITY_SHAPES = new Set([
@@ -91,6 +108,67 @@ const CONTAINER_SHAPES = new Set([
   BPMN_SUB_PROCESS, BPMN_TRANSACTION,
   BPMN_EVENT_SUB_PROCESS, BPMN_AD_HOC_SUB_PROCESS,
 ]);
+
+function parseDroppedShape(event: DragEvent): { shape: string; label?: string; width?: number; height?: number } | null {
+  const raw = event.dataTransfer?.getData("application/bpmn-shape");
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as { shape?: string; label?: string; width?: number; height?: number };
+      if (parsed.shape) {
+        return {
+          shape: parsed.shape,
+          label: parsed.label,
+          width: parsed.width,
+          height: parsed.height,
+        };
+      }
+    } catch {
+      // 兼容旧载荷格式，继续走简单 shape 回退。
+    }
+  }
+
+  const shape = event.dataTransfer?.getData("bpmn/shape");
+  return shape ? { shape } : null;
+}
+
+function resolveDroppedNodeSize(shape: string, width?: number, height?: number) {
+  if (typeof width === "number" && typeof height === "number") {
+    return { width, height };
+  }
+
+  if (shape === BPMN_POOL) return { width: 400, height: 200 };
+  if (shape === BPMN_LANE) return { width: 370, height: 100 };
+  if (shape === BPMN_GROUP) return { width: 160, height: 100 };
+
+  const isGateway = shape.includes("gateway");
+  const isEvent = shape.includes("event") || shape.includes("boundary");
+  return {
+    width: isGateway ? 50 : isEvent ? 36 : 100,
+    height: isGateway ? 50 : isEvent ? 36 : 60,
+  };
+}
+
+function findDroppedParent(node: Node): Node | null {
+  if (!graph) return null;
+
+  const bbox = node.getBBox();
+  const candidates = graph.getNodes().filter((candidate) => {
+    if (candidate.id === node.id) return false;
+    if (node.shape === BPMN_LANE) {
+      return candidate.shape === BPMN_POOL && candidate.getBBox().containsRect(bbox);
+    }
+    if (!CONTAINER_SHAPES.has(candidate.shape as string)) return false;
+    return candidate.getBBox().containsRect(bbox);
+  });
+
+  candidates.sort((left, right) => {
+    const leftBox = left.getBBox();
+    const rightBox = right.getBBox();
+    return leftBox.width * leftBox.height - rightBox.width * rightBox.height;
+  });
+
+  return candidates[0] ?? null;
+}
 
 registerBpmnShapes();
 
@@ -142,9 +220,14 @@ onMounted(async () => {
       createEdge() {
         return graph!.createEdge({ shape: currentEdgeType.value });
       },
-      validateConnection: createBpmnValidateConnection(
-        () => currentEdgeType.value
-      ),
+      validateConnection: createBpmnValidateConnection(() => currentEdgeType.value),
+      validateEdge: createBpmnValidateEdge(() => currentEdgeType.value, {
+        onValidationError(result: { reason?: string }) {
+          if (result.reason) {
+            Message.warning(result.reason);
+          }
+        },
+      }),
     },
     highlighting: {
       magnetAdsorbed: {
@@ -246,31 +329,25 @@ onMounted(async () => {
   });
   container.addEventListener("drop", (e) => {
     e.preventDefault();
-    const raw = e.dataTransfer!.getData("application/bpmn-shape");
-    if (!raw || !graph) return;
-    const { shape, width, height, label } = JSON.parse(raw);
+    const payload = parseDroppedShape(e);
+    if (!payload || !graph) return;
+    const { shape } = payload;
     const point = graph.clientToLocal(e.clientX, e.clientY);
-    const w =
-      width ||
-      (shape.includes("gateway")
-        ? 50
-        : shape.includes("event") || shape.includes("boundary")
-          ? 36
-          : 100);
-    const h =
-      height ||
-      (shape.includes("gateway")
-        ? 50
-        : shape.includes("event") || shape.includes("boundary")
-          ? 36
-          : 60);
+    const { width: w, height: h } = resolveDroppedNodeSize(
+      shape,
+      payload.width,
+      payload.height,
+    );
+    const label = payload.label || getShapeLabel(shape);
+    const isSwimlane = shape === BPMN_POOL || shape === BPMN_LANE;
     const newNode = graph.addNode({
       shape,
       x: point.x - w / 2,
       y: point.y - h / 2,
       width: w,
       height: h,
-      attrs: { label: { text: label } },
+      attrs: isSwimlane ? { headerLabel: { text: label } } : { label: { text: label } },
+      data: isSwimlane ? { label, bpmn: { isHorizontal: true } } : { label },
     });
 
     // 如果拖入的是边界事件，自动吸附到最近的 Activity 边框上
@@ -283,6 +360,11 @@ onMounted(async () => {
       });
       if (host) {
         attachBoundaryToHost(graph, newNode, host);
+      }
+    } else {
+      const parent = findDroppedParent(newNode);
+      if (parent) {
+        parent.embed(newNode);
       }
     }
   });
@@ -426,19 +508,40 @@ onMounted(async () => {
 
   // 安装边界事件吸附行为
   disposeBoundaryAttach = setupBoundaryAttach(graph);
+  disposePoolContainment = setupPoolContainment(graph, {
+    onViolation(result: { reason?: string }) {
+      if (result.reason) {
+        Message.warning(result.reason);
+      }
+    },
+  });
 
   // 加载示例流程
   createSampleProcess(graph);
   setTimeout(() => graph?.zoomToFit({ padding: 40, maxScale: 1 }), 200);
 
   emit("graphReady", graph);
+
+  if (typeof window !== "undefined") {
+    window.__x6BpmnExampleGraph = graph;
+    window.__x6BpmnExampleApi = {
+      exportXml: () => exportBpmnXml(graph, { processName: "BPMN流程" }),
+      importXml: (xml: string) => importBpmnXml(graph, xml),
+    };
+  }
 });
 
 onUnmounted(() => {
   disposeBoundaryAttach?.();
   disposeBoundaryAttach = null;
+  disposePoolContainment?.();
+  disposePoolContainment = null;
   resizeObserver?.disconnect();
   resizeObserver = null;
+  if (typeof window !== "undefined" && window.__x6BpmnExampleGraph === graph) {
+    delete window.__x6BpmnExampleGraph;
+    delete window.__x6BpmnExampleApi;
+  }
   graph?.dispose();
   graph = null;
 });

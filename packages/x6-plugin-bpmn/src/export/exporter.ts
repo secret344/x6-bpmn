@@ -10,6 +10,8 @@ import type { Graph, Node, Edge } from '@antv/x6'
 import { BpmnModdle } from 'bpmn-moddle'
 import type { ModdleElement } from 'bpmn-moddle'
 import {
+  type BpmnNodeMapping,
+  type BpmnEdgeMapping,
   NODE_MAPPING,
   EDGE_MAPPING,
   isPoolShape,
@@ -50,6 +52,13 @@ const EXPANDABLE_ACTIVITY_SHAPES = new Set([
   BPMN_TRANSACTION,
   BPMN_AD_HOC_SUB_PROCESS,
   BPMN_CALL_ACTIVITY,
+])
+
+const FLOW_CONTAINER_SHAPES = new Set([
+  BPMN_SUB_PROCESS,
+  BPMN_EVENT_SUB_PROCESS,
+  BPMN_TRANSACTION,
+  BPMN_AD_HOC_SUB_PROCESS,
 ])
 
 // ============================================================================
@@ -135,6 +144,32 @@ function nodeCenter(node: Node): { x: number; y: number } {
   return { x: pos.x + size.width / 2, y: pos.y + size.height / 2 }
 }
 
+function getAncestorSwimlane(node: Node): Node | null {
+  let current = node.getParent()
+
+  while (current) {
+    if (current.isNode() && isSwimlaneShape(current.shape)) {
+      return current as Node
+    }
+    current = current.getParent()
+  }
+
+  return null
+}
+
+function getAncestorFlowContainer(node: Node): Node | null {
+  let current = node.getParent()
+
+  while (current) {
+    if (current.isNode() && FLOW_CONTAINER_SHAPES.has(current.shape)) {
+      return current as Node
+    }
+    current = current.getParent()
+  }
+
+  return null
+}
+
 /** 计算连接线在节点边界上的实际连接点（优先使用端口位置，否则计算边界交点） */
 function computeConnectionPoint(
   node: Node,
@@ -194,6 +229,12 @@ export interface ExportBpmnOptions {
   processId?: string
   /** 流程名称，默认为空 */
   processName?: string
+  /** 使用方言序列化层覆盖默认 BPMN 映射 */
+  serialization?: {
+    namespaces?: Record<string, string>
+    nodeMapping?: Record<string, BpmnNodeMapping>
+    edgeMapping?: Record<string, BpmnEdgeMapping>
+  }
 }
 
 /**
@@ -212,6 +253,9 @@ export interface ExportBpmnOptions {
 export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {}): Promise<string> {
   const { processId = 'Process_1', processName = '' } = options
   const moddle = new BpmnModdle()
+  const nodeMapping = options.serialization?.nodeMapping ?? NODE_MAPPING
+  const edgeMapping = options.serialization?.edgeMapping ?? EDGE_MAPPING
+  const x6bpmnNamespace = options.serialization?.namespaces?.x6bpmn ?? NS_X6BPMN
 
   const nodes = graph.getNodes()
   const edges = graph.getEdges()
@@ -225,11 +269,11 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   // 构建已有 BPMN 映射的节点 ID 集合
   const mappedNodeIds = new Set<string>()
   for (const node of flowNodes) {
-    if (NODE_MAPPING[node.shape]) mappedNodeIds.add(node.id)
+    if (nodeMapping[node.shape]) mappedNodeIds.add(node.id)
   }
   for (const node of artifactNodes) {
     /* istanbul ignore else */
-    if (NODE_MAPPING[node.shape]) mappedNodeIds.add(node.id)
+    if (nodeMapping[node.shape]) mappedNodeIds.add(node.id)
   }
   for (const pool of pools) mappedNodeIds.add(pool.id)
   for (const lane of lanes) mappedNodeIds.add(lane.id)
@@ -244,7 +288,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     (e) => (e.shape === BPMN_SEQUENCE_FLOW || e.shape === BPMN_DEFAULT_FLOW || e.shape === BPMN_CONDITIONAL_FLOW) && isEdgeMapped(e),
   )
   const messageFlows = edges.filter((e) => {
-    const mapping = EDGE_MAPPING[e.shape]
+    const mapping = edgeMapping[e.shape]
     return mapping?.isCollaboration === true && isEdgeMapped(e)
   })
   const artifactEdges = edges.filter(
@@ -337,8 +381,40 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   // 映射：X6 节点 ID → moddle 元素（用于引用）
   const nodeElements = new Map<string, ModdleElement>()
   // 映射：边 ID → moddle 元素
-  const flowElements: ModdleElement[] = []
+  const rootFlowElements: ModdleElement[] = []
+  const nestedFlowElements = new Map<string, ModdleElement[]>()
   const artifactElements: ModdleElement[] = []
+
+  const appendFlowElement = (ownerId: string | null, element: ModdleElement): void => {
+    if (!ownerId) {
+      rootFlowElements.push(element)
+      return
+    }
+
+    const bucket = nestedFlowElements.get(ownerId)
+    if (bucket) {
+      bucket.push(element)
+      return
+    }
+
+    nestedFlowElements.set(ownerId, [element])
+  }
+
+  const resolveFlowOwnerId = (node: Node): string | null => getAncestorFlowContainer(node)?.id ?? null
+
+  const resolveFlowOwnerIdForEdge = (sourceId: string | null, targetId: string | null): string | null => {
+    /* istanbul ignore next -- sequenceFlows/bridgeEdges reaching ownership resolution always have concrete terminal ids */
+    if (!sourceId || !targetId) return null
+
+    const sourceCell = graph.getCellById(sourceId)
+    const targetCell = graph.getCellById(targetId)
+    /* istanbul ignore next -- terminal elements are resolved from nodeElements before this helper is invoked */
+    if (!sourceCell?.isNode?.() || !targetCell?.isNode?.()) return null
+
+    const sourceOwnerId = resolveFlowOwnerId(sourceCell as Node)
+    const targetOwnerId = resolveFlowOwnerId(targetCell as Node)
+    return sourceOwnerId && sourceOwnerId === targetOwnerId ? sourceOwnerId : null
+  }
 
   // 入线/出线追踪（在创建所有流后添加）
   const incoming = new Map<string, string[]>()
@@ -371,7 +447,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
   // ---- Create flow node elements ----
   for (const node of flowNodes) {
-    const mapping = NODE_MAPPING[node.shape]
+    const mapping = nodeMapping[node.shape]
     if (!mapping) continue
 
     const props: Record<string, any> = {
@@ -395,16 +471,16 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     if (bpmnData && Object.keys(bpmnData).length > 0) {
       const propChildren = Object.entries(bpmnData)
         .filter(([, v]) => v !== undefined && v !== null && v !== '')
-        .map(([k, v]) => moddle.createAny('x6bpmn:property', NS_X6BPMN, { name: k, value: String(v) }))
+        .map(([k, v]) => moddle.createAny('x6bpmn:property', x6bpmnNamespace, { name: k, value: String(v) }))
       /* istanbul ignore else */
       if (propChildren.length > 0) {
-        const propsContainer = moddle.createAny('x6bpmn:properties', NS_X6BPMN, { $children: propChildren })
+        const propsContainer = moddle.createAny('x6bpmn:properties', x6bpmnNamespace, { $children: propChildren })
         element.extensionElements = moddle.create('bpmn:ExtensionElements', { values: [propsContainer] })
       }
     }
 
     nodeElements.set(node.id, element)
-    flowElements.push(element)
+    appendFlowElement(resolveFlowOwnerId(node), element)
   }
 
   // 设置边界事件 attachedToRef（此时所有节点元素均已创建）
@@ -426,7 +502,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   // 追踪哪些网关需要设置默认流
   const gatewayDefaults = new Map<string, Edge>()
   for (const node of flowNodes) {
-    const mapping = NODE_MAPPING[node.shape]
+    const mapping = nodeMapping[node.shape]
     if (!mapping) continue
     if (mapping.tag.includes('Gateway') || mapping.tag === 'exclusiveGateway' || mapping.tag === 'inclusiveGateway') {
       const defaultEdge = edges.find(
@@ -464,7 +540,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     }
 
     flowEdgeElements.set(edge.id, seqFlow)
-    flowElements.push(seqFlow)
+    appendFlowElement(resolveFlowOwnerIdForEdge(edge.getSourceCellId(), edge.getTargetCellId()), seqFlow)
   }
 
   // 桥接顺序流
@@ -480,7 +556,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       targetRef: tgtEl,
     })
     flowEdgeElements.set(be.id, seqFlow)
-    flowElements.push(seqFlow)
+    appendFlowElement(resolveFlowOwnerIdForEdge(be.source, be.target), seqFlow)
   }
 
   // 设置网关默认流（顺序流元素已创建）
@@ -511,7 +587,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
   // ---- Artifacts ----
   for (const node of artifactNodes) {
-    const mapping = NODE_MAPPING[node.shape]
+    const mapping = nodeMapping[node.shape]
     /* v8 ignore next */ /* istanbul ignore next */
     if (!mapping) continue
 
@@ -532,7 +608,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
   // 工件边（关联连线）
   for (const edge of artifactEdges) {
-    const mapping = EDGE_MAPPING[edge.shape]
+    const mapping = edgeMapping[edge.shape]
     /* v8 ignore next */ /* istanbul ignore next */
     if (!mapping) continue
 
@@ -544,7 +620,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       if (srcEl && tgtEl) {
         // 判断方向：源为数据类则为输入；目标为数据类则为输出
         /* v8 ignore next — getCellById 不会返回 null */ /* istanbul ignore next */
-        const srcMapping = NODE_MAPPING[graph.getCellById(edge.getSourceCellId())?.shape || '']
+        const srcMapping = nodeMapping[graph.getCellById(edge.getSourceCellId())?.shape || '']
         const isSourceData = srcMapping && (srcMapping.tag === 'dataObjectReference' || srcMapping.tag === 'dataStoreReference')
 
         if (isSourceData) {
@@ -592,6 +668,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     name: processName,
     isExecutable: false,
   })
+  const swimlaneElements = new Map<string, ModdleElement>()
 
   // 泳道
   if (lanes.length > 0) {
@@ -599,6 +676,9 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       const laneBBox = lane.getBBox()
       const refs = flowNodes
         .filter((n) => {
+          const ancestor = getAncestorSwimlane(n)
+          if (ancestor?.id === lane.id) return true
+
           const pos = n.getPosition()
           const size = n.getSize()
           const cx = pos.x + size.width / 2
@@ -613,17 +693,26 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
         .map((n) => nodeElements.get(n.id))
         .filter(Boolean) as ModdleElement[]
 
-      return moddle.create('bpmn:Lane', {
+      const laneElement = moddle.create('bpmn:Lane', {
         id: toXmlId(lane.id),
         name: getNodeLabel(lane),
         flowNodeRef: refs,
       })
+      swimlaneElements.set(lane.id, laneElement)
+      nodeElements.set(lane.id, laneElement)
+      return laneElement
     })
 
     process.laneSets = [moddle.create('bpmn:LaneSet', { id: 'LaneSet_1', lanes: laneElements })]
   }
 
-  process.flowElements = flowElements
+  process.flowElements = rootFlowElements
+  for (const [containerId, elements] of nestedFlowElements) {
+    const containerElement = nodeElements.get(containerId)
+    /* istanbul ignore next -- owner ids come from existing flow-container ancestor nodes, so the moddle container always exists */
+    if (!containerElement) continue
+    containerElement.flowElements = elements
+  }
   if (artifactElements.length > 0) {
     process.artifacts = artifactElements
   }
@@ -641,6 +730,11 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
         processRef: process,
       }),
     )
+    pools.forEach((pool, index) => {
+      const participant = participants[index] as ModdleElement
+      swimlaneElements.set(pool.id, participant)
+      nodeElements.set(pool.id, participant)
+    })
 
     const msgFlowElements: ModdleElement[] = messageFlows.map((mf) => {
       const srcEl = nodeElements.get(mf.getSourceCellId())
@@ -667,9 +761,10 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   for (const pool of pools) {
     const pos = pool.getPosition()
     const size = pool.getSize()
+    const poolElement = swimlaneElements.get(pool.id) as ModdleElement
     const shape = moddle.create('bpmndi:BPMNShape', {
       id: `${toXmlId(pool.id)}_di`,
-      bpmnElement: nodeElements.get(pool.id) || { id: toXmlId(pool.id) },
+      bpmnElement: poolElement,
       isHorizontal: resolveSwimlaneIsHorizontal(pool.getData(), size),
     })
     shape.bounds = moddle.create('dc:Bounds', {
@@ -682,9 +777,10 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   for (const lane of lanes) {
     const pos = lane.getPosition()
     const size = lane.getSize()
+    const laneElement = swimlaneElements.get(lane.id) as ModdleElement
     const shape = moddle.create('bpmndi:BPMNShape', {
       id: `${toXmlId(lane.id)}_di`,
-      bpmnElement: { id: toXmlId(lane.id) },
+      bpmnElement: laneElement,
       isHorizontal: resolveSwimlaneIsHorizontal(lane.getData(), size),
     })
     shape.bounds = moddle.create('dc:Bounds', {
@@ -695,7 +791,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
   // 流程节点 + 工件图形
   for (const node of [...flowNodes, ...artifactNodes]) {
-    if (!NODE_MAPPING[node.shape]) continue
+    if (!nodeMapping[node.shape]) continue
     const pos = node.getPosition()
     const size = node.getSize()
     const el = nodeElements.get(node.id)

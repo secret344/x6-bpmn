@@ -182,6 +182,32 @@ describe('getFieldsForShape', () => {
     const fields = getFieldsForShape('unknown-shape', 'unknown', testDataModel)
     expect(fields).toEqual([])
   })
+
+  it('粗分类为空时应回退到 shape 的细分类字段', () => {
+    const dm: DataModelSet = {
+      fields: {},
+      categoryFields: {
+        task: [],
+        serviceTask: ['implementation', 'resultVariable'],
+      },
+    }
+
+    const fields = getFieldsForShape('bpmn-service-task', 'task', dm)
+    expect(fields).toEqual(['implementation', 'resultVariable'])
+  })
+
+  it('粗分类和细分类同时存在时应合并并去重', () => {
+    const dm: DataModelSet = {
+      fields: {},
+      categoryFields: {
+        task: ['priority', 'owner'],
+        userTask: ['owner', 'assignee'],
+      },
+    }
+
+    const fields = getFieldsForShape('bpmn-user-task', 'task', dm)
+    expect(fields).toEqual(['priority', 'owner', 'assignee'])
+  })
 })
 
 // ============================================================================

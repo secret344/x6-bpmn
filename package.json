@@ -2,7 +2,11 @@
   "name": "x6-bpmn2-workspace",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/x6-plugin-bpmn",
+    "packages/example",
+    "packages/approval-flow",
+    "packages/dialect-demo",
+    "packages/smartengine-demo"
   ],
   "scripts": {
     "build:plugin": "cd packages/x6-plugin-bpmn && npm run build",
@@ -13,12 +17,15 @@
     "build": "npm run build:plugin && npm run build:example",
     "test": "cd packages/x6-plugin-bpmn && npm run test",
     "test:coverage": "cd packages/x6-plugin-bpmn && npm run test:coverage",
+    "test:plugin:browser": "cd packages/x6-plugin-bpmn && npm run test:browser",
+    "test:example:e2e": "cd packages/example && npm run test:e2e",
     "dev": "cd packages/example && npm run dev",
     "dev:approval": "cd packages/approval-flow && npm run dev",
     "dev:dialect": "cd packages/dialect-demo && npm run dev",
     "dev:smartengine": "cd packages/smartengine-demo && npm run dev"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@vitest/coverage-istanbul": "^4.1.2"
   }
 }

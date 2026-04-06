@@ -28,7 +28,6 @@ import {
   createSmartEngineExporterAdapter,
   createSmartEngineImporterAdapter,
   createDialectDetector,
-  createContextValidateConnection,
   validateConstraints,
   getFieldsForCategory,
   getFieldsForShape,
@@ -260,12 +259,6 @@ export function useSmartEngine() {
     return buildDefaultData(fields, resolvedProfile.value.dataModel)
   }
 
-  /** 创建连接验证函数 */
-  function createValidateConnection(edgeShapeGetter: () => string) {
-    if (!context.value) return undefined
-    return createContextValidateConnection(edgeShapeGetter, context.value)
-  }
-
   /** 创建示例流程 */
   function createSampleProcess() {
     if (!graphRef.value) return
@@ -404,7 +397,6 @@ export function useSmartEngine() {
     runFieldValidation,
     getFieldsFor,
     getDefaultData,
-    createValidateConnection,
     createSampleProcess,
   }
 }

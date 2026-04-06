@@ -1,2 +1,2 @@
-// No-op placeholder — future layout algorithms (e.g., BPMN auto-layout) can be added here.
+// 空占位模块，后续可在此扩展布局算法（例如 BPMN 自动布局）。
 export {}

@@ -16,10 +16,10 @@ import { BPMN_COLORS, BPMN_ICONS } from '../../utils/constants'
 import { NODE_MAPPING, EDGE_MAPPING } from '../../export/bpmn-mapping'
 import { DEFAULT_CONNECTION_RULES, getNodeCategory as getNodeCategoryFromRules } from '../../rules/connection-rules'
 import type { BpmnNodeCategory } from '../../rules/connection-rules'
-import { SHAPE_LABELS } from '../../config'
+import { getShapeLabel } from '../../config'
 import { createBpmn2NodeRenderers } from '../../core/rendering/node-renderers'
 import { createBpmn2EdgeRenderers } from '../../core/rendering/edge-renderers'
-import { requireStartEvent, requireEndEvent, createStartEventLimit } from '../../core/rules/constraints'
+import { requireStartEvent, requireEndEvent } from '../../core/rules/constraints'
 
 // ============================================================================
 // shape → 渲染器名称 映射
@@ -71,8 +71,7 @@ function buildNodeDefinitions(): Record<string, NodeDefinition> {
       shape,
       category: getNodeCategory(shape),
       renderer: getNodeRendererName(shape),
-      /* istanbul ignore next — SHAPE_LABELS 始终包含所有已注册图形; || fallback 不可达 */
-      title: SHAPE_LABELS[shape] || shape,
+      title: getShapeLabel(shape),
     }
   }
   return nodes
@@ -81,8 +80,7 @@ function buildNodeDefinitions(): Record<string, NodeDefinition> {
 function buildEdgeDefinitions(): Record<string, EdgeDefinition> {
   const edges: Record<string, EdgeDefinition> = {}
   for (const shape of Object.keys(EDGE_MAPPING)) {
-    /* istanbul ignore next — SHAPE_LABELS 始终包含所有已注册图形; || fallback 不可达 */
-    const title = SHAPE_LABELS[shape] || shape
+    const title = getShapeLabel(shape)
     edges[shape] = {
       shape,
       category: getEdgeCategory(shape),
@@ -445,7 +443,6 @@ export const bpmn2Profile: Profile = {
     constraints: [
       requireStartEvent,
       requireEndEvent,
-      createStartEventLimit(1),
     ],
   },
 

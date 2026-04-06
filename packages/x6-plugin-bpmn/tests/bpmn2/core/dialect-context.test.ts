@@ -11,6 +11,7 @@ import {
   createProfileContext,
   bindProfileToGraph,
   getProfileContext,
+  registerProfileCleanup,
   unbindProfile,
 } from '../../../src/core/dialect/context'
 import type { ResolvedProfile, NodeRendererFactory, EdgeRendererFactory } from '../../../src/core/dialect/types'
@@ -146,6 +147,18 @@ describe('bindProfileToGraph', () => {
     unbindProfile(graph)
 
     expect(getProfileContext(graph)).toBeUndefined()
+  })
+
+  it('unbindProfile 应执行已注册的清理逻辑', () => {
+    const graph = createTestGraph()
+    const cleanup = vi.fn()
+    const ctx = createProfileContext(makeResolvedProfile())
+
+    bindProfileToGraph(graph, ctx)
+    registerProfileCleanup(graph, cleanup)
+    unbindProfile(graph)
+
+    expect(cleanup).toHaveBeenCalledOnce()
   })
 
   it('不同 Graph 实例应有独立的 context', () => {

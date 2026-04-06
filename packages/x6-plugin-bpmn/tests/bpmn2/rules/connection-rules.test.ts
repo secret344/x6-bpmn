@@ -9,7 +9,7 @@
  * - createBpmnValidateConnection() X6 适配封装
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   getNodeCategory,
   DEFAULT_CONNECTION_RULES,
@@ -20,6 +20,8 @@ import {
   validatePoolBoundary,
   createBpmnValidateConnection,
   createBpmnValidateConnectionWithResult,
+  createBpmnValidateEdge,
+  createBpmnValidateEdgeWithResult,
   type BpmnConnectionContext,
 } from '../../../src/rules/validator'
 import {
@@ -184,16 +186,25 @@ describe('DEFAULT_CONNECTION_RULES', () => {
     }
   })
 
-  it('开始事件规则：noIncoming 为 true', () => {
-    expect(DEFAULT_CONNECTION_RULES.startEvent.noIncoming).toBe(true)
+  it('开始事件规则：仅允许关联线作为入线', () => {
+    expect(DEFAULT_CONNECTION_RULES.startEvent.allowedIncoming).toEqual([
+      BPMN_ASSOCIATION,
+      BPMN_DIRECTED_ASSOCIATION,
+    ])
   })
 
-  it('结束事件规则：noOutgoing 为 true', () => {
-    expect(DEFAULT_CONNECTION_RULES.endEvent.noOutgoing).toBe(true)
+  it('结束事件规则：仅允许关联线作为出线', () => {
+    expect(DEFAULT_CONNECTION_RULES.endEvent.allowedOutgoing).toEqual([
+      BPMN_ASSOCIATION,
+      BPMN_DIRECTED_ASSOCIATION,
+    ])
   })
 
-  it('边界事件规则：noIncoming 为 true', () => {
-    expect(DEFAULT_CONNECTION_RULES.boundaryEvent.noIncoming).toBe(true)
+  it('边界事件规则：仅允许关联线作为入线', () => {
+    expect(DEFAULT_CONNECTION_RULES.boundaryEvent.allowedIncoming).toEqual([
+      BPMN_ASSOCIATION,
+      BPMN_DIRECTED_ASSOCIATION,
+    ])
   })
 
   it('任务出线应包含顺序流和数据关联', () => {
@@ -350,24 +361,44 @@ describe('validateBpmnConnection', () => {
     it('结束事件不能有出线', () => {
       const result = validateBpmnConnection(ctx(BPMN_END_EVENT, BPMN_USER_TASK))
       expect(result.valid).toBe(false)
-      expect(result.reason).toContain('不允许有出线')
+      expect(result.reason).toContain('不允许使用')
     })
 
     it('开始事件不能有入线', () => {
       const result = validateBpmnConnection(ctx(BPMN_USER_TASK, BPMN_START_EVENT))
       expect(result.valid).toBe(false)
-      expect(result.reason).toContain('不允许有入线')
+      expect(result.reason).toContain('不允许使用')
     })
 
     it('边界事件不能有入线', () => {
       const result = validateBpmnConnection(ctx(BPMN_USER_TASK, BPMN_BOUNDARY_EVENT))
       expect(result.valid).toBe(false)
-      expect(result.reason).toContain('不允许有入线')
+      expect(result.reason).toContain('不允许使用')
+    })
+
+    it('文本注释可以通过关联线连接到开始事件', () => {
+      const result = validateBpmnConnection(
+        ctx(BPMN_TEXT_ANNOTATION, BPMN_START_EVENT, BPMN_ASSOCIATION),
+      )
+      expect(result.valid).toBe(true)
+    })
+
+    it('文本注释可以通过关联线连接到边界事件', () => {
+      const result = validateBpmnConnection(
+        ctx(BPMN_TEXT_ANNOTATION, BPMN_BOUNDARY_EVENT, BPMN_ASSOCIATION),
+      )
+      expect(result.valid).toBe(true)
+    })
+
+    it('结束事件可以通过关联线连接到文本注释', () => {
+      const result = validateBpmnConnection(
+        ctx(BPMN_END_EVENT, BPMN_TEXT_ANNOTATION, BPMN_ASSOCIATION),
+      )
+      expect(result.valid).toBe(true)
     })
 
     it('开始事件不能连接到开始事件', () => {
       const result = validateBpmnConnection(ctx(BPMN_START_EVENT, BPMN_START_EVENT))
-      // 会触发 noIncoming（开始事件作为目标不允许入线）
       expect(result.valid).toBe(false)
     })
 
@@ -488,19 +519,16 @@ describe('validateBpmnConnection', () => {
     })
 
     it('自定义规则可覆盖默认禁止', () => {
-      // 默认规则中结束事件 noOutgoing=true
-      // 自定义规则覆盖为 noOutgoing=false
+      // 默认规则中结束事件仅允许关联线出线
+      // 自定义规则改为允许顺序流出线
       const result = validateBpmnConnection(
         ctx(BPMN_END_EVENT, BPMN_USER_TASK, BPMN_SEQUENCE_FLOW),
         {
           customRules: {
-            endEvent: { noOutgoing: false },
+            endEvent: { allowedOutgoing: [BPMN_SEQUENCE_FLOW] },
           },
         },
       )
-      // 仍可能因其他规则（如 allowedOutgoing 未包含）而失败，
-      // 但 noOutgoing 这一检查应该放行
-      // 此处 endEvent 的 allowedIncoming 限制不影响出线方向
       expect(result.valid).toBe(true)
     })
 
@@ -936,8 +964,8 @@ describe('createBpmnValidateConnectionWithResult', () => {
   it('带 graph 的节点应统计出入线数量用于验证', () => {
     const graph = {
       getConnectedEdges: (_node: any, opts: any) => {
-        if (opts.outgoing) return Array(5)
-        if (opts.incoming) return Array(5)
+        if (opts.outgoing) return Array.from({ length: 5 }, (_, index) => ({ id: `out-${index}`, shape: BPMN_SEQUENCE_FLOW }))
+        if (opts.incoming) return Array.from({ length: 5 }, (_, index) => ({ id: `in-${index}`, shape: BPMN_SEQUENCE_FLOW }))
         return []
       },
     }
@@ -951,6 +979,341 @@ describe('createBpmnValidateConnectionWithResult', () => {
     })
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('上限')
+  })
+
+  it('重连当前边时不应将当前边计入出入线数量', () => {
+    const currentEdge = { id: 'edge-1', shape: BPMN_SEQUENCE_FLOW } as any
+    const graph = {
+      getConnectedEdges: (_node: any, opts: any) => {
+        if (opts.outgoing) return [currentEdge]
+        if (opts.incoming) return [currentEdge]
+        return []
+      },
+    }
+    const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW, {
+      customRules: {
+        task: { maxOutgoing: 1, maxIncoming: 1 },
+      },
+    })
+    const result = validate({
+      edge: currentEdge,
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNode('1', BPMN_USER_TASK, graph),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK, graph),
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('edgeShapeGetter 抛异常时应返回 exception 结果并触发异常回调', () => {
+    const onValidationException = vi.fn()
+    const validate = createBpmnValidateConnectionWithResult(
+      () => { throw new Error('mock getter error') },
+      { onValidationException },
+    )
+    const result = validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNode('1', BPMN_USER_TASK),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK),
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.kind).toBe('exception')
+    expect(result.reason).toContain('预校验执行异常')
+    expect(onValidationException).toHaveBeenCalledOnce()
+  })
+
+  it('抛出非 Error 值时也应归一化为 exception 结果', () => {
+    const validate = createBpmnValidateConnectionWithResult(
+      () => { throw 'mock string error' },
+    )
+    const result = validate({
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNode('1', BPMN_USER_TASK),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK),
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.kind).toBe('exception')
+    expect(result.reason).toBe('连线预校验执行异常')
+  })
+})
+
+// ============================================================================
+// createBpmnValidateEdge / createBpmnValidateEdgeWithResult
+// ============================================================================
+
+describe('createBpmnValidateEdgeWithResult', () => {
+  function mockNode(id: string, shape: string, graph?: any, data?: any) {
+    return {
+      id,
+      shape,
+      model: graph ? { graph } : null,
+      getParent: () => null,
+      getData: () => data ?? {},
+    } as any
+  }
+
+  function createGraph(sourceNode: any, targetNode: any, connectedEdges?: { outgoing?: any[]; incoming?: any[] }) {
+    const nodeMap = new Map([
+      [sourceNode.id, sourceNode],
+      [targetNode.id, targetNode],
+    ])
+
+    return {
+      getCellById: (id: string) => nodeMap.get(id) ?? null,
+      getConnectedEdges: (node: any, opts: any) => {
+        if (node.id === sourceNode.id && opts.outgoing) return connectedEdges?.outgoing ?? []
+        if (node.id === targetNode.id && opts.incoming) return connectedEdges?.incoming ?? []
+        return []
+      },
+    }
+  }
+
+  it('edge 缺失时应返回失败原因', () => {
+    const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate({ edge: null })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('连线实例不存在')
+  })
+
+  it('edge 所属 graph 缺失时应返回失败原因', () => {
+    const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        shape: BPMN_SEQUENCE_FLOW,
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('图实例')
+  })
+
+  it('edge 未连接完整源目标节点时应返回失败原因', () => {
+    const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        shape: BPMN_SEQUENCE_FLOW,
+        model: { graph: { getCellById: () => null } },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => '',
+      },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('有效的源节点和目标节点')
+  })
+
+  it('edge 无法解析节点时应返回失败原因', () => {
+    const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        shape: BPMN_SEQUENCE_FLOW,
+        model: { graph: { getCellById: () => null } },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('无法解析')
+  })
+
+  it('自连接时应返回失败原因', () => {
+    const sourceNode = mockNode('same', BPMN_USER_TASK)
+    const graph = createGraph(sourceNode, sourceNode)
+    sourceNode.model = { graph }
+    const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        shape: BPMN_SEQUENCE_FLOW,
+        model: { graph },
+        getSourceCellId: () => 'same',
+        getTargetCellId: () => 'same',
+      },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('自连接')
+  })
+
+  it('合法最终连线应返回 valid=true', () => {
+    const sourceNode = mockNode('source', BPMN_USER_TASK)
+    const targetNode = mockNode('target', BPMN_SERVICE_TASK)
+    const graph = createGraph(sourceNode, targetNode)
+    sourceNode.model = { graph }
+    targetNode.model = { graph }
+    const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        shape: BPMN_SEQUENCE_FLOW,
+        model: { graph },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('edge 缺少 shape 时应回退到 edgeShapeGetter', () => {
+    const sourceNode = mockNode('source', BPMN_USER_TASK)
+    const targetNode = mockNode('target', BPMN_SERVICE_TASK)
+    const graph = createGraph(sourceNode, targetNode)
+    sourceNode.model = { graph }
+    targetNode.model = { graph }
+    const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        model: { graph },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('重连当前边时不应把当前边计入上限', () => {
+    const currentEdge = {
+      id: 'edge-1',
+      shape: BPMN_SEQUENCE_FLOW,
+      getShape: () => BPMN_SEQUENCE_FLOW,
+    }
+    const sourceNode = mockNode('source', BPMN_USER_TASK)
+    const targetNode = mockNode('target', BPMN_SERVICE_TASK)
+    const graph = createGraph(sourceNode, targetNode, {
+      outgoing: [currentEdge],
+      incoming: [currentEdge],
+    })
+    sourceNode.model = { graph }
+    targetNode.model = { graph }
+    const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW, {
+      customRules: {
+        task: { maxOutgoing: 1, maxIncoming: 1 },
+      },
+    })
+    const result = validate({
+      edge: {
+        ...currentEdge,
+        model: { graph },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('edge 取源节点时抛异常应返回 exception 结果并触发异常回调', () => {
+    const onValidationException = vi.fn()
+    const validate = createBpmnValidateEdgeWithResult(
+      () => BPMN_SEQUENCE_FLOW,
+      { onValidationException },
+    )
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        model: { graph: { getCellById: () => null } },
+        getSourceCellId: () => { throw new Error('mock edge error') },
+        getTargetCellId: () => 'target',
+      },
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.kind).toBe('exception')
+    expect(result.reason).toContain('终校验执行异常')
+    expect(onValidationException).toHaveBeenCalledOnce()
+  })
+})
+
+describe('createBpmnValidateEdge', () => {
+  it('未提供错误回调时仍应安全返回 false', () => {
+    const validate = createBpmnValidateEdge(() => BPMN_SEQUENCE_FLOW)
+    expect(validate({ edge: null })).toBe(false)
+  })
+
+  it('最终校验失败时应触发错误回调', () => {
+    const onValidationError = vi.fn()
+    const validate = createBpmnValidateEdge(() => BPMN_SEQUENCE_FLOW, { onValidationError })
+    const result = validate({ edge: null })
+    expect(result).toBe(false)
+    expect(onValidationError).toHaveBeenCalledOnce()
+    expect(onValidationError.mock.calls[0][0].reason).toContain('连线实例不存在')
+  })
+
+  it('最终校验通过时不应触发错误回调', () => {
+    const onValidationError = vi.fn()
+    const sourceNode = {
+      id: 'source',
+      shape: BPMN_USER_TASK,
+      getParent: () => null,
+      getData: () => ({}),
+    } as any
+    const targetNode = {
+      id: 'target',
+      shape: BPMN_SERVICE_TASK,
+      getParent: () => null,
+      getData: () => ({}),
+    } as any
+    const graph = {
+      getCellById: (id: string) => (id === 'source' ? sourceNode : targetNode),
+      getConnectedEdges: () => [],
+    }
+    sourceNode.model = { graph }
+    targetNode.model = { graph }
+    const validate = createBpmnValidateEdge(() => BPMN_SEQUENCE_FLOW, { onValidationError })
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        shape: BPMN_SEQUENCE_FLOW,
+        model: { graph },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result).toBe(true)
+    expect(onValidationError).not.toHaveBeenCalled()
+  })
+
+  it('最终校验发生异常时不应误触发普通错误回调', () => {
+    const onValidationError = vi.fn()
+    const onValidationException = vi.fn()
+    const validate = createBpmnValidateEdge(
+      () => { throw new Error('mock getter error') },
+      { onValidationError, onValidationException },
+    )
+    const sourceNode = {
+      id: 'source',
+      shape: BPMN_USER_TASK,
+      getParent: () => null,
+      getData: () => ({}),
+    } as any
+    const targetNode = {
+      id: 'target',
+      shape: BPMN_SERVICE_TASK,
+      getParent: () => null,
+      getData: () => ({}),
+    } as any
+    const graph = {
+      getCellById: (id: string) => (id === 'source' ? sourceNode : targetNode),
+      getConnectedEdges: () => [],
+    }
+    sourceNode.model = { graph }
+    targetNode.model = { graph }
+
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        model: { graph },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+
+    expect(result).toBe(false)
+    expect(onValidationError).not.toHaveBeenCalled()
+    expect(onValidationException).toHaveBeenCalledOnce()
   })
 })
 

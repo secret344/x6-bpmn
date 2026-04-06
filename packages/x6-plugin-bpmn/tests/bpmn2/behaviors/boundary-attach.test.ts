@@ -14,6 +14,20 @@ import {
   defaultIsValidHostForBoundary,
   CANCEL_BOUNDARY_HOST_SHAPES,
 } from '../../../src/behaviors/boundary-attach'
+import {
+  createBehaviorTestGraph,
+  destroyBehaviorTestGraph,
+  dragNodeLinearly,
+  getNodeCenter,
+  getNodeRect,
+  registerBehaviorTestShapes,
+} from '../../helpers/behavior-test-graph'
+import {
+  BPMN_BOUNDARY_EVENT_CANCEL,
+  BPMN_BOUNDARY_EVENT_TIMER,
+  BPMN_TRANSACTION,
+  BPMN_USER_TASK,
+} from '../../../src/utils/constants'
 import type { Rect, Point, BoundaryPosition } from '../../../src/behaviors/geometry'
 
 // ============================================================================
@@ -371,6 +385,152 @@ describe('attachBoundaryToHost', () => {
     attachBoundaryToHost(graph, boundary, host)
     const data = boundary.getData()
     expect(data.bpmn?.boundaryPosition.side).toBe('bottom')
+  })
+})
+
+describe('boundary attach real graph interactions', () => {
+  it('线性拖拽边界事件时应始终贴着宿主边框移动', () => {
+    registerBehaviorTestShapes([BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
+
+    const graph = createBehaviorTestGraph()
+    const dispose = setupBoundaryAttach(graph, { detachDistance: Number.POSITIVE_INFINITY })
+    const host = graph.addNode({
+      id: 'host',
+      shape: BPMN_USER_TASK,
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 100,
+    })
+    const boundary = graph.addNode({
+      id: 'boundary',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      x: 182,
+      y: 82,
+      width: 36,
+      height: 36,
+    })
+
+    attachBoundaryToHost(graph, boundary, host)
+    dragNodeLinearly(graph, boundary, { x: 70, y: 55 }, 7)
+
+    expect(boundary.getParent()?.id).toBe(host.id)
+    expect(distanceToRectEdge(getNodeCenter(boundary), getNodeRect(host))).toBeCloseTo(0, 5)
+    expect(boundary.getData<{ bpmn?: { boundaryPosition?: BoundaryPosition } }>()?.bpmn?.boundaryPosition).toBeDefined()
+
+    dispose()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('线性拖离宿主超过阈值时应解除附着', () => {
+    registerBehaviorTestShapes([BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
+
+    const graph = createBehaviorTestGraph()
+    const dispose = setupBoundaryAttach(graph, { detachDistance: 24 })
+    const host = graph.addNode({
+      id: 'host',
+      shape: BPMN_USER_TASK,
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 100,
+    })
+    const boundary = graph.addNode({
+      id: 'boundary',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      x: 182,
+      y: 82,
+      width: 36,
+      height: 36,
+    })
+
+    attachBoundaryToHost(graph, boundary, host)
+    dragNodeLinearly(graph, boundary, { x: 240, y: -180 }, 8)
+
+    expect(boundary.getParent()).toBeNull()
+    expect(boundary.getData<{ bpmn?: { boundaryPosition?: BoundaryPosition } }>()?.bpmn?.boundaryPosition).toBeUndefined()
+
+    dispose()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('宿主 resize 后应按保存的边框位置重算边界事件坐标', () => {
+    registerBehaviorTestShapes([BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
+
+    const graph = createBehaviorTestGraph()
+    const dispose = setupBoundaryAttach(graph)
+    const host = graph.addNode({
+      id: 'host',
+      shape: BPMN_USER_TASK,
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 100,
+    })
+    const boundary = graph.addNode({
+      id: 'boundary',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      x: 302,
+      y: 132,
+      width: 36,
+      height: 36,
+    })
+
+    attachBoundaryToHost(graph, boundary, host)
+    const beforeX = boundary.getPosition().x
+
+    host.resize(260, 140)
+    graph.emit('node:change:size', { node: host, cell: host })
+
+    expect(boundary.getParent()?.id).toBe(host.id)
+    expect(distanceToRectEdge(getNodeCenter(boundary), getNodeRect(host))).toBeCloseTo(0, 5)
+    expect(boundary.getPosition().x).toBeGreaterThan(beforeX)
+
+    dispose()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('取消边界事件在真实图场景中仍只允许附着到事务子流程', () => {
+    registerBehaviorTestShapes([BPMN_TRANSACTION, BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_CANCEL])
+
+    const graph = createBehaviorTestGraph()
+    const dispose = setupBoundaryAttach(graph)
+    const transaction = graph.addNode({
+      id: 'transaction',
+      shape: BPMN_TRANSACTION,
+      x: 100,
+      y: 100,
+      width: 220,
+      height: 120,
+    })
+    const task = graph.addNode({
+      id: 'task',
+      shape: BPMN_USER_TASK,
+      x: 360,
+      y: 100,
+      width: 200,
+      height: 100,
+    })
+    const cancelBoundary = graph.addNode({
+      id: 'cancel-boundary',
+      shape: BPMN_BOUNDARY_EVENT_CANCEL,
+      x: 182,
+      y: 82,
+      width: 36,
+      height: 36,
+    })
+
+    transaction.embed(cancelBoundary)
+    graph.emit('node:embedded', { node: cancelBoundary, currentParent: transaction, previousParent: null })
+    expect(cancelBoundary.getData<{ bpmn?: { boundaryPosition?: BoundaryPosition } }>()?.bpmn?.boundaryPosition).toBeDefined()
+
+    task.embed(cancelBoundary)
+    graph.emit('node:embedded', { node: cancelBoundary, currentParent: task, previousParent: transaction })
+    expect(cancelBoundary.getData<{ bpmn?: { boundaryPosition?: BoundaryPosition } }>()?.bpmn?.boundaryPosition?.side).toBeDefined()
+    expect(defaultIsValidHostForBoundary(task.shape, cancelBoundary.shape)).toBe(false)
+
+    dispose()
+    destroyBehaviorTestGraph(graph)
   })
 })
 

@@ -48,52 +48,148 @@ export function createContextValidateConnection(
   edgeShapeGetter: () => string,
   profileContext: ProfileContext,
 ): (args: any) => boolean {
+  const validateWithResult = createContextValidateConnectionWithResult(edgeShapeGetter, profileContext)
+
   return (args: any): boolean => {
-    const { sourceCell, targetCell, targetMagnet } = args
-
-    if (!targetMagnet) return false
-
-    const sourceNode = sourceCell as any
-    const targetNode = targetCell as any
-    if (!sourceNode || !targetNode) return false
-    if (sourceNode.id === targetNode.id) return false
-
-    const result = validateConnectionWithContext(
-      {
-        sourceShape: sourceNode.shape,
-        targetShape: targetNode.shape,
-        edgeShape: edgeShapeGetter(),
-        sourceOutgoingCount: countEdges(sourceNode, 'outgoing'),
-        targetIncomingCount: countEdges(targetNode, 'incoming'),
-        sourceOutgoingSequenceFlowCount: countSequenceFlowEdges(sourceNode, 'outgoing'),
-        targetIncomingSequenceFlowCount: countSequenceFlowEdges(targetNode, 'incoming'),
-        sourceData: readNodeData(sourceNode),
-        targetData: readNodeData(targetNode),
-        sourcePoolId: findPoolId(sourceNode),
-        targetPoolId: findPoolId(targetNode),
-      },
-      profileContext,
-    )
-
-    return result.valid
+    return validateWithResult(args).valid
   }
 }
 
-function countEdges(node: any, direction: 'outgoing' | 'incoming'): number {
+export function createContextValidateConnectionWithResult(
+  edgeShapeGetter: () => string,
+  profileContext: ProfileContext,
+): (args: any) => BpmnValidationResult {
+  return (args: any): BpmnValidationResult => {
+    try {
+      const { sourceCell, targetCell, targetMagnet } = args
+
+      if (!targetMagnet) return { valid: false, reason: '目标节点没有可用的连接桩' }
+
+      const sourceNode = sourceCell as any
+      const targetNode = targetCell as any
+      if (!sourceNode || !targetNode) return { valid: false, reason: '源节点或目标节点不存在' }
+      if (sourceNode.id === targetNode.id) return { valid: false, reason: '不允许自连接' }
+
+      return validateRuntimeEdgeWithContext(
+        sourceNode,
+        targetNode,
+        resolveEdgeShape(args.edge, edgeShapeGetter),
+        profileContext,
+        args.edge,
+      )
+    } catch (error) {
+      return createValidationExceptionResult(error, '方言连线预校验执行异常')
+    }
+  }
+}
+
+export function createContextValidateEdge(
+  edgeShapeGetter: () => string,
+  profileContext: ProfileContext,
+): (args: any) => boolean {
+  const validateWithResult = createContextValidateEdgeWithResult(edgeShapeGetter, profileContext)
+  return (args: any): boolean => validateWithResult(args).valid
+}
+
+export function createContextValidateEdgeWithResult(
+  edgeShapeGetter: () => string,
+  profileContext: ProfileContext,
+): (args: any) => BpmnValidationResult {
+  return (args: any): BpmnValidationResult => {
+    try {
+      const edge = args.edge ?? null
+      if (!edge) return { valid: false, reason: '连线实例不存在' }
+
+      const graph = getGraphFromCell(edge)
+      if (!graph?.getCellById) {
+        return { valid: false, reason: '无法定位连线所属图实例' }
+      }
+
+      const sourceCellId = edge.getSourceCellId?.()
+      const targetCellId = edge.getTargetCellId?.()
+      if (!sourceCellId || !targetCellId) {
+        return { valid: false, reason: '连线必须连接到有效的源节点和目标节点' }
+      }
+
+      const sourceNode = graph.getCellById(sourceCellId)
+      const targetNode = graph.getCellById(targetCellId)
+      if (!sourceNode || !targetNode) {
+        return { valid: false, reason: '无法解析连线的源节点或目标节点' }
+      }
+
+      if (sourceNode.id === targetNode.id) {
+        return { valid: false, reason: '不允许自连接' }
+      }
+
+      return validateRuntimeEdgeWithContext(
+        sourceNode,
+        targetNode,
+        resolveEdgeShape(edge, edgeShapeGetter),
+        profileContext,
+        edge,
+      )
+    } catch (error) {
+      return createValidationExceptionResult(error, '方言连线终校验执行异常')
+    }
+  }
+}
+
+function validateRuntimeEdgeWithContext(
+  sourceNode: any,
+  targetNode: any,
+  edgeShape: string,
+  profileContext: ProfileContext,
+  currentEdge?: any,
+): BpmnValidationResult {
+  return validateConnectionWithContext(
+    {
+      sourceShape: sourceNode.shape,
+      targetShape: targetNode.shape,
+      edgeShape,
+      sourceOutgoingCount: countEdges(sourceNode, 'outgoing', currentEdge),
+      targetIncomingCount: countEdges(targetNode, 'incoming', currentEdge),
+      sourceOutgoingSequenceFlowCount: countSequenceFlowEdges(sourceNode, 'outgoing', currentEdge),
+      targetIncomingSequenceFlowCount: countSequenceFlowEdges(targetNode, 'incoming', currentEdge),
+      sourceData: readNodeData(sourceNode),
+      targetData: readNodeData(targetNode),
+      sourcePoolId: findPoolId(sourceNode),
+      targetPoolId: findPoolId(targetNode),
+    },
+    profileContext,
+  )
+}
+
+function resolveEdgeShape(edge: any, edgeShapeGetter: () => string): string {
+  const shape = typeof edge?.getShape === 'function' ? edge.getShape() : edge?.shape
+  return typeof shape === 'string' && shape.length > 0 ? shape : edgeShapeGetter()
+}
+
+function getGraphFromCell(cell: any): any {
+  return cell?.model?.graph ?? cell?.graph
+}
+
+function isSameEdge(edge: any, currentEdge?: any): boolean {
+  if (!currentEdge) return false
+  return edge === currentEdge || (!!edge?.id && !!currentEdge?.id && edge.id === currentEdge.id)
+}
+
+function countEdges(node: any, direction: 'outgoing' | 'incoming', currentEdge?: any): number {
   try {
-    const graph = node.model?.graph
+    const graph = getGraphFromCell(node)
     if (!graph) return 0
-    return graph.getConnectedEdges(node, { [direction]: true }).length
+    return graph.getConnectedEdges(node, { [direction]: true }).filter((edge: any) => !isSameEdge(edge, currentEdge)).length
   } catch {
     return 0
   }
 }
 
-function countSequenceFlowEdges(node: any, direction: 'outgoing' | 'incoming'): number {
+function countSequenceFlowEdges(node: any, direction: 'outgoing' | 'incoming', currentEdge?: any): number {
   try {
-    const graph = node.model?.graph
+    const graph = getGraphFromCell(node)
     if (!graph) return 0
-    return graph.getConnectedEdges(node, { [direction]: true }).filter((edge: any) => isSequenceFlowShape(edge?.shape)).length
+    return graph.getConnectedEdges(node, { [direction]: true })
+      .filter((edge: any) => !isSameEdge(edge, currentEdge))
+      .filter((edge: any) => isSequenceFlowShape(edge?.shape)).length
   } catch {
     return 0
   }
@@ -120,4 +216,13 @@ function findPoolId(node: any): string | undefined {
     current = current.getParent?.()
   }
   return undefined
+}
+
+function createValidationExceptionResult(error: unknown, message: string): BpmnValidationResult {
+  const detail = error instanceof Error && error.message ? `：${error.message}` : ''
+  return {
+    valid: false,
+    reason: `${message}${detail}`,
+    kind: 'exception',
+  }
 }

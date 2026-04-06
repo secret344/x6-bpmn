@@ -6,6 +6,7 @@
  */
 
 import type { FieldCapability, FieldValidateContext, DataModelSet } from '../dialect/types'
+import { classifyShape } from '../../config'
 
 // ============================================================================
 // 字段能力辅助函数
@@ -107,7 +108,18 @@ export function getFieldsForShape(
   if (dataModel.shapeFields?.[shape]) {
     return dataModel.shapeFields[shape]
   }
-  return dataModel.categoryFields[category] || []
+
+  const directFields = dataModel.categoryFields[category] || []
+  const classifiedCategory = classifyShape(shape)
+  const classifiedFields =
+    classifiedCategory !== 'unknown' && classifiedCategory !== category
+      ? dataModel.categoryFields[classifiedCategory] || []
+      : []
+
+  if (classifiedFields.length === 0) return directFields
+  if (directFields.length === 0) return classifiedFields
+
+  return Array.from(new Set([...directFields, ...classifiedFields]))
 }
 
 /**

@@ -30,9 +30,12 @@ export {
   type BpmnConnectionContext,
   type BpmnValidateOptions,
   type X6ValidateConnectionArgs,
+  type X6ValidateEdgeArgs,
   // 核心验证函数
   validateBpmnConnection,
   // X6 适配封装
   createBpmnValidateConnection,
   createBpmnValidateConnectionWithResult,
+  createBpmnValidateEdge,
+  createBpmnValidateEdgeWithResult,
 } from './validator'

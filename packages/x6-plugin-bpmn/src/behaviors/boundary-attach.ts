@@ -282,7 +282,7 @@ export function setupBoundaryAttach(
       const bpmn = { ...(data.bpmn || {}) }
       delete bpmn.boundaryPosition
       delete bpmn.attachedToRef
-      node.setData({ ...data, bpmn }, { silent: true })
+      node.setData({ ...data, bpmn }, { silent: true, overwrite: true })
       return
     }
 

@@ -9,38 +9,61 @@ import {
   DialectDetector,
 } from '../../../src/core/dialect/detector'
 import type { DialectDetectRule } from '../../../src/core/dialect/detector'
+import { buildTestXml, replaceXmlOrThrow } from '../../helpers/xml-test-utils'
+
+const baseXmlPromise = buildTestXml({
+  processes: [{ id: 'Process_1', isExecutable: true, elements: [] }],
+})
+
+async function buildDefinitionsXml(attributes = ''): Promise<string> {
+  const xml = await baseXmlPromise
+  if (!attributes) {
+    return xml
+  }
+
+  return replaceXmlOrThrow(
+    xml,
+    /(<(?:bpmn:)?definitions\b)/,
+    `$1${attributes}`,
+    '未找到 definitions 根标签，无法注入测试命名空间',
+  )
+}
 
 // ============================================================================
 // DialectDetector 基本行为
 // ============================================================================
 
 describe('DialectDetector — 基本行为', () => {
-  it('无规则时应返回 bpmn2（兜底）', () => {
+  it('无规则时应返回 bpmn2（兜底）', async () => {
     const detector = new DialectDetector()
-    expect(detector.detect('<definitions></definitions>')).toBe('bpmn2')
+    expect(detector.detect(await buildDefinitionsXml())).toBe('bpmn2')
   })
 
-  it('addRule 后匹配的规则应返回对应方言', () => {
+  it('addRule 后匹配的规则应返回对应方言', async () => {
     const detector = new DialectDetector()
     const rule: DialectDetectRule = {
       name: 'custom',
       test: (xml) => xml.includes('custom-ns') ? 'custom-dialect' : null,
     }
     detector.addRule(rule)
-    expect(detector.detect('<definitions xmlns:custom-ns="http://example.com">')).toBe('custom-dialect')
+    expect(
+      detector.detect(
+        await buildDefinitionsXml(' xmlns:custom-ns="http://example.com"'),
+      ),
+    ).toBe('custom-dialect')
   })
 
-  it('不匹配的规则应回退到 bpmn2', () => {
+  it('不匹配的规则应回退到 bpmn2', async () => {
     const detector = new DialectDetector()
     const rule: DialectDetectRule = {
       name: 'custom',
       test: () => null,
     }
     detector.addRule(rule)
-    expect(detector.detect('<definitions></definitions>')).toBe('bpmn2')
+    expect(detector.detect(await buildDefinitionsXml())).toBe('bpmn2')
   })
 
-  it('多规则时应返回首个匹配', () => {
+  it('多规则时应返回首个匹配', async () => {
     const detector = new DialectDetector()
     detector.addRule({
       name: 'rule1',
@@ -54,7 +77,7 @@ describe('DialectDetector — 基本行为', () => {
       name: 'rule3',
       test: () => 'dialect-c',
     })
-    expect(detector.detect('<any>')).toBe('dialect-b')
+    expect(detector.detect(await buildDefinitionsXml())).toBe('dialect-b')
   })
 })
 
@@ -78,7 +101,7 @@ describe('DialectDetector — 异常场景', () => {
     expect(detector.detect('{ "type": "json" }')).toBe('bpmn2')
   })
 
-  it('规则测试函数抛出异常时应跳过该规则', () => {
+  it('规则测试函数抛出异常时应跳过该规则', async () => {
     const detector = new DialectDetector()
     detector.addRule({
       name: 'broken',
@@ -89,7 +112,7 @@ describe('DialectDetector — 异常场景', () => {
       test: () => 'fallback-dialect',
     })
     try {
-      const result = detector.detect('<any />')
+      const result = detector.detect(await buildDefinitionsXml())
       expect(result).toBe('fallback-dialect')
     } catch {
       expect(true).toBe(true)
@@ -98,18 +121,18 @@ describe('DialectDetector — 异常场景', () => {
 })
 
 describe('DialectDetector — 多规则优先级', () => {
-  it('首个匹配的规则应胜出', () => {
+  it('首个匹配的规则应胜出', async () => {
     const detector = new DialectDetector()
     detector.addRule({ name: 'r1', test: () => 'first' })
     detector.addRule({ name: 'r2', test: () => 'second' })
-    expect(detector.detect('<any />')).toBe('first')
+    expect(detector.detect(await buildDefinitionsXml())).toBe('first')
   })
 
-  it('所有规则返回 null 时应兜底 bpmn2', () => {
+  it('所有规则返回 null 时应兜底 bpmn2', async () => {
     const detector = new DialectDetector()
     detector.addRule({ name: 'r1', test: () => null })
     detector.addRule({ name: 'r2', test: () => null })
     detector.addRule({ name: 'r3', test: () => null })
-    expect(detector.detect('<any />')).toBe('bpmn2')
+    expect(detector.detect(await buildDefinitionsXml())).toBe('bpmn2')
   })
 })

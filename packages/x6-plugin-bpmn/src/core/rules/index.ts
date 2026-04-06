@@ -5,6 +5,9 @@
 export {
   validateConnectionWithContext,
   createContextValidateConnection,
+  createContextValidateConnectionWithResult,
+  createContextValidateEdge,
+  createContextValidateEdgeWithResult,
 } from './validator'
 
 export {

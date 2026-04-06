@@ -46,7 +46,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Graph } from '@antv/x6'
-import { getBpmnShapeIcon } from '@x6-bpmn2/plugin'
+import { getBpmnShapeIcon, getShapeLabel } from '@x6-bpmn2/plugin'
 import { useDialectSingleton } from '../composables/useDialect'
 
 const props = defineProps<{
@@ -106,7 +106,25 @@ const nodeGroups = computed(() => {
 })
 
 function onDragStart(event: DragEvent, shape: string) {
+  const label = getShapeLabel(shape)
+  const size =
+    shape === 'bpmn-pool'
+      ? { width: 400, height: 200 }
+      : shape === 'bpmn-lane'
+        ? { width: 370, height: 100 }
+        : shape === 'bpmn-group'
+          ? { width: 160, height: 100 }
+          : {}
+
+  event.dataTransfer?.setData('application/bpmn-shape', JSON.stringify({
+    shape,
+    label,
+    ...size,
+  }))
   event.dataTransfer?.setData('bpmn/shape', shape)
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'copy'
+  }
 }
 </script>
 

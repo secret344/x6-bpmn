@@ -30,6 +30,7 @@ describe('bpmn2Profile', () => {
       expect(def.shape).toBe(key)
       expect(def.category).toBeTruthy()
       expect(def.renderer).toBeTruthy()
+      expect(def.title).toBeTruthy()
     }
   })
 
@@ -38,6 +39,7 @@ describe('bpmn2Profile', () => {
       expect(def.shape).toBe(key)
       expect(def.category).toBeTruthy()
       expect(def.renderer).toBeTruthy()
+      expect(def.title).toBeTruthy()
     }
   })
 
@@ -56,8 +58,11 @@ describe('bpmn2Profile', () => {
     expect(Object.keys(bpmn2Profile.rendering!.edgeRenderers!).length).toBeGreaterThan(3)
   })
 
-  it('rules 应包含 constraints', () => {
-    expect(bpmn2Profile.rules!.constraints!.length).toBeGreaterThanOrEqual(2)
+  it('rules 应只包含 BPMN2 默认结构约束', () => {
+    expect(bpmn2Profile.rules!.constraints!.map((rule) => rule.id)).toEqual([
+      'require-start-event',
+      'require-end-event',
+    ])
   })
 
   it('dataModel 应包含字段和分类映射', () => {
@@ -88,6 +93,10 @@ describe('ProfileRegistry 编译 bpmn2Profile', () => {
     expect(resolved.meta.id).toBe('bpmn2')
     expect(Object.keys(resolved.definitions.nodes).length).toBeGreaterThan(20)
     expect(Object.keys(resolved.definitions.edges).length).toBeGreaterThan(3)
+    expect(resolved.rules.constraints.map((rule) => rule.id)).toEqual([
+      'require-start-event',
+      'require-end-event',
+    ])
   })
 })
 

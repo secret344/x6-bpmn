@@ -17,6 +17,12 @@ In `packages/x6-plugin-bpmn`:
 - Prefer domain outcome assertions over implementation-detail assertions.
 - Do not add tests that exist only to satisfy coverage percentages.
 
+## Submodule policy
+- Do not directly modify content inside git submodules under `packages/**`.
+- Reference and documentation submodules must remain read-only in this workspace.
+- Use `packages/bpmn2-spec` for spec lookup, `packages/bpmn-moddle` for BPMN XML/moddle behavior lookup, and `packages/bpmn-js` for community modeler behavior lookup when implementation questions arise.
+- If a submodule problem is found, record it in root `tip.md` instead of editing the submodule.
+
 ## Pre-submit checklist
 1. Code change mapped to a concrete business behavior.
 2. Test updates map to that behavior.

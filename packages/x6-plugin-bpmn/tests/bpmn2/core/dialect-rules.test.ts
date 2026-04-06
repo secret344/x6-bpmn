@@ -7,7 +7,7 @@
  * - validator: validateConnectionWithContext, createContextValidateConnection
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   createStartEventLimit,
   createEndEventLimit,
@@ -16,16 +16,24 @@ import {
   createForbiddenShapes,
   validateConstraints,
 } from '../../../src/core/rules/constraints'
-import { validateConnectionWithContext, createContextValidateConnection } from '../../../src/core/rules/validator'
+import {
+  validateConnectionWithContext,
+  createContextValidateConnection,
+  createContextValidateConnectionWithResult,
+  createContextValidateEdge,
+  createContextValidateEdgeWithResult,
+} from '../../../src/core/rules/validator'
 import type { ConstraintValidateContext, ProfileContext, ResolvedProfile } from '../../../src/core/dialect/types'
 import { DEFAULT_CONNECTION_RULES, type BpmnNodeCategory } from '../../../src/rules/connection-rules'
 import {
+  BPMN_ASSOCIATION,
   BPMN_CONDITIONAL_FLOW,
   BPMN_EVENT_BASED_GATEWAY,
   BPMN_EVENT_SUB_PROCESS,
   BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE,
   BPMN_RECEIVE_TASK,
   BPMN_SEQUENCE_FLOW,
+  BPMN_TEXT_ANNOTATION,
 } from '../../../src/utils/constants'
 
 // ============================================================================
@@ -263,6 +271,30 @@ describe('validateConnectionWithContext', () => {
     )
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('不允许有入线')
+  })
+
+  it('默认开始事件规则应允许来自文本注释的关联线', () => {
+    const ctx = makeProfileContext(
+      { 'bpmn-start': 'startEvent', 'bpmn-note': 'artifact' },
+      DEFAULT_CONNECTION_RULES,
+    )
+    const result = validateConnectionWithContext(
+      { sourceShape: 'bpmn-note', targetShape: 'bpmn-start', edgeShape: BPMN_ASSOCIATION },
+      ctx,
+    )
+    expect(result.valid).toBe(true)
+  })
+
+  it('默认结束事件规则应允许到文本注释的关联线', () => {
+    const ctx = makeProfileContext(
+      { 'bpmn-end': 'endEvent', 'bpmn-note': 'artifact' },
+      DEFAULT_CONNECTION_RULES,
+    )
+    const result = validateConnectionWithContext(
+      { sourceShape: 'bpmn-end', targetShape: 'bpmn-note', edgeShape: BPMN_ASSOCIATION },
+      ctx,
+    )
+    expect(result.valid).toBe(true)
   })
 
   it('forbiddenTargets 应阻止到指定分类的连接', () => {
@@ -608,6 +640,253 @@ describe('createContextValidateConnection', () => {
       targetMagnet: document.createElement('div'),
     })
     expect(result).toBe(true)
+  })
+
+  it('重连当前边时不应把当前边计入上限', () => {
+    const limitedCtx = makeProfileContext(
+      { 'bpmn-user-task': 'task' },
+      { task: { maxOutgoing: 1, maxIncoming: 1 } },
+    )
+    const currentEdge = { id: 'edge-1', shape: 'bpmn-sequence-flow' }
+    const fakeGraph = {
+      getConnectedEdges: () => [currentEdge],
+    }
+    const validate = createContextValidateConnection(() => 'bpmn-sequence-flow', limitedCtx)
+    const result = validate({
+      edge: currentEdge,
+      sourceCell: { id: '1', shape: 'bpmn-user-task', model: { graph: fakeGraph } },
+      targetCell: { id: '2', shape: 'bpmn-user-task', model: { graph: fakeGraph } },
+      targetMagnet: document.createElement('div'),
+    })
+    expect(result).toBe(true)
+  })
+})
+
+describe('createContextValidateConnectionWithResult', () => {
+  const ctx = makeProfileContext(
+    { 'bpmn-user-task': 'task', 'bpmn-start-event': 'startEvent' },
+    { startEvent: { noIncoming: true } },
+  )
+
+  it('违规连线时应返回详细失败原因', () => {
+    const validate = createContextValidateConnectionWithResult(() => 'bpmn-sequence-flow', ctx)
+    const result = validate({
+      sourceCell: { id: '1', shape: 'bpmn-user-task' },
+      targetCell: { id: '2', shape: 'bpmn-start-event' },
+      targetMagnet: document.createElement('div'),
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('入线')
+  })
+
+  it('edgeShapeGetter 抛异常时应返回 exception 结果', () => {
+    const validate = createContextValidateConnectionWithResult(
+      () => { throw new Error('mock getter error') },
+      ctx,
+    )
+    const result = validate({
+      sourceCell: { id: '1', shape: 'bpmn-user-task' },
+      targetCell: { id: '2', shape: 'bpmn-user-task' },
+      targetMagnet: document.createElement('div'),
+    })
+    expect(result.valid).toBe(false)
+    expect(result.kind).toBe('exception')
+    expect(result.reason).toContain('预校验执行异常')
+  })
+
+  it('抛出非 Error 值时也应归一化为 exception 结果', () => {
+    const validate = createContextValidateConnectionWithResult(
+      () => { throw 'mock string error' },
+      ctx,
+    )
+    const result = validate({
+      sourceCell: { id: '1', shape: 'bpmn-user-task' },
+      targetCell: { id: '2', shape: 'bpmn-user-task' },
+      targetMagnet: document.createElement('div'),
+    })
+    expect(result.valid).toBe(false)
+    expect(result.kind).toBe('exception')
+    expect(result.reason).toBe('方言连线预校验执行异常')
+  })
+})
+
+describe('createContextValidateEdgeWithResult', () => {
+  function createNode(id: string, shape: string, graph?: any) {
+    return {
+      id,
+      shape,
+      model: graph ? { graph } : null,
+      getParent: () => null,
+      getData: () => ({}),
+    }
+  }
+
+  function createGraph(sourceNode: any, targetNode: any, edges: any[] = []) {
+    return {
+      getCellById: (id: string) => {
+        if (id === sourceNode.id) return sourceNode
+        if (id === targetNode.id) return targetNode
+        return null
+      },
+      getConnectedEdges: () => edges,
+    }
+  }
+
+  it('edge 缺失时应返回失败原因', () => {
+    const validate = createContextValidateEdgeWithResult(() => 'bpmn-sequence-flow', makeProfileContext({}))
+    const result = validate({ edge: null })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('连线实例不存在')
+  })
+
+  it('edge 无 graph 时应返回失败原因', () => {
+    const validate = createContextValidateEdgeWithResult(() => 'bpmn-sequence-flow', makeProfileContext({}))
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('图实例')
+  })
+
+  it('edge 无法解析节点时应返回失败原因', () => {
+    const validate = createContextValidateEdgeWithResult(() => 'bpmn-sequence-flow', makeProfileContext({}))
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        model: { graph: { getCellById: () => null } },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('无法解析')
+  })
+
+  it('edge 缺少目标节点 id 时应返回失败原因', () => {
+    const validate = createContextValidateEdgeWithResult(() => 'bpmn-sequence-flow', makeProfileContext({}))
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        model: { graph: { getCellById: () => null } },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => '',
+      },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('有效的源节点和目标节点')
+  })
+
+  it('edge 自连接时应返回失败原因', () => {
+    const ctx = makeProfileContext({ 'bpmn-user-task': 'task' })
+    const sourceNode = createNode('same', 'bpmn-user-task')
+    const graph = createGraph(sourceNode, sourceNode)
+    sourceNode.model = { graph }
+    const validate = createContextValidateEdgeWithResult(() => 'bpmn-sequence-flow', ctx)
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        shape: 'bpmn-sequence-flow',
+        model: { graph },
+        getSourceCellId: () => 'same',
+        getTargetCellId: () => 'same',
+      },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.reason).toContain('自连接')
+  })
+
+  it('应使用 edge.shape 进行最终校验', () => {
+    const ctx = makeProfileContext(
+      { 'bpmn-user-task': 'task' },
+      { task: { allowedOutgoing: ['bpmn-sequence-flow'], allowedIncoming: ['bpmn-sequence-flow'] } },
+    )
+    const sourceNode = createNode('source', 'bpmn-user-task')
+    const targetNode = createNode('target', 'bpmn-user-task')
+    const graph = createGraph(sourceNode, targetNode)
+    sourceNode.model = { graph }
+    targetNode.model = { graph }
+    const validate = createContextValidateEdgeWithResult(() => 'bpmn-message-flow', ctx)
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        shape: 'bpmn-sequence-flow',
+        model: { graph },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('缺少 edge.shape 时应回退到 getter', () => {
+    const ctx = makeProfileContext(
+      { 'bpmn-user-task': 'task' },
+      { task: { allowedOutgoing: ['bpmn-sequence-flow'], allowedIncoming: ['bpmn-sequence-flow'] } },
+    )
+    const sourceNode = createNode('source', 'bpmn-user-task')
+    const targetNode = createNode('target', 'bpmn-user-task')
+    const graph = createGraph(sourceNode, targetNode)
+    sourceNode.model = { graph }
+    targetNode.model = { graph }
+    const validate = createContextValidateEdgeWithResult(() => 'bpmn-sequence-flow', ctx)
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        model: { graph },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('重连当前边时不应把当前边计入上限', () => {
+    const currentEdge = { id: 'edge-1', shape: 'bpmn-sequence-flow' }
+    const ctx = makeProfileContext(
+      { 'bpmn-user-task': 'task' },
+      { task: { maxOutgoing: 1, maxIncoming: 1 } },
+    )
+    const sourceNode = createNode('source', 'bpmn-user-task')
+    const targetNode = createNode('target', 'bpmn-user-task')
+    const graph = createGraph(sourceNode, targetNode, [currentEdge])
+    sourceNode.model = { graph }
+    targetNode.model = { graph }
+    const validate = createContextValidateEdgeWithResult(() => 'bpmn-sequence-flow', ctx)
+    const result = validate({
+      edge: {
+        ...currentEdge,
+        model: { graph },
+        getSourceCellId: () => 'source',
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('edge 取源节点时抛异常应返回 exception 结果', () => {
+    const validate = createContextValidateEdgeWithResult(() => 'bpmn-sequence-flow', makeProfileContext({}))
+    const result = validate({
+      edge: {
+        id: 'edge-1',
+        model: { graph: { getCellById: () => null } },
+        getSourceCellId: () => { throw new Error('mock edge error') },
+        getTargetCellId: () => 'target',
+      },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.kind).toBe('exception')
+    expect(result.reason).toContain('终校验执行异常')
+  })
+})
+
+describe('createContextValidateEdge', () => {
+  it('最终校验失败时应返回 false', () => {
+    const validate = createContextValidateEdge(() => 'bpmn-sequence-flow', makeProfileContext({}))
+    expect(validate({ edge: null })).toBe(false)
   })
 })
 

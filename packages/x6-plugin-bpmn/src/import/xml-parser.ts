@@ -17,7 +17,12 @@
 
 import { BpmnModdle } from 'bpmn-moddle'
 import type { ModdleElement } from 'bpmn-moddle'
-import { NODE_MAPPING, EDGE_MAPPING } from '../export/bpmn-mapping'
+import {
+  type BpmnNodeMapping,
+  type BpmnEdgeMapping,
+  NODE_MAPPING,
+  EDGE_MAPPING,
+} from '../export/bpmn-mapping'
 import {
   BPMN_DEFAULT_FLOW,
   BPMN_CONDITIONAL_FLOW,
@@ -83,9 +88,11 @@ interface ReverseEntry {
 }
 
 /** 从 NODE_MAPPING 构建反向查找表（BPMN 标签 → X6 图形候选列表） */
-function buildReverseNodeMap(): Map<string, ReverseEntry[]> {
+function buildReverseNodeMap(
+  nodeMapping: Record<string, BpmnNodeMapping>,
+): Map<string, ReverseEntry[]> {
   const map = new Map<string, ReverseEntry[]>()
-  for (const [shape, info] of Object.entries(NODE_MAPPING)) {
+  for (const [shape, info] of Object.entries(nodeMapping)) {
     const key = info.tag
     if (!map.has(key)) map.set(key, [])
     map.get(key)!.push({ shape, eventDefinition: info.eventDefinition, attrs: info.attrs })
@@ -94,19 +101,15 @@ function buildReverseNodeMap(): Map<string, ReverseEntry[]> {
 }
 
 /** 从 EDGE_MAPPING 构建反向查找表（BPMN 标签 → X6 图形名称） */
-function buildReverseEdgeMap(): Map<string, string> {
+function buildReverseEdgeMap(
+  edgeMapping: Record<string, BpmnEdgeMapping>,
+): Map<string, string> {
   const map = new Map<string, string>()
-  for (const [shape, info] of Object.entries(EDGE_MAPPING)) {
+  for (const [shape, info] of Object.entries(edgeMapping)) {
     if (!map.has(info.tag)) map.set(info.tag, shape)
   }
   return map
 }
-
-// 模块级单例：构建一次，复用
-const reverseNodeMap = buildReverseNodeMap()
-// reverseEdgeMap 保留供将来扩展（目前顺序流/消息流由 shape 常量直接赋值）
-const _reverseEdgeMap = buildReverseEdgeMap()
-void _reverseEdgeMap
 
 const EXPANDABLE_ACTIVITY_SHAPES = new Set([
   BPMN_SUB_PROCESS,
@@ -114,6 +117,12 @@ const EXPANDABLE_ACTIVITY_SHAPES = new Set([
   BPMN_TRANSACTION,
   BPMN_AD_HOC_SUB_PROCESS,
   BPMN_CALL_ACTIVITY,
+])
+
+const FLOW_CONTAINER_TAGS = new Set([
+  'subProcess',
+  'transaction',
+  'adHocSubProcess',
 ])
 
 // ============================================================================
@@ -195,6 +204,31 @@ function collectDiXmlHints(xml: string): XmlDiHints {
   return hints
 }
 
+function collectProcessFlowElements(
+  elements: ModdleElement[],
+  output: ModdleElement[],
+  containerParents: Map<string, string>,
+  parentContainerId?: string,
+): void {
+  for (const element of elements) {
+    output.push(element)
+
+    /* istanbul ignore next -- nested subprocess recursion is exercised by roundtrip tests, but source maps undercount this helper body */
+    const elementId = typeof element.id === 'string' ? element.id : ''
+    if (parentContainerId && elementId && !containerParents.has(elementId)) {
+      containerParents.set(elementId, parentContainerId)
+    }
+
+    if (!FLOW_CONTAINER_TAGS.has(localTag(element))) continue
+
+    const nestedFlowElements = (element.flowElements || []) as ModdleElement[]
+    /* istanbul ignore next -- nested subprocess recursion is verified by importer/exporter roundtrip tests */
+    if (nestedFlowElements.length > 0) {
+      collectProcessFlowElements(nestedFlowElements, output, containerParents, elementId || parentContainerId)
+    }
+  }
+}
+
 function resolveImplicitBoundaryCancelActivity(
   tag: string,
   key: string,
@@ -224,6 +258,7 @@ function resolveImplicitBoundaryCancelActivity(
 function resolveNodeShape(
   element: ModdleElement,
   xmlEventHints: XmlEventHints,
+  reverseNodeMap: Map<string, ReverseEntry[]>,
 ): string | null {
   const tag = localTag(element)
   const candidates = reverseNodeMap.get(tag)
@@ -452,6 +487,14 @@ function mergeNodeBpmnData(
 // 主解析函数
 // ============================================================================
 
+export interface ParseBpmnOptions {
+  /** 使用方言序列化层覆盖默认 BPMN 映射 */
+  serialization?: {
+    nodeMapping?: Record<string, BpmnNodeMapping>
+    edgeMapping?: Record<string, BpmnEdgeMapping>
+  }
+}
+
 /**
  * 将 BPMN 2.0 XML 字符串解析为 X6 节点/边描述符中间 JSON。
  *
@@ -461,10 +504,13 @@ function mergeNodeBpmnData(
  * @returns BpmnImportData（节点列表 + 边列表）
  * @throws 如果 XML 格式错误或根元素不是 bpmn:Definitions
  */
-export async function parseBpmnXml(xml: string): Promise<BpmnImportData> {
+export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}): Promise<BpmnImportData> {
   const moddle = new BpmnModdle()
   const xmlEventHints = collectEventXmlHints(xml)
   const xmlDiHints = collectDiXmlHints(xml)
+  const reverseNodeMap = buildReverseNodeMap(options.serialization?.nodeMapping ?? NODE_MAPPING)
+  const reverseEdgeMap = buildReverseEdgeMap(options.serialization?.edgeMapping ?? EDGE_MAPPING)
+  void reverseEdgeMap
 
   let definitions: ModdleElement
   try {
@@ -492,6 +538,8 @@ export async function parseBpmnXml(xml: string): Promise<BpmnImportData> {
 
   const nodes: BpmnNodeData[] = []
   const edges: BpmnEdgeData[] = []
+  const processPoolParents = new Map<string, string>()
+  const laneFlowNodeParents = new Map<string, string>()
 
   // ---------- 解析参与者（Pool）----------
   if (collaboration) {
@@ -500,6 +548,11 @@ export async function parseBpmnXml(xml: string): Promise<BpmnImportData> {
     for (const p of participants) {
       /* istanbul ignore next — moddle 始终提供 id */
       const bpmnId = p.id || ''
+      /* istanbul ignore next — fromXML 后 processRef 始终解析为对象引用 */
+      const processRef = (p.processRef as ModdleElement | undefined)?.id
+      if (processRef && !processPoolParents.has(processRef)) {
+        processPoolParents.set(processRef, bpmnId)
+      }
       const diShape = di.shapes.get(bpmnId)
       const data =
         typeof diShape?.isHorizontal === 'boolean'
@@ -523,6 +576,7 @@ export async function parseBpmnXml(xml: string): Promise<BpmnImportData> {
 
   // ---------- 解析泳道（Lane）----------
   for (const process of processes) {
+    const poolParent = processPoolParents.get(process.id as string)
     const laneSets = (process.laneSets || []) as ModdleElement[]
     for (const laneSet of laneSets) {
       /* istanbul ignore next — moddle 始终提供 lanes 数组 */
@@ -544,15 +598,18 @@ export async function parseBpmnXml(xml: string): Promise<BpmnImportData> {
           height: diShape?.bounds.height ?? 200,
           /* istanbul ignore next — laneEl.name 导入时始终有值或 undefined（|| '' 不会触发） */
           attrs: { headerLabel: { text: laneEl.name || '' } },
+          ...(poolParent ? { parent: poolParent } : {}),
           data,
         })
 
-        // 记录泳道内 flowNodeRef（供将来扩展使用，当前 graph-loader 通过 parent 关联）
         const refs = (laneEl.flowNodeRef || []) as ModdleElement[]
         for (const ref of refs) {
           /* istanbul ignore next — moddle 总是将引用解析为对象 */
-          const refId = typeof ref === 'string' ? ref : (ref as any).id || ''
-          void refId // 占位：将来可用于设置 parent 关系
+          const refId = (ref as any).id as string | undefined
+          /* istanbul ignore next — 空 flowNodeRef 不会产出缺失 id 的引用对象 */
+          if (refId) {
+            laneFlowNodeParents.set(refId, bpmnId)
+          }
         }
       }
     }
@@ -592,8 +649,9 @@ export async function parseBpmnXml(xml: string): Promise<BpmnImportData> {
 
   const flowElements: ModdleElement[] = []
   const artifacts: ModdleElement[] = []
+  const flowContainerParents = new Map<string, string>()
   for (const process of processes) {
-    flowElements.push(...((process.flowElements || []) as ModdleElement[]))
+    collectProcessFlowElements((process.flowElements || []) as ModdleElement[], flowElements, flowContainerParents)
     artifacts.push(...((process.artifacts || []) as ModdleElement[]))
   }
   const allElements = [...flowElements, ...artifacts]
@@ -617,7 +675,7 @@ export async function parseBpmnXml(xml: string): Promise<BpmnImportData> {
     /* istanbul ignore next — moddle 始终提供 id */
     const bpmnId = element.id || ''
 
-    const shape = resolveNodeShape(element, xmlEventHints)
+    const shape = resolveNodeShape(element, xmlEventHints, reverseNodeMap)
     /* istanbul ignore next */
     if (!shape) continue
 
@@ -645,6 +703,16 @@ export async function parseBpmnXml(xml: string): Promise<BpmnImportData> {
       width: diShape?.bounds.width ?? defaultW,
       height: diShape?.bounds.height ?? defaultH,
       attrs,
+    }
+
+    const flowContainerParent = flowContainerParents.get(bpmnId)
+    if (flowContainerParent) {
+      nodeData.parent = flowContainerParent
+    } else {
+      const laneParent = laneFlowNodeParents.get(bpmnId)
+      if (laneParent) {
+        nodeData.parent = laneParent
+      }
     }
 
     // 边界事件 → 父节点 ID（对应宿主任务）

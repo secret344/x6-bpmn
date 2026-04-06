@@ -48,6 +48,20 @@ export interface BpmnValidateOptions {
   customRules?: Partial<Record<BpmnNodeCategory, BpmnConnectionRule>>
   /** 连线类型不匹配时是否放行（默认 false） */
   allowUnknownEdgeTypes?: boolean
+  /** 最终连线失败时的错误回调（适合接入 X6 validateEdge） */
+  onValidationError?: (result: BpmnValidationResult, args: X6ValidateConnectionArgs | X6ValidateEdgeArgs) => void
+  /** 连线校验执行异常时的回调 */
+  onValidationException?: (
+    error: unknown,
+    args: X6ValidateConnectionArgs | X6ValidateEdgeArgs,
+    result: BpmnValidationResult,
+  ) => void
+}
+
+export interface X6ValidateEdgeArgs {
+  edge?: Edge | null
+  type?: string | null
+  previous?: unknown
 }
 
 // ============================================================================
@@ -400,50 +414,10 @@ export function createBpmnValidateConnection(
   edgeShapeGetter: () => string,
   options: BpmnValidateOptions = {},
 ): (args: X6ValidateConnectionArgs) => boolean {
+  const validateWithResult = createBpmnValidateConnectionWithResult(edgeShapeGetter, options)
+
   return (args: X6ValidateConnectionArgs): boolean => {
-    const { sourceCell, targetCell, targetMagnet } = args
-
-    // 基本校验：目标必须有磁吸点（连接桩）
-    if (!targetMagnet) return false
-
-    // 获取源/目标节点
-    const sourceNode = sourceCell as Node | undefined
-    const targetNode = targetCell as Node | undefined
-    if (!sourceNode || !targetNode) return false
-
-    // 不允许自连接
-    if (sourceNode.id === targetNode.id) return false
-
-    const sourceShape = sourceNode.shape
-    const targetShape = targetNode.shape
-    const edgeShape = edgeShapeGetter()
-
-    // 计算当前出入线数量
-    const sourceOutgoingCount = countOutgoingEdges(sourceNode)
-    const targetIncomingCount = countIncomingEdges(targetNode)
-    const sourceOutgoingSequenceFlowCount = countSequenceFlowEdges(sourceNode, 'outgoing')
-    const targetIncomingSequenceFlowCount = countSequenceFlowEdges(targetNode, 'incoming')
-
-    const sourcePoolId = findPoolId(sourceNode)
-    const targetPoolId = findPoolId(targetNode)
-
-    const result = validateBpmnConnection(
-      {
-        sourceShape,
-        targetShape,
-        edgeShape,
-        sourceOutgoingCount,
-        targetIncomingCount,
-        sourceOutgoingSequenceFlowCount,
-        targetIncomingSequenceFlowCount,
-        sourceData: readNodeData(sourceNode),
-        targetData: readNodeData(targetNode),
-        sourcePoolId,
-        targetPoolId,
-      },
-      options,
-    )
-    return result.valid
+    return validateWithResult(args).valid
   }
 }
 
@@ -462,51 +436,102 @@ export function createBpmnValidateConnectionWithResult(
   options: BpmnValidateOptions = {},
 ): (args: X6ValidateConnectionArgs) => BpmnValidationResult {
   return (args: X6ValidateConnectionArgs): BpmnValidationResult => {
-    const { sourceCell, targetCell, targetMagnet } = args
+    try {
+      const { sourceCell, targetCell, targetMagnet } = args
 
-    if (!targetMagnet) {
-      return { valid: false, reason: '目标节点没有可用的连接桩' }
+      if (!targetMagnet) {
+        return { valid: false, reason: '目标节点没有可用的连接桩' }
+      }
+
+      const sourceNode = sourceCell as Node | undefined
+      const targetNode = targetCell as Node | undefined
+      if (!sourceNode || !targetNode) {
+        return { valid: false, reason: '源节点或目标节点不存在' }
+      }
+
+      if (sourceNode.id === targetNode.id) {
+        return { valid: false, reason: '不允许自连接' }
+      }
+
+      return validateRuntimeEdge(
+        sourceNode,
+        targetNode,
+        resolveEdgeShape(args.edge, edgeShapeGetter),
+        options,
+        args.edge,
+      )
+    } catch (error) {
+      return reportValidationException(options, error, args, '连线预校验执行异常')
     }
+  }
+}
 
-    const sourceNode = sourceCell as Node | undefined
-    const targetNode = targetCell as Node | undefined
-    if (!sourceNode || !targetNode) {
-      return { valid: false, reason: '源节点或目标节点不存在' }
+/**
+ * 创建适配 X6 validateEdge 的最终连线校验回调。
+ *
+ * 适用于拖拽结束后的最终校验与错误回调分发，
+ * 让宿主只负责接收失败原因，而不需要自行实现 BPMN 规则。
+ */
+export function createBpmnValidateEdge(
+  edgeShapeGetter: () => string,
+  options: BpmnValidateOptions = {},
+): (args: X6ValidateEdgeArgs) => boolean {
+  const validateWithResult = createBpmnValidateEdgeWithResult(edgeShapeGetter, options)
+
+  return (args: X6ValidateEdgeArgs): boolean => {
+    const result = validateWithResult(args)
+    if (!result.valid && result.kind !== 'exception') {
+      options.onValidationError?.(result, args)
     }
+    return result.valid
+  }
+}
 
-    if (sourceNode.id === targetNode.id) {
-      return { valid: false, reason: '不允许自连接' }
+/**
+ * 创建返回详细结果的 X6 validateEdge 回调。
+ */
+export function createBpmnValidateEdgeWithResult(
+  edgeShapeGetter: () => string,
+  options: BpmnValidateOptions = {},
+): (args: X6ValidateEdgeArgs) => BpmnValidationResult {
+  return (args: X6ValidateEdgeArgs): BpmnValidationResult => {
+    try {
+      const edge = args.edge ?? null
+      if (!edge) {
+        return { valid: false, reason: '连线实例不存在' }
+      }
+
+      const graph = getGraphFromCell(edge)
+      if (!graph?.getCellById) {
+        return { valid: false, reason: '无法定位连线所属图实例' }
+      }
+
+      const sourceCellId = edge.getSourceCellId?.()
+      const targetCellId = edge.getTargetCellId?.()
+      if (!sourceCellId || !targetCellId) {
+        return { valid: false, reason: '连线必须连接到有效的源节点和目标节点' }
+      }
+
+      const sourceNode = graph.getCellById(sourceCellId) as Node | null
+      const targetNode = graph.getCellById(targetCellId) as Node | null
+      if (!sourceNode || !targetNode) {
+        return { valid: false, reason: '无法解析连线的源节点或目标节点' }
+      }
+
+      if (sourceNode.id === targetNode.id) {
+        return { valid: false, reason: '不允许自连接' }
+      }
+
+      return validateRuntimeEdge(
+        sourceNode,
+        targetNode,
+        resolveEdgeShape(edge, edgeShapeGetter),
+        options,
+        edge,
+      )
+    } catch (error) {
+      return reportValidationException(options, error, args, '连线终校验执行异常')
     }
-
-    const sourceShape = sourceNode.shape
-    const targetShape = targetNode.shape
-    const edgeShape = edgeShapeGetter()
-
-    const sourceOutgoingCount = countOutgoingEdges(sourceNode)
-    const targetIncomingCount = countIncomingEdges(targetNode)
-    const sourceOutgoingSequenceFlowCount = countSequenceFlowEdges(sourceNode, 'outgoing')
-    const targetIncomingSequenceFlowCount = countSequenceFlowEdges(targetNode, 'incoming')
-
-    const sourcePoolId = findPoolId(sourceNode)
-    const targetPoolId = findPoolId(targetNode)
-
-    const connResult = validateBpmnConnection(
-      {
-        sourceShape,
-        targetShape,
-        edgeShape,
-        sourceOutgoingCount,
-        targetIncomingCount,
-        sourceOutgoingSequenceFlowCount,
-        targetIncomingSequenceFlowCount,
-        sourceData: readNodeData(sourceNode),
-        targetData: readNodeData(targetNode),
-        sourcePoolId,
-        targetPoolId,
-      },
-      options,
-    )
-    return connResult
   }
 }
 
@@ -517,40 +542,78 @@ export function createBpmnValidateConnectionWithResult(
 /**
  * 计算节点的出线数量
  */
-function countOutgoingEdges(node: Node): number {
+function validateRuntimeEdge(
+  sourceNode: Node,
+  targetNode: Node,
+  edgeShape: string,
+  options: BpmnValidateOptions,
+  currentEdge?: Edge | null,
+): BpmnValidationResult {
+  return validateBpmnConnection(
+    {
+      sourceShape: sourceNode.shape,
+      targetShape: targetNode.shape,
+      edgeShape,
+      sourceOutgoingCount: countOutgoingEdges(sourceNode, currentEdge),
+      targetIncomingCount: countIncomingEdges(targetNode, currentEdge),
+      sourceOutgoingSequenceFlowCount: countSequenceFlowEdges(sourceNode, 'outgoing', currentEdge),
+      targetIncomingSequenceFlowCount: countSequenceFlowEdges(targetNode, 'incoming', currentEdge),
+      sourceData: readNodeData(sourceNode),
+      targetData: readNodeData(targetNode),
+      sourcePoolId: findPoolId(sourceNode),
+      targetPoolId: findPoolId(targetNode),
+    },
+    options,
+  )
+}
+
+function resolveEdgeShape(edge: Edge | null | undefined, edgeShapeGetter: () => string): string {
+  const shape = typeof (edge as any)?.getShape === 'function'
+    ? (edge as any).getShape()
+    : edge?.shape
+
+  return typeof shape === 'string' && shape.length > 0 ? shape : edgeShapeGetter()
+}
+
+function getGraphFromCell(cell: Node | Edge): any {
+  return cell.model?.graph ?? (cell as any).graph
+}
+
+function isSameEdge(edge: Edge, currentEdge?: Edge | null): boolean {
+  if (!currentEdge) return false
+  return edge === currentEdge || (!!edge.id && !!currentEdge.id && edge.id === currentEdge.id)
+}
+
+function getConnectedEdges(
+  node: Node,
+  direction: 'outgoing' | 'incoming',
+  currentEdge?: Edge | null,
+): Edge[] {
   try {
-    const graph = node.model?.graph
-    if (!graph) return 0
-    return graph.getConnectedEdges(node, { outgoing: true }).length
+    const graph = getGraphFromCell(node)
+    if (!graph) return []
+    return graph.getConnectedEdges(node, { [direction]: true }).filter((edge: Edge) => !isSameEdge(edge, currentEdge))
   } catch {
-    return 0
+    return []
   }
+}
+
+function countOutgoingEdges(node: Node, currentEdge?: Edge | null): number {
+  return getConnectedEdges(node, 'outgoing', currentEdge).length
 }
 
 /**
  * 计算节点的入线数量
  */
-function countIncomingEdges(node: Node): number {
-  try {
-    const graph = node.model?.graph
-    if (!graph) return 0
-    return graph.getConnectedEdges(node, { incoming: true }).length
-  } catch {
-    return 0
-  }
+function countIncomingEdges(node: Node, currentEdge?: Edge | null): number {
+  return getConnectedEdges(node, 'incoming', currentEdge).length
 }
 
 /**
  * 统计节点的顺序流系列连线数量。
  */
-function countSequenceFlowEdges(node: Node, direction: 'outgoing' | 'incoming'): number {
-  try {
-    const graph = node.model?.graph
-    if (!graph) return 0
-    return graph.getConnectedEdges(node, { [direction]: true }).filter((edge: Edge) => SEQUENCE_FLOW_SET.has(edge.shape)).length
-  } catch {
-    return 0
-  }
+function countSequenceFlowEdges(node: Node, direction: 'outgoing' | 'incoming', currentEdge?: Edge | null): number {
+  return getConnectedEdges(node, direction, currentEdge).filter((edge: Edge) => SEQUENCE_FLOW_SET.has(edge.shape)).length
 }
 
 /**
@@ -564,6 +627,23 @@ function readNodeData(node: Node): Record<string, any> | undefined {
     return undefined
   }
   return undefined
+}
+
+function reportValidationException(
+  options: BpmnValidateOptions,
+  error: unknown,
+  args: X6ValidateConnectionArgs | X6ValidateEdgeArgs,
+  message: string,
+): BpmnValidationResult {
+  const detail = error instanceof Error && error.message ? `：${error.message}` : ''
+  const result: BpmnValidationResult = {
+    valid: false,
+    reason: `${message}${detail}`,
+    kind: 'exception',
+  }
+
+  options.onValidationException?.(error, args, result)
+  return result
 }
 
 /**

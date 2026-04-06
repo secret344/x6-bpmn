@@ -1,1104 +1,235 @@
-# x6-plugin-bpmn 动态方言内核改造方案
+# 方言系统架构说明
 
-> 基于当前主库代码、结合最终目标重新整理的全量方案。
-> 目标不是“在旧结构上打补丁”，而是直接把主库升级为一套**可继承、可编译、可绑定实例、UI 外置**的流程方言内核。
+Dialect System Architecture Guide
 
----
+## 1. 文档定位 / What This Document Covers
 
-## 目录
+这份文档描述的是 `@x6-bpmn2/plugin` 当前已经落地的方言系统结构，用来替换早期“改造方案”式文档。
 
-1. [最终目标](#1-最终目标)
-2. [基于当前主库的现状判断](#2-基于当前主库的现状判断)
-3. [对当前方案逐部分评审](#3-对当前方案逐部分评审)
-4. [最终推荐架构](#4-最终推荐架构)
-5. [核心概念设计](#5-核心概念设计)
-6. [六层配置模型](#6-六层配置模型)
-7. [继承链设计](#7-继承链设计)
-8. [编译机制设计](#8-编译机制设计)
-9. [运行时机制设计](#9-运行时机制设计)
-10. [渲染层设计](#10-渲染层设计)
-11. [规则层设计](#11-规则层设计)
-12. [字段能力层设计](#12-字段能力层设计)
-13. [导入导出层设计](#13-导入导出层设计)
-14. [目录结构建议](#14-目录结构建议)
-15. [与当前代码的映射关系](#15-与当前代码的映射关系)
-16. [直接重构实施顺序](#16-直接重构实施顺序)
-17. [测试体系](#17-测试体系)
-18. [最终结论](#18-最终结论)
+This document describes the dialect system that already exists in `@x6-bpmn2/plugin`. It replaces older proposal-style notes.
 
----
+阅读这份文档时，建议把重点放在三个问题上：
 
-## 1. 最终目标
+Read this document with three questions in mind:
 
-本次改造的最终目标不是单纯做“动态配置”，而是把主库从：
+- 方言系统的核心对象是什么？
+- `Profile` 是如何被编译并绑定到具体 graph 实例上的？
+- 哪些能力属于主库，哪些能力应该留给宿主？
 
-- 一套固定 BPMN 2.0 图形与规则集合
+- What are the core objects in the dialect system?
+- How is a `Profile` compiled and bound to a specific graph instance?
+- Which responsibilities belong to the plugin and which belong to the host?
 
-升级为：
+## 2. 核心对象 / Core Objects
 
-- 一套**流程方言内核（Process Dialect Kernel）**
+| 对象 / Object | 作用 / Responsibility | 主要入口 / Main entry |
+|---|---|---|
+| `Profile` | 方言配置载体，允许只覆盖自己关心的层 | `src/core/dialect/types.ts` |
+| `ResolvedProfile` | 编译后的只读结果，已完成继承链合并与默认值补齐 | `src/core/dialect/compiler.ts` |
+| `ProfileRegistry` | 注册原始 profile，并缓存编译结果 | `src/core/dialect/registry.ts` |
+| `ProfileContext` | 绑定到单个 graph 实例的运行时上下文 | `src/core/dialect/context.ts` |
+| `DialectManager` | 高层装配器，负责 `bind()`、导入、导出和校验接线 | `src/adapters/x6/bind.ts` |
 
-它需要满足：
+| Object | Responsibility | Main entry |
+|---|---|---|
+| `Profile` | Dialect configuration container that only needs to override the layers it cares about | `src/core/dialect/types.ts` |
+| `ResolvedProfile` | Read-only compiled result after inheritance merge and default filling | `src/core/dialect/compiler.ts` |
+| `ProfileRegistry` | Stores raw profiles and caches compiled results | `src/core/dialect/registry.ts` |
+| `ProfileContext` | Runtime context bound to a single graph instance | `src/core/dialect/context.ts` |
+| `DialectManager` | High-level orchestrator for `bind()`, import, export, and validation wiring | `src/adapters/x6/bind.ts` |
 
-1. `bpmn2` 作为兜底基础方言
-2. `smartengine`(https://github.com/alibaba/SmartEngine/wiki/SmartEngine-UserGuide--Chinese-Version-(%E4%B8%AD%E6%96%87%E7%89%88)) 基于 `bpmn2` 扩展
-3. `smartengine` 分 `custom` 与 `database` 两种 mode
-4. 用户可以基于任意内置方言增量扩展
-5. 切换方言时，节点外观、规则、数据能力、导入导出行为一起变化
-6. 主库只负责：
-   - 元素定义
-   - 渲染规范
-   - 规则
-   - 字段能力
-   - 导入导出
-7. 主库**不负责**：
-   - UI 字段类型
-   - 表单布局
-   - 下拉项展示
-   - 业务侧文案规范
-8. 允许直接全库更新，不以兼容旧内部结构为优先
-9. 最终结构必须适合长期维护
+这套结构的关键点是：
 
----
+The key design point is:
 
-## 2. 基于当前主库的现状判断
+- 不存在全局活动方言。
+- 每个 graph 绑定自己的 `ProfileContext`。
+- 编译和运行时状态被明确分离。
 
-当前主库 `packages/x6-plugin-bpmn/src` 已经具备 4 个天然内核雏形：
+- There is no global active dialect.
+- Every graph owns its own `ProfileContext`.
+- Compilation state and runtime state are explicitly separated.
 
-### 2.1 渲染内核
+## 3. 六层配置模型 / Six-Layer Profile Model
 
-来源：
+当前 profile 使用六层模型，每层都承担单独职责。
 
-- `shapes/*`
-- `connections/index.ts`
-- `index.ts -> registerBpmnShapes()`
+The current profile model has six layers, each with a separate responsibility.
 
-现状特点：
+| 层 / Layer | 内容 / What it stores | 典型用途 / Typical use |
+|---|---|---|
+| `definitions` | 节点与边的定义、分类、renderer 名称、标题 | 新增元素、声明元素身份 |
+| `availability` | 元素可用状态：`enabled`、`disabled`、`experimental` | 按方言启用或禁用元素 |
+| `rendering` | theme token、节点渲染器、边渲染器 | 控制图形如何注册到 X6 |
+| `rules` | 分类映射、连线规则、高阶约束规则 | 控制连接合法性与整图约束 |
+| `dataModel` | 字段能力、分类字段、shape 字段 | 定义默认值、规范化、验证、序列化能力 |
+| `serialization` | 命名空间、节点映射、边映射 | 控制 XML 导入导出语义 |
 
-- 节点和边已经按 BPMN 大类拆分
-- 通过 `Graph.registerNode()` / `Graph.registerEdge()` 注册
-- 已有良好的工厂化基础，但当前仍偏静态
+| Layer | What it stores | Typical use |
+|---|---|---|
+| `definitions` | Node and edge definitions, categories, renderer names, titles | Add elements and declare their identity |
+| `availability` | Availability states: `enabled`, `disabled`, `experimental` | Turn elements on or off per dialect |
+| `rendering` | Theme tokens, node renderers, edge renderers | Control how shapes are registered into X6 |
+| `rules` | Category mapping, connection rules, graph-level constraints | Control connection legality and whole-graph constraints |
+| `dataModel` | Field capabilities, category fields, shape fields | Define defaults, normalization, validation, and serialization behavior |
+| `serialization` | Namespaces, node mappings, edge mappings | Control XML import/export semantics |
 
-### 2.2 规则内核
+这六层模型把“元素是什么”“能不能用”“长什么样”“怎么连”“有哪些字段”“怎么进出 XML”拆开了。
 
-来源：
+The six-layer model separates element identity, availability, rendering, rules, field capability, and XML semantics.
 
-- `rules/connection-rules.ts`
-- `rules/validator.ts`
+## 4. 实际运行链路 / Actual Runtime Flow
 
-现状特点：
+### 4.1 注册与编译 / Registration and Compilation
 
-- 已完成 `shape -> category -> rule` 的建模
-- 已有默认规则与自定义覆盖能力
-- 这是当前库里最接近“方言规则引擎”的部分
+1. 宿主把内置或自定义 profile 注册到 `ProfileRegistry`。
+2. `registry.compile(dialectId)` 解析继承链并调用 `compileProfile()`。
+3. 编译结果变成 `ResolvedProfile`，并在注册表内缓存。
 
-### 2.3 模型内核
+1. The host registers built-in or custom profiles in `ProfileRegistry`.
+2. `registry.compile(dialectId)` resolves the inheritance chain and calls `compileProfile()`.
+3. The result becomes a cached `ResolvedProfile`.
 
-来源：
+### 4.2 绑定到 Graph / Binding to Graph
 
-- `config/index.ts`
+1. `DialectManager.bind(graph, dialectId)` 创建 `ProfileContext`。
+2. `bindProfileToGraph()` 按 profile 中启用的元素把节点和边注册到 X6。
+3. 当前 graph 与 `ProfileContext` 通过 `WeakMap` 绑定。
 
-现状特点：
+1. `DialectManager.bind(graph, dialectId)` creates a `ProfileContext`.
+2. `bindProfileToGraph()` registers enabled nodes and edges into X6 based on the profile.
+3. The graph and its `ProfileContext` are linked through `WeakMap` storage.
 
-- 已有 `SHAPE_LABELS`
-- 已有 `classifyShape()`
-- 已有 `BpmnFormData`
-- 已有 `load/save` 数据载入与保存
+### 4.3 校验自动接线 / Automatic Validation Wiring
 
-本质判断：
+`DialectManager.bind()` 还会自动处理两件事：
 
-- 这里现在不是 UI 层，而是**领域数据层 + 分类层 + 标签层**混在一起
+`DialectManager.bind()` also auto-wires two more pieces:
 
-### 2.4 序列化内核
+- 接入 `graph.options.connecting.validateConnection`
+- 接入 `graph.options.connecting.validateEdge`
 
-来源：
+- It wires `graph.options.connecting.validateConnection`
+- It wires `graph.options.connecting.validateEdge`
 
-- `export/bpmn-mapping.ts`
-- `export/exporter.ts`
-- `export/importer.ts`
+这意味着方言切换后，连线规则会跟着当前 profile 一起变化，而不是依赖全局规则表。
 
-现状特点：
+That means connection validation follows the currently bound profile instead of a global rule table.
 
-- `NODE_MAPPING` / `EDGE_MAPPING` 已经是纯映射驱动
-- 导入导出主体算法完整
-- 具备方言扩展的良好基础
+### 4.4 导入导出 / Import and Export
 
-### 2.5 结论
+- 导入时，`DialectManager.importXML()` 可以先检测方言，再按方言分发 importer。
+- 导出时，`DialectManager.exportXML()` 根据当前 graph 的 `ProfileContext` 选择 exporter。
 
-当前主库**不缺能力**，缺的是：
+- During import, `DialectManager.importXML()` can detect the dialect first and dispatch to the right importer.
+- During export, `DialectManager.exportXML()` selects the exporter based on the graph's current `ProfileContext`.
 
-> 一个统一的“方言装配层”。
+## 5. 继承与编译语义 / Inheritance and Compilation Semantics
 
-所以最佳方案不是再造一套完全无关的新系统，而是：
+编译阶段有几条必须记住的规则：
 
-> 把当前分散在 `constants / config / rules / export / shapes` 中的 BPMN2 默认能力，统一提升为一个可继承、可编译、可实例化绑定的方言系统。
+There are a few compile-time rules worth remembering:
 
----
+1. 继承链从根到叶合并，父级先合并，子级后覆盖。
+2. 各层都是独立合并，不要求子 profile 提供完整对象。
+3. `$remove` 用于在子级明确删除父级配置项。
+4. `availability` 对已定义但未显式设置状态的元素默认补成 `enabled`。
+5. renderer 缺失不会阻断编译，但会输出 warning，方便在开发期定位。
+6. 注册新 profile 后，会失效自己及其子 profile 的编译缓存。
 
-## 3. 对当前方案逐部分评审
+1. The inheritance chain is merged from root to leaf, with parents applied before children.
+2. Each layer merges independently, so a child profile only needs to provide partial overrides.
+3. `$remove` explicitly deletes inherited configuration.
+4. `availability` defaults to `enabled` for defined elements that do not declare a state.
+5. Missing renderers do not abort compilation, but they emit warnings for development-time diagnosis.
+6. Registering a new profile invalidates the compile cache for itself and its descendants.
 
-本节针对已有思路逐项判断：哪些应保留，哪些应优化，哪些应替换。
+## 6. 内置方言层级 / Built-In Dialect Hierarchy
 
-### 3.1 “动态配置”这个表述
+当前主库已经内置了一条明确的方言层级：
 
-#### 当前思路
-强调“动态配置体系”。
+The plugin already ships with a clear built-in dialect hierarchy:
 
-#### 判断
-不够准确。
+- `bpmn2`：基础母版方言，提供标准 BPMN 2.0 的默认定义、规则、字段能力和序列化映射。
+- `smartengine-base`：在 `bpmn2` 上叠加 SmartEngine 公共扩展。
+- `smartengine-custom`：在 `smartengine-base` 上增加 custom 模式差异。
+- `smartengine-database`：在 `smartengine-base` 上增加 database 模式差异。
 
-#### 更优方案
-建议升级为：
+- `bpmn2`: the root dialect providing standard BPMN 2.0 definitions, rules, field capability, and serialization mappings.
+- `smartengine-base`: layers SmartEngine shared behavior on top of `bpmn2`.
+- `smartengine-custom`: adds custom-mode differences on top of `smartengine-base`.
+- `smartengine-database`: adds database-mode differences on top of `smartengine-base`.
 
-- 领域概念：`Dialect`
-- 配置载体：`Profile`
-- 运行时对象：`ProfileContext`
+宿主新增业务方言时，通常不应该复制整份 BPMN2 配置，而是继承某个现有 profile 再做增量覆盖。
 
-原因：
+When a host adds a business dialect, it usually should not copy the full BPMN2 configuration. It should extend an existing profile and apply incremental overrides.
 
-“动态配置”更像实现手段；“流程方言”更准确描述业务本质。
+## 7. 职责边界 / Ownership Boundaries
 
-#### 结论
-- **保留**动态化能力
-- **升级命名**为方言系统
+### 7.1 主库负责什么 / What the Plugin Owns
 
----
+- 元素定义与分类。
+- 元素可用性。
+- 节点与边的渲染注册。
+- BPMN 通用连线规则与结构约束。
+- 字段能力，如默认值、规范化、验证、序列化。
+- XML 导入导出语义。
+- 可复用的运行时行为，如边界事件附着、Pool/Lane containment。
 
-### 3.2 单一大 `Preset/Profile`
+- Element definition and classification.
+- Element availability.
+- Node and edge renderer registration.
+- Reusable BPMN connection rules and structural constraints.
+- Field capability such as defaults, normalization, validation, and serialization.
+- XML import/export semantics.
+- Reusable runtime behaviors such as boundary attachment and pool/lane containment.
 
-#### 当前思路
-将不同维度收拢到一个统一 profile 中。
+### 7.2 宿主负责什么 / What the Host Owns
 
-#### 判断
-方向对，但如果结构过扁，会越来越大。
+- 表单布局与字段组件。
+- Stencil 分组和面板组织。
+- 提示文案、消息弹窗、业务提醒。
+- 只适用于某个产品的业务限制。
+- 页面级交互与状态管理。
 
-#### 更优方案
-改成**分层 Profile**，而不是“大一统配置对象”。
+- Form layout and field widgets.
+- Stencil grouping and panel organization.
+- Messages, toasts, and product-specific wording.
+- Business restrictions that only apply to one product.
+- Page-level interaction and state management.
 
-也就是说：
+一句话概括：主库负责可复用能力，宿主负责呈现与业务表达。
 
-- `Profile` 是顶层容器
-- 里面分多个子层
-- 各子层可独立继承、覆盖、删除、校验
+In one sentence: the plugin owns reusable capability, while the host owns presentation and business expression.
 
-#### 结论
-- **保留** `Profile` 作为载体
-- **避免** 把所有逻辑都堆进一个平铺对象
+## 8. 改动定位 / Where Changes Usually Belong
 
----
+| 变更类型 / Change type | 首选目录 / Primary directory |
+|---|---|
+| 调整 profile 类型、继承、编译行为 | `src/core/dialect` |
+| 调整节点或边 renderer | `src/core/rendering` |
+| 调整连线规则或约束规则 | `src/rules`、`src/core/rules` |
+| 调整字段默认值与字段能力 | `src/core/data-model`、`src/builtin/*/profile.ts` |
+| 调整 XML 映射与命名空间 | `src/export`、`src/builtin/*/profile.ts` |
+| 调整 graph 绑定与自动校验装配 | `src/adapters/x6/bind.ts` |
 
-### 3.3 全局 `activePreset/runtime`
+| Change type | Primary directory |
+|---|---|
+| Change profile types, inheritance, or compilation | `src/core/dialect` |
+| Change node or edge renderers | `src/core/rendering` |
+| Change connection rules or constraint rules | `src/rules`, `src/core/rules` |
+| Change field defaults or field capability | `src/core/data-model`, `src/builtin/*/profile.ts` |
+| Change XML mappings or namespaces | `src/export`, `src/builtin/*/profile.ts` |
+| Change graph binding or automatic validation wiring | `src/adapters/x6/bind.ts` |
 
-#### 当前思路
-用全局活动配置驱动各模块。
+## 9. 相关阅读 / Related Reading
 
-#### 判断
-不适合长期维护。
+- [project-onboarding-guide.md](project-onboarding-guide.md)：从工作区视角理解这套架构落在什么位置。
+- [custom-extension-guide.md](custom-extension-guide.md)：看宿主如何沿着现有方言体系做增量扩展。
+- [runtime-constraints-design.md](runtime-constraints-design.md)：看运行时限制与行为模块如何挂到这套架构上。
+- [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md)：看主库 API 面和推荐阅读顺序。
 
-问题：
-
-- 多编辑器实例冲突
-- 测试隔离困难
-- 不同 graph 不能同时使用不同方言
-
-#### 更优方案
-改成：
-
-```ts
-compileProfile() -> ResolvedProfile -> ProfileContext -> bind to graph
-```
-
-#### 结论
-- **替换** 全局 active runtime
-- **采用** 实例级 `ProfileContext`
-
----
-
-### 3.4 `visibility include/exclude`
-
-#### 当前思路
-通过 include / exclude 控制元素启用与禁用。
-
-#### 判断
-可用，但不是最优。
-
-问题：
-
-- 父级排除、子级恢复、孙级再排除，推理困难
-- 语义依赖合并顺序
-
-#### 更优方案
-拆成单独一层：`availability`
-
-```ts
-type Availability = 'enabled' | 'disabled' | 'experimental'
-```
-
-#### 结论
-- **替换** `include/exclude`
-- **采用** 显式 `availability` 状态表
-
----
-
-### 3.5 `theme` 作为独立层
-
-#### 当前思路
-把颜色和图标抽成一层。
-
-#### 判断
-方向对，但还不够完整。
-
-#### 更优方案
-从 `theme` 升级为 `rendering`：
-
-- theme token
-- node renderer factory
-- edge renderer factory
-- 可能的 shape patch
-
-因为最终渲染层不仅是颜色和图标，还包括 shape 如何生成。
-
-#### 结论
-- **保留** theme token
-- **升级** 为 `rendering` 层
-
----
-
-### 3.6 `BpmnFormData` / 数据字段方案
-
-#### 当前思路
-把 UI 元数据拿掉，只保留字段定义或默认值。
-
-#### 判断
-方向对，但还可以更进一步。
-
-#### 更优方案
-主库不要维护“字段定义”，而维护“字段能力”。
-
-也就是：
-
-- 默认值
-- normalize
-- validate
-- serialize
-- deserialize
-
-而不是：
-
-- 输入类型
-- 表单组件类型
-- 下拉项展示
-- 布局分组
-
-#### 结论
-- **保留** UI 外置原则
-- **升级** 为 `FieldCapability`
-
----
-
-### 3.7 导入导出改造方式
-
-#### 当前思路
-先替换读取来源，再慢慢 adapter 化。
-
-#### 判断
-如果允许全库重构，这不是最优路径。
-
-#### 更优方案
-直接 adapter 化：
-
-- `DialectDetector`
-- `ImporterAdapter`
-- `ExporterAdapter`
-
-原因：
-
-方言差异最大的地方之一就是导入导出。
-继续用一个共享超大导入导出器，后期只会堆更多 `if dialect === ...`。
-
-#### 结论
-- **替换** 渐进式导入导出改造思路
-- **直接采用** 适配器化序列化架构
-
----
-
-### 3.8 迁移策略
-
-#### 当前思路
-偏渐进式迁移。
-
-#### 判断
-与你当前要求不一致。
-
-#### 更优方案
-改成“重构批次”，直接按最终结构更新。
-
-#### 结论
-- **替换** 迁移式叙述
-- **采用** 直接重构批次方案
-
----
-
-## 4. 最终推荐架构
-
-最终推荐的架构是：
-
-```text
-Dialect
-  └── Profile
-        ├── definitions
-        ├── availability
-        ├── rendering
-        ├── rules
-        ├── dataModel
-        └── serialization
-```
-
-运行时链路：
-
-```text
-register profiles
-    -> compileProfile(profileId)
-    -> ResolvedProfile
-    -> createProfileContext(resolved)
-    -> bindProfileToGraph(graph, context)
-```
-
-导入导出链路：
-
-```text
-xml / graph
-   -> DialectDetector
-   -> ImporterAdapter / ExporterAdapter
-   -> ProfileContext.serialization
-```
-
-字段层：
-
-```text
-FieldCapability
-   -> default / normalize / validate / serialize / deserialize
-```
-
-这个架构比“动态配置系统”更完整，也更贴合你的边界要求。
-
----
-
-## 5. 核心概念设计
-
-### 5.1 Dialect
-
-表示一个流程方言概念，例如：
-
-- `bpmn2`
-- `smartengine-base`
-- `smartengine-custom`
-- `smartengine-database`
-
-### 5.2 Profile
-
-表示某个方言的配置载体。
-
-它描述：
-
-- 有哪些元素
-- 哪些元素启用
-- 如何渲染
-- 如何连线
-- 有哪些字段能力
-- 如何导入导出
-
-### 5.3 ResolvedProfile
-
-表示 profile 经继承、合并、删除语义处理、默认值补齐后的最终结果。
-
-### 5.4 ProfileContext
-
-表示某个 graph/editor 当前绑定的运行时方言上下文。
-
-### 5.5 FieldCapability
-
-表示一个字段在主库里的能力定义。
-
-### 5.6 DialectDetector
-
-表示导入时如何识别 XML 属于哪种方言。
-
----
-
-## 6. 六层配置模型
-
-### 6.1 definitions
-
-职责：定义元素本体。
-
-```ts
-export interface NodeDefinition {
-  shape: string
-  category: string
-  renderer: string
-  title?: string
-  tags?: string[]
-}
-
-export interface EdgeDefinition {
-  shape: string
-  category: string
-  renderer: string
-  title?: string
-  tags?: string[]
-}
-
-export interface DefinitionsSet {
-  nodes: Record<string, NodeDefinition>
-  edges: Record<string, EdgeDefinition>
-}
-```
-
-### 6.2 availability
-
-职责：定义当前 profile 中哪些元素启用。
-
-```ts
-export type Availability = 'enabled' | 'disabled' | 'experimental'
-
-export interface AvailabilitySet {
-  nodes: Record<string, Availability>
-  edges: Record<string, Availability>
-}
-```
-
-### 6.3 rendering
-
-职责：定义视觉与 shape 生成方式。
-
-```ts
-export interface ThemeTokens {
-  colors: Record<string, any>
-  icons: Record<string, string>
-}
-
-export type NodeRendererFactory = (tokens: ThemeTokens, node: NodeDefinition) => ShapeDefinition
-export type EdgeRendererFactory = (tokens: ThemeTokens, edge: EdgeDefinition) => EdgeDefinitionConfig
-
-export interface RenderingSet {
-  theme: ThemeTokens
-  nodeRenderers: Record<string, NodeRendererFactory>
-  edgeRenderers: Record<string, EdgeRendererFactory>
-}
-```
-
-### 6.4 rules
-
-职责：定义连接规则与结构约束。
-
-```ts
-export interface RuleSet {
-  nodeCategories: Record<string, string>
-  connectionRules: Record<string, BpmnConnectionRule>
-  constraints?: ConstraintRule[]
-}
-```
-
-其中 `constraints` 处理更高阶规则，如：
-
-- 开始节点数量限制
-- 并行网关成对要求
-- 特定 mode 下禁用某些事件
-
-### 6.5 dataModel
-
-职责：定义字段能力，不定义 UI。
-
-```ts
-export interface FieldValidateContext {
-  shape: string
-  category: string
-  profileId: string
-  nodeData?: Record<string, unknown>
-}
-
-export interface FieldCapability {
-  scope?: 'node' | 'edge' | 'graph'
-  defaultValue?: unknown
-  description?: string
-  normalize?: (value: unknown) => unknown
-  validate?: (value: unknown, context: FieldValidateContext) => true | string
-  serialize?: (value: unknown) => unknown
-  deserialize?: (value: unknown) => unknown
-}
-
-export interface DataModelSet {
-  fields: Record<string, FieldCapability>
-  categoryFields: Record<string, string[]>
-  shapeFields?: Record<string, string[]>
-}
-```
-
-### 6.6 serialization
-
-职责：定义导入导出映射与命名空间。
-
-```ts
-export interface SerializationSet {
-  namespaces: Record<string, string>
-  nodeMapping: Record<string, BpmnNodeMapping>
-  edgeMapping: Record<string, BpmnEdgeMapping>
-}
-```
-
----
-
-## 7. 继承链设计
-
-推荐最终继承链：
-
-```text
-bpmn2
-  └── smartengine-base
-  ├── smartengine-custom
-  └── smartengine-database
-```
-
-### 7.1 bpmn2
-
-作为母版方言，提供：
-
-- 当前主库完整 BPMN2 默认元素
-- 默认颜色与图标
-- 默认规则
-- 默认导入导出映射
-- 默认字段能力
-
-### 7.2 smartengine-base
-
-只做 SmartEngine 公共扩展：
-
-- `smart:` 命名空间
-- SmartEngine 公共字段能力
-- SmartEngine 公共序列化扩展
-
-关键原则：
-
-- `smartengine-base` **默认完整继承 BPMN 2.0 全量能力**
-- SmartEngine 本身应被视为“BPMN 2.0 + SmartEngine 扩展”
-- 不因为进入 SmartEngine 就默认禁用、裁剪或弱化标准 BPMN 元素
-
-也就是说：
-
-> 如果没有额外 mode 要求，直接使用 `smartengine-base` 即可。
-
-### 7.3 smartengine-custom
-
-聚焦服务编排场景要求：
-
-- 不代表 SmartEngine 只能使用这些元素
-- 只在“明确要求使用 custom mode 约束”时，才叠加限制与偏好
-- 强化 `serviceTask`、`receiveTask`
-- 收紧规则
-- 形成服务编排推荐能力集
-
-因此这一层的定位应是：
-
-> **要求叠加层**，而不是新的基础方言。
-
-### 7.4 smartengine-database
-
-聚焦审批与工单场景要求：
-
-- 不表示只有该 mode 才“支持 BPMN2.0”
-- 只表示在数据库审批流场景下，对标准能力做增强和约束组合
-- 增加多实例与审批能力
-- 增强任务分配相关字段能力
-- 增强序列化处理
-
----
-
-## 8. 编译机制设计
-
-### 8.1 为什么必须有编译阶段
-
-如果没有编译阶段，所有模块都会在运行时自己猜：
-
-- 父 profile 怎么合并
-- 某个元素是否启用
-- 某个 renderer 是否存在
-- 某个 mapping 是否合法
-
-这会导致：
-
-- 运行时判断过重
-- 错误暴露太晚
-- 调试困难
-
-### 8.2 compileProfile()
-
-```ts
-export interface ResolvedProfile {
-  meta: DialectMeta
-  definitions: DefinitionsSet
-  availability: AvailabilitySet
-  rendering: RenderingSet
-  rules: RuleSet
-  dataModel: DataModelSet
-  serialization: SerializationSet
-}
-
-export function compileProfile(profileId: string): ResolvedProfile
-```
-
-### 8.3 编译阶段职责
-
-1. 解析继承链
-2. 合并各层配置
-3. 处理删除语义
-4. 补齐默认值
-5. 校验引用合法性
-6. 输出只读 `ResolvedProfile`
-
-### 8.4 删除语义
-
-建议支持：
-
-```ts
-export interface RemoveMarker {
-  $remove: true
-}
-```
-
-用于删除父级配置项。
-
----
-
-## 9. 运行时机制设计
-
-### 9.1 ProfileRegistry
-
-```ts
-export interface ProfileRegistry {
-  register(profile: Profile): void
-  get(id: string): Profile | undefined
-  compile(id: string): ResolvedProfile
-  list(): string[]
-}
-```
-
-### 9.2 ProfileContext
-
-```ts
-export interface ProfileContext {
-  profile: ResolvedProfile
-}
-```
-
-### 9.3 graph 绑定
-
-```ts
-export function bindProfileToGraph(graph: Graph, context: ProfileContext): void
-```
-
-职责：
-
-- 注册当前 profile 所需节点和边
-- 挂载规则验证能力
-- 挂载导入导出所需上下文
-
-### 9.4 为什么不再使用全局状态
-
-因为未来需要支持：
-
-- 多 graph 并行
-- 多 profile 并行
-- 测试隔离
-- 服务端/工具链复用
-
----
-
-## 10. 渲染层设计
-
-### 10.1 最优结构
-
-不要继续以“每个 shape 一份最终静态对象”为长期方向。
-
-建议：
-
-- 保留当前 `events.ts` / `activities.ts` / `gateways.ts` 的分层思想
-- 但底层统一收敛到 renderer factory
-
-### 10.2 结构示意
-
-```ts
-export interface ShapeDefinition {
-  inherit?: string
-  width?: number
-  height?: number
-  markup?: Array<{ tagName: string; selector: string; [key: string]: any }>
-  attrs?: Record<string, Record<string, unknown>>
-  ports?: PortsConfig
-  [key: string]: any
-}
-
-export interface EdgeDefinitionConfig {
-  inherit?: string
-  attrs?: Record<string, Record<string, unknown>>
-  labels?: any[]
-  [key: string]: any
-}
-```
-
-### 10.3 推荐原则
-
-- 颜色、图标、样式来自 `rendering.theme`
-- 节点形状来自 `nodeRenderers`
-- 边形状来自 `edgeRenderers`
-- 外观变化由 profile 决定，而不是散落在业务代码里
-
----
-
-## 11. 规则层设计
-
-### 11.1 保留当前核心思路
-
-当前 `shape -> category -> rule` 的设计应保留。
-
-### 11.2 扩展方式
-
-规则层应分两部分：
-
-1. 基础连接规则
-2. 高阶约束规则
-
-### 11.3 高阶约束示例
-
-- 开始节点最多一个
-- 并行网关 fork/join 必须成对
-- `custom` mode 禁止 `userTask`
-- `database` mode 允许多实例 userTask
-
-### 11.4 结论
-
-规则层不是问题点，反而是当前主库最应该保留和复用的资产。
-
----
-
-## 12. 字段能力层设计
-
-### 12.1 主库字段边界
-
-主库只维护能力，不维护 UI。
-
-主库负责：
-
-- 默认值
-- normalize
-- validate
-- serialize
-- deserialize
-
-主库不负责：
-
-- 输入类型
-- 表单组件
-- 展示文案
-- 布局与分组
-- 候选项显示方案
-
-### 12.2 为什么这是最优边界
-
-因为不同业务：
-
-- 审批流
-- 服务编排
-- 流程治理
-- 低代码配置页
-
-对 UI 的要求差异极大，主库很难规范化。
-
-但字段能力是主库必须知道的，否则：
-
-- 无法做默认值填充
-- 无法做运行时校验
-- 无法做导入导出标准化
-
-### 12.3 与现有 `BpmnFormData` 的关系
-
-建议：
-
-- `BpmnFormData` 不再作为设计中心
-- 改为运行时数据载体
-- 真正的定义中心迁移到 `DataModelSet.fields`
-
----
-
-## 13. 导入导出层设计
-
-### 13.1 推荐直接插件化
-
-```ts
-export interface DialectDetector {
-  detect(xml: string): string
-}
-
-export interface ExporterAdapter {
-  dialect: string
-  exportXML(graph: Graph, context: ProfileContext): Promise<string>
-}
-
-export interface ImporterAdapter {
-  dialect: string
-  importXML(graph: Graph, xml: string, context: ProfileContext): Promise<void>
-}
-```
-
-### 13.2 为什么 adapter 比共享导入导出器更优
-
-因为方言差异会越来越集中在序列化：
-
-- BPMN2 标准导出
-- SmartEngine 扩展命名空间
-- SmartEngine requirements 下的多实例结构
-- 特定业务方言扩展属性
-
-如果继续共享一个大导入导出器，后续维护成本会越来越高。
-
-### 13.3 当前代码如何承接
-
-不是重写算法，而是：
-
-- 保留 `exporter.ts` / `importer.ts` 中已有成熟算法
-- 拆成 `bpmn2 adapter`
-- 再做 `smartengine-base adapter`
-- 再做 mode 级增强
-
----
-
-## 14. 目录结构建议
-
-推荐最终目录：
-
-```text
-packages/x6-plugin-bpmn/src/
-├── core/
-│   ├── dialect/
-│   │   ├── types.ts
-│   │   ├── registry.ts
-│   │   ├── compiler.ts
-│   │   ├── merge.ts
-│   │   ├── context.ts
-│   │   └── detector.ts
-│   ├── rules/
-│   │   ├── validator.ts
-│   │   └── constraints.ts
-│   ├── data-model/
-│   │   ├── fields.ts
-│   │   ├── normalize.ts
-│   │   └── validate.ts
-│   └── rendering/
-│       ├── shape-types.ts
-│       ├── node-renderers.ts
-│       └── edge-renderers.ts
-├── builtin/
-│   ├── bpmn2/
-│   │   ├── profile.ts
-│   │   ├── definitions.ts
-│   │   ├── availability.ts
-│   │   ├── rendering.ts
-│   │   ├── rules.ts
-│   │   ├── data-model.ts
-│   │   └── serialization.ts
-│   ├── smartengine-base/
-│   ├── smartengine-custom/
-│   └── smartengine-database/
-├── adapters/
-│   ├── bpmn2/
-│   │   ├── importer.ts
-│   │   └── exporter.ts
-│   ├── smartengine/
-│   │   ├── importer.ts
-│   │   └── exporter.ts
-│   └── x6/
-│       └── bind.ts
-├── legacy/
-│   └── register-bpmn-shapes.ts
-└── index.ts
-```
-
-说明：
-
-- `core/` 放内核
-- `builtin/` 放内置方言
-- `adapters/` 放与 X6 / XML 的适配
-- `legacy/` 可选，仅当需要保留外部便捷入口时保留
-
----
-
-## 15. 与当前代码的映射关系
-
-### 15.1 直接保留
-
-这些部分建议直接复用或只做轻度搬迁：
-
-- `rules/validator.ts` 的核心验证算法
-- `rules/connection-rules.ts` 的基础规则设计
-- `export/bpmn-mapping.ts` 的映射模型
-- `export/exporter.ts` / `importer.ts` 的主体算法
-
-### 15.2 需要拆分
-
-- `config/index.ts`
-  - 拆成标签、分类、数据能力、load/save 四块
-- `utils/constants.ts`
-  - 保留 shape 常量
-  - 把颜色和图标迁出
-
-### 15.3 需要重写
-
-- `index.ts`
-  - 从单纯 register 入口改为方言系统入口
-- 全局 `registered` 机制
-  - 改成 graph 绑定式注册
-
-### 15.4 需要新增
-
-- `ProfileRegistry`
-- `compileProfile()`
-- `ProfileContext`
-- `DialectDetector`
-- `ImporterAdapter` / `ExporterAdapter`
-- `FieldCapability`
-
----
-
-## 16. 直接重构实施顺序
-
-既然不要求渐进演化，建议按 4 个重构批次推进。
-
-### 批次 1：内核重构
-
-目标：先把“方言系统”立起来。
-
-内容：
-
-- `Dialect/Profile` 类型
-- `ProfileRegistry`
-- `compileProfile()`
-- `ProfileContext`
-- `bpmn2` / `smartengine-base` / `smartengine-custom` / `smartengine-database` 基础定义
-
-### 批次 2：规则与字段能力重构
-
-内容：
-
-- 迁移 `connection-rules.ts`
-- 改造 `validator.ts` 为 context 驱动
-- 建立 `FieldCapability`
-- 将 `classifyShape()`、`BpmnFormData` 逻辑收敛到数据模型层
-
-### 批次 3：渲染重构
-
-内容：
-
-- 建立 `rendering` 层
-- 提取 node/edge renderer factory
-- 将当前 shape 注册逻辑改为 profile 驱动
-- 建立 graph 绑定入口
-
-### 批次 4：导入导出重构
-
-内容：
-
-- 建立 `DialectDetector`
-- 拆出 BPMN2 / SmartEngine 导入导出 adapter
-- 将原有 importer/exporter 按 adapter 重新组织
-
----
-
-## 17. 测试体系
-
-### 17.1 编译测试
-
-必须验证：
-
-- profile 继承链可正确解析
-- 缺失父 profile 会失败
-- 循环继承会失败
-- 删除语义生效
-- 未知 renderer / shape / mapping 引用会失败
-
-### 17.2 ResolvedProfile 快照测试
-
-对编译结果做快照，确保：
-
-- `bpmn2`
-- `smartengine-base`
-- `smartengine-custom`
-- `smartengine-database`
-
-在每次重构后仍然稳定。
-
-### 17.3 规则测试
-
-验证：
-
-- `bpmn2` 下现有规则兼容
-- `smartengine-base` 默认继承 BPMN2.0 全量规则能力
-- `smartengine-custom` 仅在使用该叠加层时收紧规则
-- `smartengine-database` 仅在使用该叠加层时增强审批相关规则
-- 高阶约束规则生效
-
-### 17.4 字段能力测试
-
-验证：
-
-- 默认值填充
-- normalize 生效
-- validate 生效
-- serialize / deserialize 生效
-- 不同 profile 的字段能力差异正确
-
-### 17.5 渲染测试
-
-验证：
-
-- 同一 shape 在不同 profile 下可有不同外观
-- 禁用元素不会被注册
-- 多 graph 实例不会互相污染
-
-### 17.6 导入导出测试
-
-验证：
-
-- BPMN2 导入导出兼容现有结果
-- SmartEngine 命名空间输出正确
-- SmartEngine 扩展属性输出正确
-- `smartengine-database` 下的多实例结构输出正确
-- detector 可识别方言
-
----
-
-## 18. 最终结论
-
-最终推荐结论如下：
-
-> 主库应从“固定 BPMN 2.0 插件”升级为“流程方言内核”。
->
-> 其核心结构应为：
->
-> - `Profile` 作为方言载体
-> - `compileProfile()` 作为编译入口
-> - `ProfileContext` 作为运行时边界
-> - `definitions / availability / rendering / rules / dataModel / serialization` 六层配置模型
-> - `FieldCapability` 作为字段能力边界
-> - `DialectDetector + ImporterAdapter + ExporterAdapter` 作为导入导出插件体系
->
-> 同时，主库只负责能力定义，不维护任何 UI 元数据。
-
-并且必须明确：
-
-> `smartengine-base` 默认支持并继承全量 BPMN2.0；
-> `custom` / `database` 的差异不应被建模为“替代 BPMN2.0 的基础方言”，
-> 而应被建模为“在特定 mode 要求下叠加的约束 / 增强层”。
-
-如果只保留一句话：
-
-> 当前最优方案不是把 SmartEngine 视为 BPMN2.0 的精简替代，而是把主库重构为一个以 BPMN2.0 为母版、以 SmartEngine 扩展为增强层、以 mode requirements 为叠加层的流程方言系统。
+- [project-onboarding-guide.md](project-onboarding-guide.md): understand where the dialect system sits in the workspace.
+- [custom-extension-guide.md](custom-extension-guide.md): see how host apps extend the current dialect architecture incrementally.
+- [runtime-constraints-design.md](runtime-constraints-design.md): see how runtime guards and behavior modules attach to this architecture.
+- [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md): review the plugin API surface and recommended reading order.

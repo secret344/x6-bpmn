@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Graph } from '@antv/x6'
 
 // 需要处理 `registered` 状态。由于它是模块级变量，
-// we re-import fresh each time via dynamic imports or reset via forceRegisterBpmnShapes.
+// 每次用动态导入重新获取模块，或通过 forceRegisterBpmnShapes 重置状态。
 
 /**
  * 插件入口测试（Plugin Entry Point）

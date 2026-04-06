@@ -16,10 +16,30 @@ import {
   createProfileContext,
   bindProfileToGraph,
   getProfileContext,
+  registerProfileCleanup,
   unbindProfile,
 } from '../../core/dialect/context'
 import { createDialectDetector } from '../../core/dialect/detector'
 import type { DialectDetector } from '../../core/dialect/detector'
+import {
+  createContextValidateConnectionWithResult,
+  createContextValidateEdgeWithResult,
+} from '../../core/rules/validator'
+import type { BpmnValidationResult } from '../../rules/connection-rules'
+import { BPMN_SEQUENCE_FLOW } from '../../utils/constants'
+
+type ValidateConnectionCallback = (args: any) => boolean
+type ValidateEdgeCallback = (args: any) => boolean
+
+type GraphWithOptions = Graph & {
+  options?: {
+    connecting?: {
+      createEdge?: (...args: any[]) => any
+      validateConnection?: ValidateConnectionCallback
+      validateEdge?: ValidateEdgeCallback
+    }
+  }
+}
 
 // ============================================================================
 // DialectManager — 高层方言管理器
@@ -33,6 +53,16 @@ export interface DialectManagerOptions {
   registry: ProfileRegistry
   /** 默认使用的方言 ID（当未指定时使用） */
   defaultDialect?: string
+  /** 自定义方言检测器，未提供时使用默认 detector */
+  detector?: DialectDetector
+  /** 是否在 bind() 时自动接入 graph.connecting.validateConnection，默认 true */
+  autoBindValidateConnection?: boolean
+  /** 自定义边类型解析函数，未提供时会尝试从 graph.connecting.createEdge 推断 */
+  edgeShapeGetter?: (graph: Graph, args?: any, context?: ProfileContext) => string | undefined
+  /** 最终连线失败时的错误回调，由宿主自行决定提示方式 */
+  onValidationError?: (result: BpmnValidationResult, args: any, context: ProfileContext) => void
+  /** 连线校验执行异常时的错误回调 */
+  onValidationException?: (error: unknown, result: BpmnValidationResult, args: any, context: ProfileContext) => void
 }
 
 /**
@@ -47,11 +77,19 @@ export class DialectManager {
   private exporters = new Map<string, ExporterAdapter>()
   private importers = new Map<string, ImporterAdapter>()
   private detector: DialectDetector
+  private autoBindValidateConnection: boolean
+  private edgeShapeGetter?: (graph: Graph, args?: any, context?: ProfileContext) => string | undefined
+  private onValidationError?: (result: BpmnValidationResult, args: any, context: ProfileContext) => void
+  private onValidationException?: (error: unknown, result: BpmnValidationResult, args: any, context: ProfileContext) => void
 
   constructor(options: DialectManagerOptions) {
     this.registry = options.registry
     this.defaultDialect = options.defaultDialect ?? 'bpmn2'
-    this.detector = createDialectDetector()
+    this.detector = options.detector ?? createDialectDetector()
+    this.autoBindValidateConnection = options.autoBindValidateConnection ?? true
+    this.edgeShapeGetter = options.edgeShapeGetter
+    this.onValidationError = options.onValidationError
+    this.onValidationException = options.onValidationException
   }
 
   /**
@@ -92,6 +130,7 @@ export class DialectManager {
 
     // 绑定新 context
     bindProfileToGraph(graph, context)
+    this.bindValidateConnection(graph, context)
 
     return context
   }
@@ -202,6 +241,173 @@ export class DialectManager {
       // 继承链不可用，降级为 undefined
     }
     return undefined
+  }
+
+  private bindValidateConnection(graph: Graph, context: ProfileContext): void {
+    if (!this.autoBindValidateConnection) return
+
+    const graphWithOptions = graph as GraphWithOptions
+    graphWithOptions.options = graphWithOptions.options ?? {}
+    graphWithOptions.options.connecting = graphWithOptions.options.connecting ?? {}
+
+    const connecting = graphWithOptions.options.connecting
+    const previousValidateConnection = connecting.validateConnection
+    const previousValidateEdge = connecting.validateEdge
+    let currentEdgeShape = this.resolveEdgeShapeSafely(graph, context)
+    const validateWithContext = createContextValidateConnectionWithResult(() => currentEdgeShape, context)
+    const validateEdgeWithContext = createContextValidateEdgeWithResult(() => currentEdgeShape, context)
+    const manager = this
+
+    const managedValidateConnection: ValidateConnectionCallback = function(this: unknown, args: any): boolean {
+      const previousResult = manager.runPreviousValidator(previousValidateConnection, this, args, context, '连接预校验')
+      if (previousResult !== undefined) {
+        return previousResult
+      }
+
+      currentEdgeShape = manager.resolveEdgeShapeSafely(graph, context, args)
+      const result = validateWithContext(args)
+      if (result.kind === 'exception') {
+        manager.notifyValidationException(null, result, args, context)
+      }
+      return result.valid
+    }
+
+    connecting.validateConnection = managedValidateConnection
+
+    const managedValidateEdge: ValidateEdgeCallback = function(this: unknown, args: any): boolean {
+      const previousResult = manager.runPreviousValidator(previousValidateEdge, this, args, context, '连接终校验')
+      if (previousResult !== undefined) {
+        return previousResult
+      }
+
+      currentEdgeShape = manager.resolveEdgeShapeSafely(graph, context, args)
+      const result = validateEdgeWithContext(args)
+      if (!result.valid && result.kind === 'exception') {
+        manager.notifyValidationException(null, result, args, context)
+      } else if (!result.valid) {
+        manager.notifyValidationError(result, args, context)
+      }
+      return result.valid
+    }
+
+    connecting.validateEdge = managedValidateEdge
+
+    registerProfileCleanup(graph, () => {
+      const activeConnecting = (graph as GraphWithOptions).options?.connecting
+      if (!activeConnecting) return
+
+      if (activeConnecting.validateConnection === managedValidateConnection && previousValidateConnection) {
+        activeConnecting.validateConnection = previousValidateConnection
+      } else if (activeConnecting.validateConnection === managedValidateConnection) {
+        delete (activeConnecting as { validateConnection?: ValidateConnectionCallback }).validateConnection
+      }
+
+      if (activeConnecting.validateEdge === managedValidateEdge && previousValidateEdge) {
+        activeConnecting.validateEdge = previousValidateEdge
+      } else if (activeConnecting.validateEdge === managedValidateEdge) {
+        delete (activeConnecting as { validateEdge?: ValidateEdgeCallback }).validateEdge
+      }
+    })
+  }
+
+  private resolveEdgeShape(graph: Graph, context: ProfileContext, args?: any): string {
+    const edgeShape = typeof args?.edge?.getShape === 'function'
+      ? args.edge.getShape()
+      : args?.edge?.shape
+    if (typeof edgeShape === 'string' && edgeShape.length > 0) return edgeShape
+
+    const explicitEdgeShape = this.edgeShapeGetter?.(graph, args, context)
+    if (explicitEdgeShape) return explicitEdgeShape
+
+    const graphEdgeShape = this.resolveEdgeShapeFromConnecting(graph, args)
+    if (graphEdgeShape) return graphEdgeShape
+
+    return this.resolveDefaultEdgeShape(context)
+  }
+
+  private resolveEdgeShapeSafely(graph: Graph, context: ProfileContext, args?: any): string {
+    try {
+      return this.resolveEdgeShape(graph, context, args)
+    } catch (error) {
+      const result = this.createValidationExceptionResult(error, '边类型推断执行异常')
+      if (args) {
+        this.notifyValidationException(error, result, args, context)
+      }
+      return this.resolveDefaultEdgeShape(context)
+    }
+  }
+
+  private resolveEdgeShapeFromConnecting(graph: Graph, args?: any): string | undefined {
+    const createEdge = (graph as GraphWithOptions).options?.connecting?.createEdge
+    if (typeof createEdge !== 'function') return undefined
+
+    try {
+      const edge = createEdge.call(graph, args?.sourceView, args?.sourceMagnet)
+      const shape = typeof edge?.getShape === 'function'
+        ? edge.getShape()
+        : edge?.shape ?? edge?.prop?.shape
+
+      edge?.dispose?.()
+
+      return typeof shape === 'string' && shape.length > 0 ? shape : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  private resolveDefaultEdgeShape(context: ProfileContext): string {
+    const enabledEdges = Object.entries(context.profile.definitions.edges)
+      .filter(([key]) => context.profile.availability.edges[key] !== 'disabled')
+      .map(([, definition]) => definition)
+
+    const sequenceFlowEdge = enabledEdges.find((definition) => definition.category === 'sequenceFlow')
+    return sequenceFlowEdge?.shape ?? enabledEdges[0]?.shape ?? BPMN_SEQUENCE_FLOW
+  }
+
+  private runPreviousValidator(
+    validator: ValidateConnectionCallback | ValidateEdgeCallback | undefined,
+    thisArg: unknown,
+    args: any,
+    context: ProfileContext,
+    phase: string,
+  ): boolean | undefined {
+    if (typeof validator !== 'function') return undefined
+
+    try {
+      if (validator.call(thisArg, args) === false) {
+        return false
+      }
+      return undefined
+    } catch (error) {
+      const result = this.createValidationExceptionResult(error, `${phase}链路执行异常`)
+      this.notifyValidationException(error, result, args, context)
+      return false
+    }
+  }
+
+  private createValidationExceptionResult(error: unknown, message: string): BpmnValidationResult {
+    const detail = error instanceof Error && error.message ? `：${error.message}` : ''
+    return {
+      valid: false,
+      reason: `${message}${detail}`,
+      kind: 'exception',
+    }
+  }
+
+  private notifyValidationError(result: BpmnValidationResult, args: any, context: ProfileContext): void {
+    try {
+      this.onValidationError?.(result, args, context)
+    } catch {
+      // 宿主错误提示回调不应打断校验主链路。
+    }
+  }
+
+  private notifyValidationException(error: unknown, result: BpmnValidationResult, args: any, context: ProfileContext): void {
+    try {
+      this.onValidationException?.(error, result, args, context)
+    } catch {
+      // 宿主异常回调不应打断校验主链路。
+    }
   }
 }
 

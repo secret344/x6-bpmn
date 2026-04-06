@@ -21,8 +21,29 @@ export function createBpmn2ImporterAdapter(
   return {
     dialect: 'bpmn2',
 
-    async importXML(graph: Graph, xml: string, _context: ProfileContext): Promise<void> {
-      return importBpmnXml(graph, xml, options)
+    async importXML(graph: Graph, xml: string, context: ProfileContext): Promise<void> {
+      const profileSerialization = context.profile?.serialization
+      const serialization = profileSerialization || options?.serialization
+        ? {
+            nodeMapping: profileSerialization?.nodeMapping || options?.serialization?.nodeMapping
+              ? {
+                  ...(profileSerialization?.nodeMapping ?? {}),
+                  ...options?.serialization?.nodeMapping,
+                }
+              : undefined,
+            edgeMapping: profileSerialization?.edgeMapping || options?.serialization?.edgeMapping
+              ? {
+                  ...(profileSerialization?.edgeMapping ?? {}),
+                  ...options?.serialization?.edgeMapping,
+                }
+              : undefined,
+          }
+        : undefined
+
+      return importBpmnXml(graph, xml, {
+        ...options,
+        serialization,
+      })
     },
   }
 }

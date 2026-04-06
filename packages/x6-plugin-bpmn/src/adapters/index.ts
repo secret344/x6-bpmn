@@ -2,6 +2,8 @@
  * 适配器模块入口
  *
  * 重新导出所有导入/导出适配器和 X6 绑定管理器。
+ * 宿主如果要接入方言系统，通常会先从这里拿到 DialectManager，
+ * 再根据目标方言注册对应的 importer / exporter。
  */
 
 /* v8 ignore start — barrel re-exports */ /* istanbul ignore start */

@@ -48,6 +48,11 @@ describe('src/core/index.ts barrel', () => {
     expect(mod.validateFieldValue).toBeDefined()
     expect(mod.buildDefaultData).toBeDefined()
   })
+
+  it('应导出 validation 子模块符号', async () => {
+    const mod = await import('../../../src/core')
+    expect(mod.validateDiagram).toBeDefined()
+  })
 })
 
 describe('src/core/dialect/index.ts barrel', () => {

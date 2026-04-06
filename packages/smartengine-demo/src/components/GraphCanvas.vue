@@ -45,11 +45,7 @@ const emit = defineEmits<{
 }>()
 
 const containerRef = ref<HTMLDivElement>()
-const {
-  bind,
-  selectedMode,
-  createValidateConnection,
-} = useSmartEngineSingleton()
+const { bind, selectedMode } = useSmartEngineSingleton()
 
 let graph: Graph | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -68,6 +64,38 @@ const ACTIVITY_SHAPES = new Set([
 ])
 
 const currentEdgeType = ref(BPMN_SEQUENCE_FLOW)
+
+function parseDroppedShape(event: DragEvent): { shape: string; label?: string; width?: number; height?: number } | null {
+  const raw = event.dataTransfer?.getData('application/bpmn-shape')
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as { shape?: string; label?: string; width?: number; height?: number }
+      if (parsed.shape) return { shape: parsed.shape, label: parsed.label, width: parsed.width, height: parsed.height }
+    } catch {
+      // 兼容旧拖拽载荷，继续走 shape 字符串回退。
+    }
+  }
+
+  const shape = event.dataTransfer?.getData('bpmn/shape')
+  return shape ? { shape } : null
+}
+
+function resolveDroppedNodeSize(shape: string, width?: number, height?: number) {
+  if (typeof width === 'number' && typeof height === 'number') {
+    return { width, height }
+  }
+
+  if (shape === BPMN_POOL) return { width: 400, height: 200 }
+  if (shape === BPMN_LANE) return { width: 370, height: 100 }
+  if (shape === BPMN_GROUP) return { width: 160, height: 100 }
+
+  const isGateway = shape.includes('gateway')
+  const isEvent = shape.includes('event') || shape.includes('boundary')
+  return {
+    width: isGateway ? 50 : isEvent ? 36 : 100,
+    height: isGateway ? 50 : isEvent ? 36 : 60,
+  }
+}
 
 registerBpmnShapes()
 
@@ -126,11 +154,6 @@ onMounted(async () => {
       connector: { name: 'rounded', args: { radius: 8 } },
       createEdge() {
         return graph!.createEdge({ shape: currentEdgeType.value })
-      },
-      validateConnection(...args: any[]) {
-        const fn = createValidateConnection(() => currentEdgeType.value)
-        if (fn) return fn.apply(this, args as any)
-        return true
       },
     },
     highlighting: {
@@ -223,22 +246,21 @@ onMounted(async () => {
   })
   container.addEventListener('drop', (e) => {
     e.preventDefault()
-    const shape = e.dataTransfer?.getData('bpmn/shape')
-    if (!shape || !graph) return
+    const payload = parseDroppedShape(e)
+    if (!payload || !graph) return
+    const { shape } = payload
     const point = graph.clientToLocal({ x: e.clientX, y: e.clientY })
-    const isGateway = shape.includes('gateway')
-    const isEvent = shape.includes('event') || shape.includes('boundary')
-    const nodeW = isGateway ? 50 : isEvent ? 36 : 100
-    const nodeH = isGateway ? 50 : isEvent ? 36 : 60
-    const label = getShapeLabel(shape)
+    const { width: nodeW, height: nodeH } = resolveDroppedNodeSize(shape, payload.width, payload.height)
+    const label = payload.label || getShapeLabel(shape)
+    const isSwimlane = shape === BPMN_POOL || shape === BPMN_LANE
     const newNode = graph.addNode({
       shape,
       x: point.x - nodeW / 2,
       y: point.y - nodeH / 2,
       width: nodeW,
       height: nodeH,
-      attrs: { label: { text: label } },
-      data: { label },
+      attrs: isSwimlane ? { headerLabel: { text: label } } : { label: { text: label } },
+      data: isSwimlane ? { label, bpmn: { isHorizontal: true } } : { label },
     })
     // 边界事件自动吸附
     if (isBoundaryShape(shape)) {

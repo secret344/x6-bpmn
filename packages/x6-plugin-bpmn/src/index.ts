@@ -1,9 +1,9 @@
 /**
  * @x6-bpmn2/plugin 入口文件
  *
- * 提供两套 API：
- * 1. Legacy API — registerBpmnShapes() 等传统全局注册接口
- * 2. Dialect API — ProfileRegistry / DialectManager 等方言系统接口
+ * 提供两套接口：
+ * 1. 传统接口 — registerBpmnShapes() 等全局注册能力
+ * 2. 方言接口 — ProfileRegistry / DialectManager 等方言系统能力
  *
  * 调用 registerBpmnShapes() 使用传统方式将所有 BPMN 图形注册到 X6 全局注册表。
  * 使用方言系统时，通过 DialectManager.bind(graph, dialectId) 按需注册。
@@ -20,19 +20,43 @@ import {
 import { registerConnectionShapes } from './connections'
 
 // ============================================================================
-// Legacy API — 重新导出所有子模块的公开 API
+// 传统接口 —— 重新导出所有子模块的公开能力
 // ============================================================================
 
 export * from './utils/constants'
 export * from './shapes'
 export * from './connections'
-export * from './export'
 export * from './config'
 export * from './rules'
 export * from './behaviors'
 
+export { exportBpmnXml } from './export/exporter'
+export type { ExportBpmnOptions } from './export/exporter'
+export { importBpmnXml } from './export/importer'
+export type { ImportBpmnOptions } from './export/importer'
+export { parseBpmnXml, loadBpmnGraph } from './import'
+export type {
+  BpmnImportData,
+  BpmnNodeData as BpmnImportNodeData,
+  BpmnEdgeData,
+  BpmnEdgeLabelData,
+  LoadBpmnOptions,
+} from './import'
+export {
+  NODE_MAPPING,
+  EDGE_MAPPING,
+  isPoolShape,
+  isLaneShape,
+  isSwimlaneShape,
+  isArtifactShape,
+  isBoundaryShape,
+  isDefaultFlow,
+  isConditionalFlow,
+} from './export/bpmn-mapping'
+export type { BpmnNodeMapping, BpmnEdgeMapping } from './export/bpmn-mapping'
+
 // ============================================================================
-// Dialect API — 方言系统核心导出
+// 方言接口 —— 方言系统核心导出
 // ============================================================================
 
 // 核心类型
@@ -99,6 +123,9 @@ export { createBpmn2EdgeRenderers } from './core/rendering/edge-renderers'
 export {
   validateConnectionWithContext,
   createContextValidateConnection,
+  createContextValidateConnectionWithResult,
+  createContextValidateEdge,
+  createContextValidateEdgeWithResult,
 } from './core/rules/validator'
 export {
   createStartEventLimit,
@@ -121,6 +148,15 @@ export {
   buildDefaultData,
   validateFields,
 } from './core/data-model/fields'
+
+// 图级校验
+export type {
+  ValidationIssueCategory,
+  ValidationIssue,
+  DiagramValidationReport,
+  DiagramValidationOptions,
+} from './core/validation'
+export { validateDiagram } from './core/validation'
 
 // 内置 Profile
 export { bpmn2Profile } from './builtin/bpmn2'

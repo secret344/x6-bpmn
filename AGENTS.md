@@ -28,6 +28,12 @@ These rules apply to all AI coding agents in this workspace.
 - Every new test must map to a real BPMN or SmartEngine business rule, export path, adapter behavior, or regression scenario.
 - If a branch is hard to test, explain the business reason and add the closest meaningful scenario instead of artificial assertions.
 
+## Submodule Policy
+- Do not directly modify content inside git submodules under `packages/**`.
+- Current reference/documentation submodules include `packages/bpmn2-spec`, `packages/bpmn-moddle`, and `packages/bpmn-js`.
+- Use `packages/bpmn2-spec` as the specification reference, `packages/bpmn-moddle` as the BPMN 2.0 XML modeling/reference implementation, and `packages/bpmn-js` as the community BPMN designer/reference implementation when investigating behavior or design questions.
+- If a submodule appears wrong, incomplete, or needs follow-up, record the issue in root `tip.md` instead of editing the submodule in this workspace.
+
 ## Non-plugin Packages
 - For changes outside `x6-plugin-bpmn`, state why automated tests are not run, or run an applicable verification step.
 - Do not claim coverage guarantees for demo packages without a real test suite.

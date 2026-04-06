@@ -8,6 +8,10 @@
  * - loadBpmnGraph — 中间 JSON → X6 Graph（可单独测试）
  * - NODE_MAPPING / EDGE_MAPPING — 图形与 BPMN 标签的映射关系
  * - 各类辅助判断函数
+ *
+ * 阅读建议：
+ * 1. 想看完整导出链路，先读 exportBpmnXml。
+ * 2. 想排查 XML 导入问题，先读 parseBpmnXml，再读 loadBpmnGraph。
  */
 
 export { exportBpmnXml } from './exporter'

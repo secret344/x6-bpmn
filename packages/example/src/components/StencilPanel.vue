@@ -18,6 +18,7 @@
             v-for="item in group.items"
             :key="item.shape"
             class="stencil-item"
+            :data-testid="`stencil-${item.shape}`"
             draggable="true"
             :title="item.label"
             @dragstart="onDragStart($event, item)"

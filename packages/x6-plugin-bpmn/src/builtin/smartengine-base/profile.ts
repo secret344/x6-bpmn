@@ -7,6 +7,7 @@
  */
 
 import type { Profile } from '../../core/dialect/types'
+import { createStartEventLimit } from '../../core/rules/constraints'
 
 /**
  * SmartEngine Base Profile
@@ -30,6 +31,13 @@ export const smartengineBaseProfile: Profile = {
     namespaces: {
       smart: 'http://smartengine.alibaba.com/schema',
     },
+  },
+
+  // SmartEngine 默认收紧结构规则
+  rules: {
+    constraints: [
+      createStartEventLimit(1),
+    ],
   },
 
   // SmartEngine 公共字段能力扩展

@@ -90,6 +90,20 @@ import 'bpmn-js/dist/assets/bpmn-js.css'
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css'
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn-embedded.css'
 
+const BPMN_TRANSLATIONS: Record<string, string> = {
+  'flow elements must be children of pools/participants': '流程节点必须位于池/参与者内部',
+}
+
+function customTranslate(template: string, replacements?: Record<string, string>) {
+  const text = BPMN_TRANSLATIONS[template] ?? template
+  if (!replacements) return text
+  return text.replace(/\{([^}]+)\}/g, (_match, key: string) => String(replacements[key] ?? `{${key}}`))
+}
+
+const customTranslateModule = {
+  translate: ['value', customTranslate],
+}
+
 const EMPTY_BPMN = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -145,7 +159,7 @@ async function initModeler() {
 
   modeler = new BpmnModeler({
     container: canvasRef.value,
-    keyboard: { bindTo: canvasRef.value },
+    additionalModules: [customTranslateModule],
   })
 
   try {

@@ -1,320 +1,230 @@
 # @x6-bpmn2/plugin
 
-基于 [AntV X6](https://x6.antv.antgroup.com/) 的 **BPMN 2.0 完整图形插件**。
+`@x6-bpmn2/plugin` 是工作区里的主库，负责 BPMN 2.0 图形、规则、运行时行为，以及 XML 导入导出。
 
-一行代码注册全部 BPMN 2.0 图形（事件 / 活动 / 网关 / 数据元素 / 工件 / 泳道 / 连接线），并内置 XML 导入导出，开箱即用。
+`@x6-bpmn2/plugin` is the main library in this workspace. It owns BPMN 2.0 shapes, rules, runtime behaviors, and XML import/export.
 
----
+## 1. 使用方式 / Usage Modes
 
-## 特性
+1. 传统接口：注册图形、挂接连线校验、直接做导入导出。
+2. 方言接口：通过 `Profile`、`ProfileRegistry`、`DialectManager` 绑定不同规则和序列化能力。
 
-- **78+ BPMN 图形**：覆盖 BPMN 2.0 规范中全部节点和连接线类型
-- **XML 导入导出**：基于 `bpmn-moddle`，支持 BPMN 2.0 标准 XML 的双向转换
-- **边界事件吸附**：内置 `setupBoundaryAttach` 行为，拖放自动吸附、边框约束、宿主 resize 联动
-- **表单数据管理**：内置 `BpmnFormData` 接口和 `loadBpmnFormData` / `saveBpmnFormData` 工具
-- **中文标签**：所有图形预置中文显示名称（`SHAPE_LABELS`）
-- **可选注册**：通过 `BpmnPluginOptions` 按类别开关图形注册
-- **TypeScript 优先**：完整类型定义，100% TypeScript 编写
+1. Traditional API: register shapes, wire connection validation, and import/export directly.
+2. Dialect API: bind different rule sets and serialization behavior through `Profile`, `ProfileRegistry`, and `DialectManager`.
 
-运行时约束设计说明见 [../../docs/runtime-constraints-design.md](../../docs/runtime-constraints-design.md)。
+## 2. 模块总览 / Module Overview
 
-## 安装
+| 目录 / Directory | 作用 / Responsibility | 典型入口 / Typical entry points |
+|---|---|---|
+| `src/index.ts` | 总入口，统一导出传统接口与方言接口 | `registerBpmnShapes`, `DialectManager` |
+| `src/shapes` | BPMN 节点图形定义 | `registerEventShapes`, `registerActivityShapes` |
+| `src/connections` | BPMN 连接线定义 | `registerConnectionShapes` |
+| `src/rules` | 传统 BPMN 连线规则 | `validateBpmnConnection`, `createBpmnValidateConnection` |
+| `src/core/dialect` | Profile 注册、编译、合并、检测、上下文 | `ProfileRegistry`, `compileProfile`, `createDialectDetector` |
+| `src/core/rules` | 方言感知的规则适配层 | `createContextValidateConnection`, `createContextValidateEdge` |
+| `src/core/data-model` | 字段能力与默认值、规范化、校验 | `buildDefaultData`, `validateFields` |
+| `src/adapters` | BPMN2 / SmartEngine / X6 适配器 | `createBpmn2ExporterAdapter`, `DialectManager` |
+| `src/import` | XML -> 中间数据 -> 图形 | `parseBpmnXml`, `loadBpmnGraph` |
+| `src/export` | 图形 -> BPMN XML | `exportBpmnXml`, `NODE_MAPPING` |
+| `src/behaviors` | 运行时交互行为 | `setupBoundaryAttach`, `setupPoolContainment` |
+| `src/builtin` | 内置方言定义 | `bpmn2Profile`, `smartengineBaseProfile` |
+| `src/config` | 标签、分类、图标与配置辅助 | `getShapeLabel`, `classifyShape` |
+| `src/utils` | 常量与低层工具 | `BPMN_*` 常量 |
 
-```bash
-npm install @x6-bpmn2/plugin @antv/x6
-# 或
-pnpm add @x6-bpmn2/plugin @antv/x6
-```
+| Directory | Responsibility | Typical entry points |
+|---|---|---|
+| `src/index.ts` | Main entry, exporting both traditional and dialect APIs | `registerBpmnShapes`, `DialectManager` |
+| `src/shapes` | BPMN node shape definitions | `registerEventShapes`, `registerActivityShapes` |
+| `src/connections` | BPMN edge definitions | `registerConnectionShapes` |
+| `src/rules` | Traditional BPMN connection rules | `validateBpmnConnection`, `createBpmnValidateConnection` |
+| `src/core/dialect` | Profile registration, compilation, merge, detection, context | `ProfileRegistry`, `compileProfile`, `createDialectDetector` |
+| `src/core/rules` | Dialect-aware rule adapters | `createContextValidateConnection`, `createContextValidateEdge` |
+| `src/core/data-model` | Field capabilities, defaults, normalization, validation | `buildDefaultData`, `validateFields` |
+| `src/adapters` | BPMN2 / SmartEngine / X6 adapters | `createBpmn2ExporterAdapter`, `DialectManager` |
+| `src/import` | XML -> intermediate data -> graph | `parseBpmnXml`, `loadBpmnGraph` |
+| `src/export` | Graph -> BPMN XML | `exportBpmnXml`, `NODE_MAPPING` |
+| `src/behaviors` | Runtime graph behaviors | `setupBoundaryAttach`, `setupPoolContainment` |
+| `src/builtin` | Built-in dialect definitions | `bpmn2Profile`, `smartengineBaseProfile` |
+| `src/config` | Labels, classification, icons, and config helpers | `getShapeLabel`, `classifyShape` |
+| `src/utils` | Constants and low-level helpers | `BPMN_*` constants |
 
-> `@antv/x6` 为 peer dependency，需要 `>=2.0.0`。
+## 3. 常用入口 / Common Entry Points
 
-## 快速开始
+1. [src/index.ts](src/index.ts)：公开 API 总入口。
+2. [src/adapters/x6/bind.ts](src/adapters/x6/bind.ts)：graph 绑定、自动校验接线。
+3. [src/import/index.ts](src/import/index.ts) 与 [src/export/exporter.ts](src/export/exporter.ts)：XML 双向转换。
+4. [src/behaviors](src/behaviors)：边界事件附着、Pool/Lane containment 等运行时行为。
+
+1. [src/index.ts](src/index.ts): public API entry.
+2. [src/adapters/x6/bind.ts](src/adapters/x6/bind.ts): graph binding and auto-wired validation.
+3. [src/import/index.ts](src/import/index.ts) and [src/export/exporter.ts](src/export/exporter.ts): XML round-trip.
+4. [src/behaviors](src/behaviors): runtime behaviors such as boundary attachment and Pool/Lane containment.
+
+## 4. 两条主要 API 路线 / Two Main API Paths
+
+### 4.1 传统接口 / Traditional API
 
 ```ts
 import { Graph } from '@antv/x6'
-import { registerBpmnShapes } from '@x6-bpmn2/plugin'
+import {
+  registerBpmnShapes,
+  createBpmnValidateConnection,
+  exportBpmnXml,
+  importBpmnXml,
+} from '@x6-bpmn2/plugin'
 
-// 1. 注册所有 BPMN 图形（仅需调用一次）
 registerBpmnShapes()
 
-// 2. 创建画布
 const graph = new Graph({
   container: document.getElementById('container')!,
-  width: 1000,
-  height: 600,
+  width: 1200,
+  height: 800,
+  connecting: {
+    createEdge() {
+      return graph.createEdge({ shape: 'bpmn-sequence-flow' })
+    },
+    validateConnection: createBpmnValidateConnection(() => 'bpmn-sequence-flow'),
+  },
 })
 
-// 3. 使用 BPMN 图形
-graph.addNode({ shape: 'bpmn-start-event', x: 100, y: 200 })
-graph.addNode({ shape: 'bpmn-user-task', x: 300, y: 180, attrs: { label: { text: '审批' } } })
-graph.addEdge({ shape: 'bpmn-sequence-flow', source: 'node1', target: 'node2' })
+const xml = await exportBpmnXml(graph)
+await importBpmnXml(graph, xml)
 ```
 
-## 按需注册
+### 4.2 方言接口 / Dialect API
 
 ```ts
-registerBpmnShapes({
-  events: true,       // 事件（开始 / 中间 / 结束 / 边界）
-  activities: true,   // 活动（任务 / 子流程 / 调用活动）
-  gateways: true,     // 网关
-  data: true,         // 数据元素
-  artifacts: true,    // 工件（文本注释 / 分组）
-  swimlanes: true,    // 泳道（池 / 泳道）
-  connections: true,  // 连接线（顺序流 / 消息流 / 关联）
-})
-```
-
-## XML 导入导出
-
-```ts
-import { exportBpmnXml, importBpmnXml } from '@x6-bpmn2/plugin'
-
-// 导出为 BPMN 2.0 XML
-const xml = await exportBpmnXml(graph, {
-  processId: 'Process_1',
-  processName: '审批流程',
-})
-
-// 从 XML 导入
-await importBpmnXml(graph, xml, {
-  clearGraph: true,   // 导入前清空画布
-  zoomToFit: true,    // 导入后自适应缩放
-})
-```
-
-## 表单数据管理
-
-```ts
+import { Graph } from '@antv/x6'
 import {
-  classifyShape,
-  loadBpmnFormData,
-  saveBpmnFormData,
-  getShapeLabel,
+  createProfileRegistry,
+  createDialectManager,
+  bpmn2Profile,
+  smartengineBaseProfile,
+  createBpmn2ExporterAdapter,
+  createBpmn2ImporterAdapter,
 } from '@x6-bpmn2/plugin'
 
-// 获取图形中文名
-getShapeLabel('bpmn-user-task') // → '用户任务'
+const registry = createProfileRegistry()
+registry.register(bpmn2Profile)
+registry.register(smartengineBaseProfile)
 
-// 分类图形
-classifyShape('bpmn-user-task') // → 'userTask'
+const manager = createDialectManager({ registry })
+manager.registerExporter(createBpmn2ExporterAdapter())
+manager.registerImporter(createBpmn2ImporterAdapter())
 
-// 从节点加载表单数据
-const formData = loadBpmnFormData(selectedNode)
-
-// 保存表单数据
-const bpmn = saveBpmnFormData('userTask', formData)
-selectedNode.setData({ bpmn })
-```
-
-## 边界事件吸附行为
-
-`setupBoundaryAttach` 为 X6 画布补充 BPMN 边界事件的吸附交互，复用 X6 内置的父子关系（子节点跟随移动、级联删除），仅新增 X6 不提供的三个 BPMN 特有逻辑：
-
-| 行为 | 说明 |
-|------|------|
-| 拖放吸附 | 边界事件落在 Activity 边框 30px 内时自动 snap 到边框并建立父子关系 |
-| 边框约束 | 已吸附的边界事件拖拽时只能沿宿主边框滑动 |
-| 宿主 resize | 宿主尺寸变化后按存储的 `side + ratio` 重新定位边界事件 |
-
-```ts
-import { setupBoundaryAttach, attachBoundaryToHost } from '@x6-bpmn2/plugin'
-
-// 安装行为（在 graph 初始化后调用）
-const dispose = setupBoundaryAttach(graph, {
-  snapDistance: 30,     // 吸附阈值（px），默认 30
-  detachDistance: 60,   // 脱离阈值（px），默认 60；设为 Infinity 禁止脱离
-  constrainToEdge: true // 拖拽时约束在边框上，默认 true
+const graph = new Graph({
+  container: document.getElementById('container')!,
+  width: 1200,
+  height: 800,
 })
 
-// 程序化附着（导入流程 / 初始化示例数据时使用）
-const timerEvent = graph.addNode({ shape: BPMN_BOUNDARY_EVENT_TIMER, ... })
-attachBoundaryToHost(graph, timerEvent, userTaskNode)
-
-// 组件卸载时清理
-dispose()
+manager.bind(graph, 'bpmn2')
 ```
 
-**数据模型**：吸附后 `node.getData().bpmn` 自动写入：
+## 5. 关键链路 / Key Flows
 
-```ts
-{
-  bpmn: {
-    attachedToRef: 'hostNodeId',
-    boundaryPosition: { side: 'bottom', ratio: 0.75 } // 边 + 在该边的位置比例 [0,1]
-  }
-}
-```
+| 链路 / Flow | 入口 / Entry | 说明 / Notes |
+|---|---|---|
+| 图形注册 / Shape registration | `registerBpmnShapes()` | 注册 BPMN 节点和连线到 X6 |
+| 方言绑定 / Dialect binding | `ProfileRegistry.register()` -> `DialectManager.bind()` | 将规则、渲染、导入导出能力绑定到 graph |
+| XML 导入 / XML import | `parseBpmnXml()` -> `loadBpmnGraph()` | 先解析，再装载 |
+| XML 导出 / XML export | `exportBpmnXml()` | 从图状态生成标准 BPMN XML |
 
-## 图形名称常量
+| Flow | Entry | Notes |
+|---|---|---|
+| Shape registration | `registerBpmnShapes()` | Registers BPMN nodes and edges into X6 |
+| Dialect binding | `ProfileRegistry.register()` -> `DialectManager.bind()` | Binds rules, rendering, and serialization to a graph |
+| XML import | `parseBpmnXml()` -> `loadBpmnGraph()` | Parse first, then load |
+| XML export | `exportBpmnXml()` | Generates standard BPMN XML from graph state |
 
-所有图形名称以 `BPMN_*` 常量导出，避免硬编码字符串：
+## 6. 改功能时该去哪一层 / Where to Change Things
 
-```ts
-import {
-  BPMN_START_EVENT,
-  BPMN_USER_TASK,
-  BPMN_EXCLUSIVE_GATEWAY,
-  BPMN_SEQUENCE_FLOW,
-  // ... 78+ 常量
-} from '@x6-bpmn2/plugin'
-```
+| 你要改什么 / What you want to change | 先看哪里 / Start here |
+|---|---|
+| 新增或修改 BPMN 图形 | `src/shapes`、`src/connections` |
+| 调整连线合法性 | `src/rules`、`src/core/rules` |
+| 调整字段默认值、规范化、字段校验 | `src/core/data-model` |
+| 调整方言继承、合并、编译 | `src/core/dialect` |
+| 调整 graph 与方言的绑定方式 | `src/adapters/x6/bind.ts` |
+| 调整 XML 解析或导出 | `src/import`、`src/export` |
+| 调整边界事件附着、Pool/Lane containment | `src/behaviors` |
+| 调整宿主 demo 接入方式 | 对应 `packages/*-demo` 或 `packages/example` |
 
-## 支持的 BPMN 元素
+| What you want to change | Start here |
+|---|---|
+| Add or modify BPMN shapes | `src/shapes`, `src/connections` |
+| Change connection legality | `src/rules`, `src/core/rules` |
+| Change field defaults, normalization, or field validation | `src/core/data-model` |
+| Change dialect inheritance, merge, or compilation | `src/core/dialect` |
+| Change graph-to-dialect binding behavior | `src/adapters/x6/bind.ts` |
+| Change XML parsing or export | `src/import`, `src/export` |
+| Change boundary attachment or containment interactions | `src/behaviors` |
+| Change host demo integration | the relevant `packages/*-demo` or `packages/example` |
 
-### 事件（48 种变体）
+## 7. 测试与验证 / Tests and Validation
 
-| 类别 | 类型 |
-|------|------|
-| 开始事件 | 无、消息、定时、条件、信号、多重、并行多重 |
-| 中间抛出事件 | 无、消息、升级、链接、补偿、信号、多重 |
-| 中间捕获事件 | 无、消息、定时、升级、条件、链接、错误、取消、补偿、信号、多重、并行多重 |
-| 边界事件 | 无、消息、定时、升级、条件、错误、取消、补偿、信号、多重、并行多重、非中断 |
-| 结束事件 | 无、消息、升级、错误、取消、补偿、信号、终止、多重 |
+主库改动后默认在包目录执行下面的命令：
 
-### 活动（13 种）
-
-任务、用户任务、服务任务、脚本任务、业务规则任务、发送任务、接收任务、手工任务、子流程、事件子流程、事务、自由子流程、调用活动
-
-### 网关（6 种）
-
-排他网关、并行网关、包容网关、复杂网关、事件网关、排他事件网关
-
-### 数据元素（4 种）
-
-数据对象、数据输入、数据输出、数据存储
-
-### 工件（2 种）
-
-文本注释、分组
-
-### 泳道（2 种）
-
-池、泳道
-
-### 连接线（7 种）
-
-顺序流、条件流、默认流、消息流、关联、定向关联、数据关联
-
-## 项目结构
-
-```
-src/
-├── index.ts              # 插件入口，统一注册和导出
-├── utils/
-│   ├── constants.ts      # 图形名称常量、颜色、图标、类型定义
-│   └── index.ts          # 工具模块入口
-├── shapes/
-│   ├── shared.ts         # 共享配置（端口、标签样式）
-│   ├── activities.ts     # 任务和子流程图形
-│   ├── events.ts         # 事件图形（48 种变体）
-│   ├── gateways.ts       # 网关图形
-│   ├── data.ts           # 数据元素图形
-│   ├── artifacts.ts      # 工件图形
-│   ├── swimlanes.ts      # 泳道图形
-│   └── index.ts          # 图形模块入口
-├── connections/
-│   └── index.ts          # 连接线图形（7 种）
-├── config/
-│   └── index.ts          # 中文标签、分类、表单数据管理
-├── export/
-│   ├── exporter.ts       # X6 Graph → BPMN 2.0 XML
-│   ├── importer.ts       # BPMN 2.0 XML → X6 Graph
-│   ├── bpmn-mapping.ts   # 图形 ↔ BPMN 标签映射表
-│   ├── bpmn-moddle.d.ts  # bpmn-moddle 类型声明
-│   └── index.ts          # 导出模块入口
-├── behaviors/
-│   ├── boundary-attach.ts # 边界事件吸附行为（snap / 约束 / resize 联动）
-│   ├── geometry.ts        # 几何工具（snapToRectEdge / boundaryPositionToPoint）
-│   └── index.ts           # 行为模块入口
-└── layout/
-    └── index.ts          # 布局（预留）
-```
-
-## API 参考
-
-### `registerBpmnShapes(options?)`
-
-注册所有 BPMN 2.0 图形。多次调用安全，图形仅注册一次。
-
-### `forceRegisterBpmnShapes(options?)`
-
-强制重新注册（适用于 HMR / 开发场景）。
-
-### `exportBpmnXml(graph, options?)`
-
-将 X6 图形导出为 BPMN 2.0 XML 字符串。返回 `Promise<string>`。
-
-### `importBpmnXml(graph, xml, options?)`
-
-将 BPMN 2.0 XML 导入到 X6 图形。返回 `Promise<void>`。
-
-### `classifyShape(shapeName)`
-
-根据图形名称返回 BPMN 元素分类（`ShapeCategory`）。
-
-### `getShapeLabel(shapeName)`
-
-获取图形的中文显示标签。
-
-### `loadBpmnFormData(cell)`
-
-从单元格加载 BPMN 表单数据。
-
-### `saveBpmnFormData(category, formData, shapeName?)`
-
-构建要持久化的 BPMN 数据对象。
-
-### `NODE_MAPPING` / `EDGE_MAPPING`
-
-图形名称到 BPMN XML 标签的映射表。
-
-### `setupBoundaryAttach(graph, options?)`
-
-安装边界事件吸附行为。返回 `dispose()` 函数用于卸载。
-
-### `attachBoundaryToHost(graph, boundary, host)`
-
-程序化将边界事件节点吸附到宿主节点（snap 位置 + 建立父子关系 + 持久化位置比例）。
-
-### `snapToRectEdge(point, rect)`
-
-计算平面点到矩形边框最近点，返回 `{ point, side, ratio, distance }`。
-
-### `boundaryPositionToPoint(pos, rect)`
-
-将 `BoundaryPosition`（`side + ratio`）还原为矩形边框上的绝对坐标。
-
-### `distanceToRectEdge(point, rect)`
-
-返回点到矩形边框的最短距离（内外均适用）。
-
-## 开发
+After changing the plugin, these are the default commands to run in the package directory:
 
 ```bash
-# 安装依赖
-npm install
-
-# 开发模式（监听变更）
-npm run dev
-
-# 构建
-npm run build
-
-# 运行测试
-npm test
-
-# 测试覆盖率
+npm run test
 npm run test:coverage
 ```
 
-### 覆盖率要求
+```bash
+npm run test
+npm run test:coverage
+```
 
-本项目强制要求 **100% 测试覆盖率**（语句、分支、函数、行），由 Vitest v8 provider 在 CI 中执行校验。
+如果修改了 `src/**` 或 `tests/**`，至少跑 `npm run test`；跨模块、规则或运行时行为变更优先跑 `npm run test:coverage`。
 
-- 新增功能必须附带覆盖所有分支的测试
-- 真正不可达的防御性代码（如 bpmn-moddle 保证永不返回空的守卫）可使用 `/* c8 ignore next N */` 注释跳过，并附上原因说明
-- 禁止用 ignore 掩盖可测试的实现缺陷；若某分支永远不可达，应优先删除该死代码，而非忽略它
+If you change `src/**` or `tests/**`, run at least `npm run test`; for cross-module, rule, or runtime behavior changes, prefer `npm run test:coverage`.
 
-## 许可
+### 7.1 主库与 Demo 的测试职责 / Test Responsibilities Between Plugin and Demo
+
+1. 主库 `packages/x6-plugin-bpmn`：负责规则、导入导出、运行时行为，以及核心结构在真实浏览器里的回归。
+2. 示例 `packages/example`：负责宿主接入后的端到端交互和 UI 事件链。
+
+1. Plugin `packages/x6-plugin-bpmn`: owns rules, import/export, runtime behaviors, and core structural regression in a real browser.
+2. Example `packages/example`: owns host integration, end-to-end interaction, and UI event chains.
+
+推荐验证顺序如下：
+
+Recommended validation order:
+
+```bash
+npm run test:coverage
+npm run test:browser
+cd ../example && npm run test:e2e
+```
+
+```bash
+npm run test:coverage
+npm run test:browser
+cd ../example && npm run test:e2e
+```
+
+`npm run test:browser` 使用 `packages/x6-plugin-bpmn/tests/browser` 下的独立 Playwright harness，补足 jsdom 不稳定的真实图实例场景。
+
+`npm run test:browser` uses the standalone Playwright harness under `packages/x6-plugin-bpmn/tests/browser` to cover real graph-instance scenarios that are hard to stabilize in jsdom.
+
+## 8. 相关文档 / Related Documents
+
+- [../../README.md](../../README.md)：工作区级别总览。
+- [../../docs/project-onboarding-guide.md](../../docs/project-onboarding-guide.md)：新人上手与源码阅读导览。
+- [../../docs/dynamic-config-architecture.md](../../docs/dynamic-config-architecture.md)：方言系统当前架构、六层模型与装配链路。
+- [../../docs/custom-extension-guide.md](../../docs/custom-extension-guide.md)：宿主如何按最小代价扩展图形、Profile 与 XML 语义。
+- [../../docs/runtime-constraints-design.md](../../docs/runtime-constraints-design.md)：当前运行时限制能力、行为边界与扩展原则。
+
+- [../../README.md](../../README.md): workspace-level overview.
+- [../../docs/project-onboarding-guide.md](../../docs/project-onboarding-guide.md): newcomer onboarding and source reading guide.
+- [../../docs/dynamic-config-architecture.md](../../docs/dynamic-config-architecture.md): the current dialect architecture, six-layer model, and assembly flow.
+- [../../docs/custom-extension-guide.md](../../docs/custom-extension-guide.md): how host apps extend shapes, profiles, and XML semantics with minimal changes.
+- [../../docs/runtime-constraints-design.md](../../docs/runtime-constraints-design.md): the current runtime guard stack, behavior boundary, and extension rules.
+
+## 9. 许可 / License
+
+MIT
 
 MIT

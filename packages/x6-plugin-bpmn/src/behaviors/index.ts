@@ -9,6 +9,18 @@ export { setupBoundaryAttach, attachBoundaryToHost } from './boundary-attach'
 export type { BoundaryAttachOptions } from './boundary-attach'
 
 export {
+  setupPoolContainment,
+  validatePoolContainment,
+  findContainingSwimlane,
+  getSwimlaneAncestor,
+  isContainedFlowNode,
+} from './pool-containment'
+export type {
+  PoolContainmentOptions,
+  PoolContainmentResult,
+} from './pool-containment'
+
+export {
   snapToRectEdge,
   boundaryPositionToPoint,
   distanceToRectEdge,

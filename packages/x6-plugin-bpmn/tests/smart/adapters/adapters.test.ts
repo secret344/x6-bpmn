@@ -55,7 +55,7 @@ describe('createSmartEngineExporterAdapter', () => {
     const adapter = mod.createSmartEngineExporterAdapter()
     const graph = createTestGraph()
     const xml = await adapter.exportXML(graph, minimalContext())
-    // smart namespace should appear only once
+    // smart 命名空间只应出现一次
     const matches = xml.match(/xmlns:smart=/g)
     expect(matches).toHaveLength(1)
     graph.dispose()
@@ -96,7 +96,7 @@ describe('createSmartEngineExporterAdapter', () => {
     })
     const graph = createTestGraph()
     const xml = await adapter.exportXML(graph, minimalContext())
-    // bpmn namespace already exists, should not be duplicated
+    // bpmn 命名空间已存在，不应重复注入
     const count = (xml.match(/xmlns:bpmn=/g) || []).length
     expect(count).toBe(1)
     graph.dispose()
@@ -115,7 +115,7 @@ describe('createSmartEngineImporterAdapter', () => {
     const mod = await import('../../../src/adapters/smartengine/importer')
     const adapter = mod.createSmartEngineImporterAdapter()
     const graph = createTestGraph()
-    // Use export to get a valid XML, then import it
+    // 先通过导出得到合法 XML，再执行导入
     const { exportBpmnXml } = await import('../../../src/export/exporter')
     graph.addNode({ shape: 'bpmn-start-event', id: 'start', x: 100, y: 100, width: 36, height: 36 })
     const xml = await exportBpmnXml(graph)
@@ -138,8 +138,8 @@ describe('createSmartEngineImporterAdapter', () => {
     const { exportBpmnXml } = await import('../../../src/export/exporter')
     const xml = await exportBpmnXml(graph)
     graph.clearCells()
-    // 不进行往返测试（可能丢失 extensionProperties），
-    // directly set up the scenario and call importXML
+    // 这里不做往返测试（可能丢失 extensionProperties），
+    // 直接构造场景并调用 importXML。
     await adapter.importXML(graph, xml, minimalContext())
     graph.dispose()
   })
@@ -159,7 +159,7 @@ describe('createSmartEngineImporterAdapter', () => {
 
   it('postProcessSmartExtensions 应正确处理 smart: 和 smart_ 前缀', async () => {
     const mod = await import('../../../src/adapters/smartengine/importer')
-    // Use clearGraph: false so existing nodes survive import
+    // 使用 clearGraph: false，确保已有节点在导入后仍保留
     const adapter = mod.createSmartEngineImporterAdapter({ clearGraph: false })
     const graph = createTestGraph()
     // 添加一个包含 smart: 前缀键的 extensionProperties 节点
@@ -181,7 +181,7 @@ describe('createSmartEngineImporterAdapter', () => {
     const node = graph.getCellById('n1') as any
     expect(node).toBeTruthy()
     const data = node.getData()
-    // smart: prefix keys should be elevated to top-level data
+    // smart: 前缀键应提升到顶层 data
     expect(data.action).toBe('approve')
     expect(data.retry).toBe('3')
     // 非 smart 前缀的键不应被提升
@@ -218,7 +218,7 @@ describe('createSmartEngineImporterAdapter', () => {
     await adapter.importXML(graph, xml, minimalContext())
     const node = graph.getCellById('n3') as any
     expect(node).toBeTruthy()
-    // someOtherField should still be there, nothing changed
+    // someOtherField 应保持不变
     expect(node.getData().someOtherField).toBe('value')
     graph.dispose()
   })

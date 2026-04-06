@@ -34,7 +34,7 @@ export function createDemoViteConfig(port: number) {
     },
     server: {
       port,
-      open: true,
+      open: process.env.PLAYWRIGHT !== 'true',
     },
   })
 }

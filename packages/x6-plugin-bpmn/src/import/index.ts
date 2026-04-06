@@ -13,6 +13,7 @@ import type { Graph } from '@antv/x6'
 import { parseBpmnXml } from './xml-parser'
 import { loadBpmnGraph } from './graph-loader'
 import type { LoadBpmnOptions } from './graph-loader'
+import type { BpmnNodeMapping, BpmnEdgeMapping } from '../export/bpmn-mapping'
 
 // 重新导出各子模块公开 API
 export { parseBpmnXml } from './xml-parser'
@@ -20,12 +21,17 @@ export { loadBpmnGraph } from './graph-loader'
 export type { LoadBpmnOptions } from './graph-loader'
 export type { BpmnImportData, BpmnNodeData, BpmnEdgeData, BpmnEdgeLabelData } from './types'
 
+export interface ImportBpmnOptions extends LoadBpmnOptions {
+  /** 使用方言序列化层覆盖默认 BPMN 映射 */
+  serialization?: {
+    nodeMapping?: Record<string, BpmnNodeMapping>
+    edgeMapping?: Record<string, BpmnEdgeMapping>
+  }
+}
+
 // ============================================================================
 // 向后兼容入口
 // ============================================================================
-
-/** importBpmnXml 配置项（与 LoadBpmnOptions 保持一致） */
-export type ImportBpmnOptions = LoadBpmnOptions
 
 /**
  * 将 BPMN 2.0 XML 导入到 X6 Graph（两步合并的便捷方法）。
@@ -45,6 +51,7 @@ export async function importBpmnXml(
   xml: string,
   options?: ImportBpmnOptions,
 ): Promise<void> {
-  const data = await parseBpmnXml(xml)
-  loadBpmnGraph(graph, data, options)
+  const data = await parseBpmnXml(xml, options)
+  const { serialization: _serialization, ...loadOptions } = options ?? {}
+  loadBpmnGraph(graph, data, loadOptions)
 }

@@ -66,14 +66,26 @@
     <a-divider direction="vertical" class="toolbar-divider" />
 
     <a-tooltip content="导出 BPMN XML" position="bottom" mini>
-      <a-button size="small" type="text" class="toolbar-btn" @click="onExportBpmn">
+      <a-button
+        size="small"
+        type="text"
+        class="toolbar-btn"
+        data-testid="export-bpmn-xml"
+        @click="onExportBpmn"
+      >
         <template #icon>
           <icon-code />
         </template>
       </a-button>
     </a-tooltip>
     <a-tooltip content="导入 BPMN XML" position="bottom" mini>
-      <a-button size="small" type="text" class="toolbar-btn" @click="onImportBpmn">
+      <a-button
+        size="small"
+        type="text"
+        class="toolbar-btn"
+        data-testid="open-import-bpmn-xml"
+        @click="onImportBpmn"
+      >
         <template #icon>
           <icon-code-block />
         </template>
@@ -110,11 +122,22 @@
         </template>
       </a-button>
     </a-tooltip>
+    <a-tooltip content="校验当前流程" position="bottom" mini>
+      <a-button size="small" type="text" class="toolbar-btn" @click="onValidateDiagram">
+        校验
+      </a-button>
+    </a-tooltip>
 
     <a-divider direction="vertical" class="toolbar-divider" />
 
     <a-tooltip content="加载示例流程" position="bottom" mini>
-      <a-button size="small" type="text" class="toolbar-btn" @click="onLoadSampleProcess">
+      <a-button
+        size="small"
+        type="text"
+        class="toolbar-btn"
+        data-testid="load-sample-process"
+        @click="onLoadSampleProcess"
+      >
         <template #icon>
           <icon-refresh />
         </template>
@@ -124,6 +147,7 @@
 
   <BpmnPreviewModal ref="bpmnPreviewRef" />
   <BpmnEditorModal ref="bpmnEditorRef" :graph="graph" />
+  <DiagramValidationModal ref="diagramValidationRef" :graph="graph" />
 
   <a-modal
     v-model:visible="xmlModalVisible"
@@ -134,6 +158,7 @@
   >
     <a-textarea
       v-model="xmlModalContent"
+      data-testid="bpmn-xml-textarea"
       :auto-size="{ minRows: 10, maxRows: 28 }"
       :readonly="xmlModalReadonly"
       :placeholder="xmlModalReadonly ? '' : '请粘贴 BPMN XML 内容...'"
@@ -141,7 +166,15 @@
     />
     <div style="margin-top: 12px; text-align: right">
       <a-button v-if="xmlModalReadonly" type="primary" size="small" @click="onCopyXml">复制内容</a-button>
-      <a-button v-else type="primary" size="small" @click="onConfirmImportBpmn">导入</a-button>
+      <a-button
+        v-else
+        type="primary"
+        size="small"
+        data-testid="confirm-import-bpmn-xml"
+        @click="onConfirmImportBpmn"
+      >
+        导入
+      </a-button>
     </div>
   </a-modal>
 </template>
@@ -169,6 +202,7 @@ import {
 } from '@arco-design/web-vue/es/icon'
 import BpmnPreviewModal from './BpmnPreviewModal.vue'
 import BpmnEditorModal from './BpmnEditorModal.vue'
+import DiagramValidationModal from './DiagramValidationModal.vue'
 import { exportBpmnXml, importBpmnXml } from '@x6-bpmn2/plugin'
 import { createSampleProcess } from '../sample-process'
 import { SAMPLE_BPMN_XML } from '../sample-bpmn-xml'
@@ -179,6 +213,7 @@ const props = defineProps<{
 
 const bpmnPreviewRef = ref<InstanceType<typeof BpmnPreviewModal>>()
 const bpmnEditorRef = ref<InstanceType<typeof BpmnEditorModal>>()
+const diagramValidationRef = ref<InstanceType<typeof DiagramValidationModal>>()
 
 const xmlModalVisible = ref(false)
 const xmlModalTitle = ref('')
@@ -323,6 +358,10 @@ async function onConfirmImportBpmn() {
 
 function onBpmnEditor() {
   bpmnEditorRef.value?.open()
+}
+
+function onValidateDiagram() {
+  diagramValidationRef.value?.open()
 }
 
 async function onBpmnPreview() {

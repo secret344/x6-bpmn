@@ -20,6 +20,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
+    "test:browser": "npm run build && ../../node_modules/.bin/playwright test -c playwright.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },

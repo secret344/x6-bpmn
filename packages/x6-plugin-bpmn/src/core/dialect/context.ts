@@ -27,6 +27,7 @@ export function createProfileContext(resolved: ResolvedProfile): ProfileContext 
 
 /** WeakMap 存储 graph 实例与 ProfileContext 的绑定关系 */
 const graphContextMap = new WeakMap<Graph, ProfileContext>()
+const graphCleanupMap = new WeakMap<Graph, Array<() => void>>()
 
 /**
  * 将 ProfileContext 绑定到 Graph 实例。
@@ -79,8 +80,30 @@ export function getProfileContext(graph: Graph): ProfileContext | undefined {
 }
 
 /**
+ * 为 Graph 的 profile 绑定注册清理逻辑。
+ * 在 unbindProfile() 时会自动执行。
+ */
+export function registerProfileCleanup(graph: Graph, cleanup: () => void): void {
+  const cleanups = graphCleanupMap.get(graph) ?? []
+  cleanups.push(cleanup)
+  graphCleanupMap.set(graph, cleanups)
+}
+
+/**
  * 解除 Graph 实例的 ProfileContext 绑定。
  */
 export function unbindProfile(graph: Graph): void {
+  const cleanups = graphCleanupMap.get(graph)
+  if (cleanups) {
+    for (let index = cleanups.length - 1; index >= 0; index -= 1) {
+      try {
+        cleanups[index]()
+      } catch {
+        // 清理逻辑为防御性执行，失败时静默忽略。
+      }
+    }
+    graphCleanupMap.delete(graph)
+  }
+
   graphContextMap.delete(graph)
 }

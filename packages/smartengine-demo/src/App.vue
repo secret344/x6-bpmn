@@ -66,7 +66,7 @@
                   :key="item.shape"
                   class="shape-item"
                   :class="{ disabled: item.status === 'disabled' }"
-                  draggable="true"
+                  :draggable="item.status !== 'disabled'"
                   :title="item.title"
                   @dragstart="onDrag($event, item.shape)"
                 >
@@ -235,7 +235,30 @@ const shapeGroups = computed(() => {
 })
 
 function onDrag(e: DragEvent, shape: string) {
+  const item = shapeGroups.value.flatMap((group) => group.items).find((entry) => entry.shape === shape)
+  if (!item || item.status === 'disabled') {
+    e.preventDefault()
+    return
+  }
+
+  const size =
+    shape === 'bpmn-pool'
+      ? { width: 400, height: 200 }
+      : shape === 'bpmn-lane'
+        ? { width: 370, height: 100 }
+        : shape === 'bpmn-group'
+          ? { width: 160, height: 100 }
+          : {}
+
+  e.dataTransfer?.setData('application/bpmn-shape', JSON.stringify({
+    shape,
+    label: item.title,
+    ...size,
+  }))
   e.dataTransfer?.setData('bpmn/shape', shape)
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'copy'
+  }
 }
 
 function getShapeIcon(shape: string): string {

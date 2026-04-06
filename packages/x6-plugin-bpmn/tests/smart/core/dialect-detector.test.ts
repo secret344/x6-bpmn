@@ -9,29 +9,65 @@ import {
   smartEngineNamespaceRule,
   createDialectDetector,
 } from '../../../src/core/dialect/detector'
+import { buildTestXml, replaceXmlOrThrow } from '../../helpers/xml-test-utils'
+
+const baseXmlPromise = buildTestXml({
+  processes: [{ id: 'Process_1', isExecutable: true, elements: [] }],
+})
+
+async function buildDefinitionsXml(
+  attributes = '',
+  body = '',
+): Promise<string> {
+  const xml = await baseXmlPromise
+  const xmlWithAttributes = attributes
+    ? replaceXmlOrThrow(
+        xml,
+        /(<(?:bpmn:)?definitions\b)/,
+        `$1${attributes}`,
+        '未找到 definitions 根标签，无法注入命名空间属性',
+      )
+    : xml
+
+  if (!body) {
+    return xmlWithAttributes
+  }
+
+  return replaceXmlOrThrow(
+    xmlWithAttributes,
+    /(<\/(?:bpmn:)?definitions>)/,
+    `${body}$1`,
+    '未找到 definitions 结束标签，无法注入测试片段',
+  )
+}
 
 // ============================================================================
 // smartEngineNamespaceRule
 // ============================================================================
 
 describe('smartEngineNamespaceRule', () => {
-  it('包含 xmlns:smart= 应检测为 smartengine-base', () => {
-    const xml = '<definitions xmlns:smart="http://smartengine.io"></definitions>'
+  it('包含 xmlns:smart= 应检测为 smartengine-base', async () => {
+    const xml = await buildDefinitionsXml(' xmlns:smart="http://smartengine.io"')
     expect(smartEngineNamespaceRule.test(xml)).toBe('smartengine-base')
   })
 
-  it('包含 smart: 前缀应检测为 smartengine-base', () => {
-    const xml = '<definitions><smart:action>test</smart:action></definitions>'
+  it('包含 smart: 前缀应检测为 smartengine-base', async () => {
+    const xml = await buildDefinitionsXml(
+      ' xmlns:smart="http://smartengine.io"',
+      '<smart:action>test</smart:action>',
+    )
     expect(smartEngineNamespaceRule.test(xml)).toBe('smartengine-base')
   })
 
-  it('包含 smartengine 关键词应检测为 smartengine-base', () => {
-    const xml = '<definitions xmlns="http://smartengine.alibaba.com/schema"></definitions>'
+  it('包含 smartengine 关键词应检测为 smartengine-base', async () => {
+    const xml = await buildDefinitionsXml(
+      ' xmlns:smart="http://smartengine.alibaba.com/schema"',
+    )
     expect(smartEngineNamespaceRule.test(xml)).toBe('smartengine-base')
   })
 
-  it('标准 BPMN XML 不应匹配', () => {
-    const xml = '<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"></definitions>'
+  it('标准 BPMN XML 不应匹配', async () => {
+    const xml = await buildDefinitionsXml()
     expect(smartEngineNamespaceRule.test(xml)).toBeNull()
   })
 })
@@ -41,10 +77,12 @@ describe('smartEngineNamespaceRule', () => {
 // ============================================================================
 
 describe('createDialectDetector', () => {
-  it('应创建内含 smartEngine 规则的检测器', () => {
+  it('应创建内含 smartEngine 规则的检测器', async () => {
     const detector = createDialectDetector()
-    expect(detector.detect('<definitions xmlns:smart="http://smartengine.io">')).toBe('smartengine-base')
-    expect(detector.detect('<definitions xmlns="http://bpmn.io">')).toBe('bpmn2')
+    const smartXml = await buildDefinitionsXml(' xmlns:smart="http://smartengine.io"')
+    const bpmnXml = await buildDefinitionsXml()
+    expect(detector.detect(smartXml)).toBe('smartengine-base')
+    expect(detector.detect(bpmnXml)).toBe('bpmn2')
   })
 })
 
@@ -57,8 +95,11 @@ describe('smartEngineNamespaceRule — 边界场景', () => {
     expect(smartEngineNamespaceRule.test('')).toBeNull()
   })
 
-  it('仅包含 smart 单词但不匹配模式不应检测', () => {
-    const xml = '<definitions><description>This is a smart solution</description></definitions>'
+  it('仅包含 smart 单词但不匹配模式不应检测', async () => {
+    const xml = await buildDefinitionsXml(
+      '',
+      '<bpmn:documentation>This is a smart solution</bpmn:documentation>',
+    )
     const result = smartEngineNamespaceRule.test(xml)
     expect(result === 'smartengine-base' || result === null).toBe(true)
   })
