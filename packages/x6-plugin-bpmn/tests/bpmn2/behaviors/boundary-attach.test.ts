@@ -985,7 +985,7 @@ describe('setupBoundaryAttach — 防御性分支', () => {
 // ============================================================================
 
 describe('defaultIsValidHostForBoundary', () => {
-  it('取消边界事件只能附着到 Transaction（BPMN 规范 §13.2.2）', () => {
+  it('取消边界事件只能附着到 Transaction（formal-11-01-03 Cancel Event）', () => {
     expect(defaultIsValidHostForBoundary('bpmn-transaction', 'bpmn-boundary-event-cancel')).toBe(true)
     expect(defaultIsValidHostForBoundary('bpmn-user-task', 'bpmn-boundary-event-cancel')).toBe(false)
     expect(defaultIsValidHostForBoundary('bpmn-sub-process', 'bpmn-boundary-event-cancel')).toBe(false)
@@ -998,7 +998,7 @@ describe('defaultIsValidHostForBoundary', () => {
     expect(defaultIsValidHostForBoundary('bpmn-transaction', 'bpmn-boundary-event-message')).toBe(true)
   })
 
-  it('事件子流程不能附着边界事件（formal-11-01-03 §13.4.4）', () => {
+  it('当前实现中，事件子流程不作为边界事件宿主', () => {
     expect(defaultIsValidHostForBoundary(BPMN_EVENT_SUB_PROCESS, 'bpmn-boundary-event-timer')).toBe(false)
   })
 
