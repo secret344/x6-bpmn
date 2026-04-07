@@ -1,0 +1,7 @@
+packages:
+  - packages/demo-vite-config
+  - packages/x6-plugin-bpmn
+  - packages/example
+  - packages/approval-flow
+  - packages/dialect-demo
+  - packages/smartengine-demo

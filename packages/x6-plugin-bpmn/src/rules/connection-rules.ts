@@ -250,9 +250,9 @@ export interface BpmnConnectionContext {
   /** 目标节点当前已有的顺序流系列入线数量（可选，用于语义约束） */
   targetIncomingSequenceFlowCount?: number
   /** 源节点持久化数据（通常来自 node.getData()） */
-  sourceData?: Record<string, any>
+  sourceData?: Record<string, unknown>
   /** 目标节点持久化数据（通常来自 node.getData()） */
-  targetData?: Record<string, any>
+  targetData?: Record<string, unknown>
   /**
    * 源节点所在 Pool 的唯一标识（可选）。
    * 提供后将在顺序流 / 消息流验证时检查池边界约束。

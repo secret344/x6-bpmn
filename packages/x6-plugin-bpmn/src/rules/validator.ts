@@ -13,7 +13,7 @@
  * 6. 检查出线/入线数量是否超限
  */
 
-import type { Cell, Edge, Node } from '@antv/x6'
+import type { Cell, CellView, Edge, Graph, Node } from '@antv/x6'
 import {
   getNodeCategory,
   DEFAULT_CONNECTION_RULES,
@@ -62,6 +62,14 @@ export interface X6ValidateEdgeArgs {
   edge?: Edge | null
   type?: string | null
   previous?: unknown
+}
+
+type JsonRecord = Record<string, unknown>
+type EdgeShapeReadable = Edge & { getShape?: () => string }
+type GraphLike = Pick<Graph, 'getCellById' | 'getConnectedEdges'>
+type CellWithGraphRef = {
+  model?: { graph?: GraphLike | null } | null
+  graph?: GraphLike | null
 }
 
 // ============================================================================
@@ -147,17 +155,17 @@ function matchesConstraintRequirement(
 }
 
 function matchesDataConditions(
-  data: Record<string, any> | undefined,
+  data: JsonRecord | undefined,
   conditions: BpmnConnectionDataCondition[],
 ): boolean {
   return conditions.every((condition) => readValueByPath(data, condition.path) === condition.equals)
 }
 
-function readValueByPath(data: Record<string, any> | undefined, path: string): unknown {
+function readValueByPath(data: JsonRecord | undefined, path: string): unknown {
   if (!data || typeof data !== 'object') return undefined
   return path.split('.').reduce<unknown>((currentValue, segment) => {
     if (!currentValue || typeof currentValue !== 'object') return undefined
-    return (currentValue as Record<string, unknown>)[segment]
+    return (currentValue as JsonRecord)[segment]
   }, data)
 }
 
@@ -376,8 +384,8 @@ export function validatePoolBoundary(
  */
 export interface X6ValidateConnectionArgs {
   edge?: Edge | null
-  sourceView?: any | null
-  targetView?: any | null
+  sourceView?: CellView | null
+  targetView?: CellView | null
   sourcePort?: string | null
   targetPort?: string | null
   sourceMagnet?: Element | null
@@ -568,15 +576,17 @@ function validateRuntimeEdge(
 }
 
 function resolveEdgeShape(edge: Edge | null | undefined, edgeShapeGetter: () => string): string {
-  const shape = typeof (edge as any)?.getShape === 'function'
-    ? (edge as any).getShape()
+  const shapeReader = edge as EdgeShapeReadable | null | undefined
+  const shape = typeof shapeReader?.getShape === 'function'
+    ? shapeReader.getShape()
     : edge?.shape
 
   return typeof shape === 'string' && shape.length > 0 ? shape : edgeShapeGetter()
 }
 
-function getGraphFromCell(cell: Node | Edge): any {
-  return cell.model?.graph ?? (cell as any).graph
+function getGraphFromCell(cell: Node | Edge): GraphLike | null | undefined {
+  const graphRef = cell as Node | Edge | CellWithGraphRef
+  return graphRef.model?.graph ?? graphRef.graph
 }
 
 function isSameEdge(edge: Edge, currentEdge?: Edge | null): boolean {
@@ -619,10 +629,10 @@ function countSequenceFlowEdges(node: Node, direction: 'outgoing' | 'incoming', 
 /**
  * 读取节点持久化数据。
  */
-function readNodeData(node: Node): Record<string, any> | undefined {
+function readNodeData(node: Node): JsonRecord | undefined {
   try {
     const data = node.getData()
-    if (data && typeof data === 'object') return data as Record<string, any>
+    if (data && typeof data === 'object') return data as JsonRecord
   } catch {
     return undefined
   }
@@ -652,9 +662,9 @@ function reportValidationException(
  */
 function findPoolId(node: Node): string | undefined {
   const BPMN_POOL_SHAPE = 'bpmn-pool'
-  let current: any = node.getParent()
+  let current: Cell | null = node.getParent()
   while (current) {
-    if (current.shape === BPMN_POOL_SHAPE) return current.id as string
+    if (current.shape === BPMN_POOL_SHAPE) return current.id
     current = current.getParent()
   }
   return undefined

@@ -168,18 +168,18 @@ manager.bind(graph, 'bpmn2')
 After changing the plugin, these are the default commands to run in the package directory:
 
 ```bash
-npm run test
-npm run test:coverage
+pnpm run test
+pnpm run test:coverage
 ```
 
 ```bash
-npm run test
-npm run test:coverage
+pnpm run test
+pnpm run test:coverage
 ```
 
-如果修改了 `src/**` 或 `tests/**`，至少跑 `npm run test`；跨模块、规则或运行时行为变更优先跑 `npm run test:coverage`。
+如果修改了 `src/**` 或 `tests/**`，至少跑 `pnpm run test`；跨模块、规则或运行时行为变更优先跑 `pnpm run test:coverage`。
 
-If you change `src/**` or `tests/**`, run at least `npm run test`; for cross-module, rule, or runtime behavior changes, prefer `npm run test:coverage`.
+If you change `src/**` or `tests/**`, run at least `pnpm run test`; for cross-module, rule, or runtime behavior changes, prefer `pnpm run test:coverage`.
 
 ### 7.1 主库与 Demo 的测试职责 / Test Responsibilities Between Plugin and Demo
 
@@ -194,32 +194,28 @@ If you change `src/**` or `tests/**`, run at least `npm run test`; for cross-mod
 Recommended validation order:
 
 ```bash
-npm run test:coverage
-npm run test:browser
+pnpm run test:coverage
+pnpm run test:browser
 ```
 
 ```bash
-npm run test:coverage
-npm run test:browser
+pnpm run test:coverage
+pnpm run test:browser
 ```
 
-`npm run test:browser` 使用 `packages/x6-plugin-bpmn/tests/browser` 下的独立 Playwright harness，补足 jsdom 不稳定的真实图实例场景。
+`pnpm run test:browser` 使用 `packages/x6-plugin-bpmn/tests/browser` 下的独立 Playwright harness，补足 jsdom 不稳定的真实图实例场景。
 
-`npm run test:browser` uses the standalone Playwright harness under `packages/x6-plugin-bpmn/tests/browser` to cover real graph-instance scenarios that are hard to stabilize in jsdom.
+`pnpm run test:browser` uses the standalone Playwright harness under `packages/x6-plugin-bpmn/tests/browser` to cover real graph-instance scenarios that are hard to stabilize in jsdom.
 
 ## 8. 相关文档 / Related Documents
 
 - [../../README.md](../../README.md)：工作区级别总览。
 - [../../docs/project-onboarding-guide.md](../../docs/project-onboarding-guide.md)：新人上手与源码阅读导览。
-- [../../docs/dynamic-config-architecture.md](../../docs/dynamic-config-architecture.md)：方言系统当前架构、六层模型与装配链路。
 - [../../docs/custom-extension-guide.md](../../docs/custom-extension-guide.md)：宿主如何按最小代价扩展图形、Profile 与 XML 语义。
-- [../../docs/runtime-constraints-design.md](../../docs/runtime-constraints-design.md)：当前运行时限制能力、行为边界与扩展原则。
 
 - [../../README.md](../../README.md): workspace-level overview.
 - [../../docs/project-onboarding-guide.md](../../docs/project-onboarding-guide.md): newcomer onboarding and source reading guide.
-- [../../docs/dynamic-config-architecture.md](../../docs/dynamic-config-architecture.md): the current dialect architecture, six-layer model, and assembly flow.
 - [../../docs/custom-extension-guide.md](../../docs/custom-extension-guide.md): how host apps extend shapes, profiles, and XML semantics with minimal changes.
-- [../../docs/runtime-constraints-design.md](../../docs/runtime-constraints-design.md): the current runtime guard stack, behavior boundary, and extension rules.
 
 ## 9. 许可 / License
 

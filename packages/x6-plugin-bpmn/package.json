@@ -20,7 +20,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "test:browser": "npm run build && ../../node_modules/.bin/playwright test -c playwright.config.ts",
+    "test:browser": "pnpm run build && pnpm exec playwright test -c playwright.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
@@ -31,7 +31,7 @@
     "@antv/x6": "^3.1.7",
     "@antv/x6-plugin-selection": "^3.0.0",
     "@antv/x6-plugin-transform": "^3.0.0",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "4.1.2",
     "jsdom": "^29.0.1",
     "tsup": "^8.5.1",
     "typescript": "^6.0.2",

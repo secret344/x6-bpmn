@@ -129,8 +129,8 @@ Plugin tests live under `packages/x6-plugin-bpmn/tests` and mostly mirror `src`.
 Recommended validation order:
 
 ```bash
-cd packages/x6-plugin-bpmn && npm run test:browser
-cd packages/x6-plugin-bpmn && npm run test:coverage
+pnpm --filter @x6-bpmn2/plugin test:browser
+pnpm --filter @x6-bpmn2/plugin test:coverage
 ```
 
 如果只改了局部逻辑，至少运行主库测试；涉及规则、导入导出或运行时行为时，按上面的顺序做完整验证。示例项目不再保留独立自动化测试入口。
@@ -141,12 +141,8 @@ If you only change a small isolated path, run the plugin tests at minimum. For r
 
 - [../README.md](../README.md)：工作区总览。
 - [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md)：主库 API 与模块说明。
-- [dynamic-config-architecture.md](dynamic-config-architecture.md)：方言系统当前架构、六层模型与装配链路。
 - [custom-extension-guide.md](custom-extension-guide.md)：宿主如何按最小代价扩展标准图形、Profile 与 XML 语义。
-- [runtime-constraints-design.md](runtime-constraints-design.md)：当前运行时限制能力、行为模块边界与扩展原则。
 
 - [../README.md](../README.md): workspace overview.
 - [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md): main library API and module guide.
-- [dynamic-config-architecture.md](dynamic-config-architecture.md): the current dialect architecture, six-layer model, and assembly flow.
 - [custom-extension-guide.md](custom-extension-guide.md): how host apps extend standard shapes, profiles, and XML semantics with minimal changes.
-- [runtime-constraints-design.md](runtime-constraints-design.md): the current runtime guard stack, behavior boundaries, and extension rules.

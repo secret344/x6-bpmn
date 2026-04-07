@@ -11,12 +11,13 @@
     "@antv/x6": "^3.1.7",
     "@antv/x6-vue-shape": "^3.0.2",
     "@arco-design/web-vue": "^2.57.0",
-    "@x6-bpmn2/plugin": "1.0.0",
+    "@x6-bpmn2/plugin": "workspace:*",
     "bpmn-js": "^18.14.0",
     "tslib": "^2.8.1",
     "vue": "^3.5.32"
   },
   "devDependencies": {
+    "@x6-bpmn2/demo-vite-config": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.5",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",

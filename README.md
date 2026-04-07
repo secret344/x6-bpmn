@@ -1,8 +1,8 @@
 # x6-bpmn2
 
-一个面向 BPMN 2.0 与流程方言扩展的 X6 工作区：既包含可发布的主库，也包含几个用于验证设计和交互的示例应用。
+一个面向 BPMN 2.0 与流程方言扩展的 X6 工作区：既包含可发布的主库，也包含几个用于集成验证和使用示例的示例应用。
 
-An X6 workspace for BPMN 2.0 and process-dialect extensions. It contains the publishable core plugin as well as several demo applications used to validate architecture and interaction design.
+An X6 workspace for BPMN 2.0 and process-dialect extensions. It contains the publishable core plugin as well as several demo applications for integration verification and usage examples.
 
 ## 1. 仓库定位 / Repository Purpose
 
@@ -51,7 +51,7 @@ If this is your first time in the repository, read in this order:
 | `packages/dialect-demo` | 方言系统示例 | 想看 `DialectManager`、`Profile`、`bind()` 的宿主用法时看这里 |
 | `packages/smartengine-demo` | SmartEngine 相关示例 | 想看 BPMN2 基础能力如何被业务方言扩展时看这里 |
 | `packages/approval-flow` | 业务风格示例 | 想看更贴近业务编辑器的画布表达时看这里 |
-| `docs` | 架构说明与专题文档 | 需要理解设计取舍、扩展方式、运行时约束时看这里 |
+| `docs` | 上手与扩展文档 | 需要了解仓库结构、接入方式和扩展路径时看这里 |
 | `packages/bpmn2-spec` | BPMN 2.0 官方规范与中文辅助材料 | 修改规范性约束前必须查这里 |
 | `packages/bpmn-moddle` | BPMN XML/moddle 参考实现 | 查 XML 解析、序列化语义时看这里 |
 | `packages/bpmn-js` | 社区 BPMN 设计器参考实现 | 对照建模器交互、社区实现时看这里 |
@@ -63,7 +63,7 @@ If this is your first time in the repository, read in this order:
 | `packages/dialect-demo` | Dialect-system demo | Read when you want to see `DialectManager`, `Profile`, and `bind()` in a host app |
 | `packages/smartengine-demo` | SmartEngine-related demo | Read when you want to see BPMN2 capabilities extended into a business dialect |
 | `packages/approval-flow` | Business-flavored demo | Read when you want a more domain-oriented editor example |
-| `docs` | Architecture and topic-specific documents | Read when you need design rationale, extension guidance, or runtime constraint details |
+| `docs` | Onboarding and extension documents | Read when you need repository structure, integration guidance, or extension paths |
 | `packages/bpmn2-spec` | BPMN 2.0 official specification and Chinese reference material | Mandatory before changing specification-driven constraints |
 | `packages/bpmn-moddle` | BPMN XML/moddle reference implementation | Read when checking XML parsing or serialization behavior |
 | `packages/bpmn-js` | Community BPMN modeler reference implementation | Read when comparing editor interactions and community behavior |
@@ -92,44 +92,44 @@ Detailed entry points for these flows are collected in [docs/project-onboarding-
 
 ```bash
 # 根目录安装依赖
-npm install
+pnpm install
 
 # 启动标准示例
-npm run dev
+pnpm run dev
 
 # 启动其它示例
-npm run dev:approval
-npm run dev:dialect
-npm run dev:smartengine
+pnpm run dev:approval
+pnpm run dev:dialect
+pnpm run dev:smartengine
 
 # 构建
-npm run build:plugin
-npm run build
+pnpm run build:plugin
+pnpm run build
 
 # 主库测试
-npm run test
-npm run test:coverage
+pnpm run test
+pnpm run test:coverage
 ```
 
 ```bash
 # Install dependencies at repo root
-npm install
+pnpm install
 
 # Start the baseline demo
-npm run dev
+pnpm run dev
 
 # Start other demos
-npm run dev:approval
-npm run dev:dialect
-npm run dev:smartengine
+pnpm run dev:approval
+pnpm run dev:dialect
+pnpm run dev:smartengine
 
 # Build
-npm run build:plugin
-npm run build
+pnpm run build:plugin
+pnpm run build
 
 # Plugin tests
-npm run test
-npm run test:coverage
+pnpm run test
+pnpm run test:coverage
 ```
 
 ## 6. 目录结构 / Directory Layout
@@ -147,9 +147,7 @@ x6-bpmn2/
 │   └── bpmn-js/           # 只读建模器参照
 ├── docs/
 │   ├── project-onboarding-guide.md
-│   ├── custom-extension-guide.md
-│   ├── dynamic-config-architecture.md
-│   └── runtime-constraints-design.md
+│   └── custom-extension-guide.md
 ├── package.json
 └── AGENTS.md
 ```
@@ -167,9 +165,7 @@ x6-bpmn2/
 │   └── bpmn-js/           # read-only modeler reference
 ├── docs/
 │   ├── project-onboarding-guide.md
-│   ├── custom-extension-guide.md
-│   ├── dynamic-config-architecture.md
-│   └── runtime-constraints-design.md
+│   └── custom-extension-guide.md
 ├── package.json
 └── AGENTS.md
 ```
@@ -196,15 +192,11 @@ These submodules are read-only in the current workspace. If you discover an issu
 
 - [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md)：新人快速理解整体结构、改动入口与阅读顺序。
 - [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md)：主库公开 API、模块职责与代码阅读建议。
-- [docs/dynamic-config-architecture.md](docs/dynamic-config-architecture.md)：方言系统当前架构、六层模型与 graph 绑定链路。
 - [docs/custom-extension-guide.md](docs/custom-extension-guide.md)：宿主如何按最小代价扩展图形、Profile 与 XML 语义。
-- [docs/runtime-constraints-design.md](docs/runtime-constraints-design.md)：当前运行时限制能力、行为边界与后续演进原则。
 
 - [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md): the fastest way for a newcomer to understand the whole structure, change entry points, and reading order.
 - [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md): public API, module responsibilities, and code reading advice for the main library.
-- [docs/dynamic-config-architecture.md](docs/dynamic-config-architecture.md): the current dialect architecture, six-layer model, and graph-binding flow.
 - [docs/custom-extension-guide.md](docs/custom-extension-guide.md): how a host extends shapes, profiles, and XML semantics with the smallest viable change.
-- [docs/runtime-constraints-design.md](docs/runtime-constraints-design.md): the current runtime guard stack, behavior boundary, and future extension rules.
 
 ## 9. 许可 / License
 

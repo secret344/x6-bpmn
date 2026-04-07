@@ -23,6 +23,8 @@ import {
   createBpmnValidateEdge,
   createBpmnValidateEdgeWithResult,
   type BpmnConnectionContext,
+  type X6ValidateConnectionArgs,
+  type X6ValidateEdgeArgs,
 } from '../../../src/rules/validator'
 import {
   BPMN_START_EVENT, BPMN_START_EVENT_MESSAGE, BPMN_START_EVENT_TIMER,
@@ -66,6 +68,115 @@ import {
   BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
   BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
 } from '../../../src/utils/constants'
+
+type TestParentCell = {
+  id: string
+  shape: string
+  getParent: () => TestParentCell | null
+}
+
+type TestEdge = {
+  id: string
+  shape?: string
+  model?: { graph: TestGraph } | null
+  getSourceCellId?: () => string
+  getTargetCellId?: () => string
+  getShape?: () => string
+}
+
+type TestNode = TestParentCell & {
+  model: { graph: TestGraph } | null
+  getData: () => unknown
+}
+
+type TestGraph = {
+  getCellById?: (id: string) => TestNode | null
+  getConnectedEdges?: (
+    node: TestNode,
+    opts: { outgoing?: boolean; incoming?: boolean },
+  ) => TestEdge[]
+}
+
+type TestNodeOptions = {
+  graph?: TestGraph
+  data?: unknown
+  getData?: () => unknown
+  parent?: TestParentCell | null
+}
+
+type TestConnectionArgs = Omit<X6ValidateConnectionArgs, 'sourceCell' | 'targetCell' | 'edge'> & {
+  sourceCell?: TestNode | null
+  targetCell?: TestNode | null
+  edge?: TestEdge | null
+}
+
+type TestEdgeArgs = Omit<X6ValidateEdgeArgs, 'edge'> & {
+  edge?: TestEdge | null
+}
+
+function mockNode(id: string, shape: string, options: TestNodeOptions = {}): TestNode {
+  const { graph, data, getData, parent = null } = options
+  return {
+    id,
+    shape,
+    model: graph ? { graph } : null,
+    getParent: () => parent,
+    getData: getData ?? (() => data ?? {}),
+  }
+}
+
+function createGraph(
+  sourceNode: TestNode,
+  targetNode: TestNode,
+  connectedEdges?: { outgoing?: TestEdge[]; incoming?: TestEdge[] },
+): TestGraph {
+  const nodeMap = new Map([
+    [sourceNode.id, sourceNode],
+    [targetNode.id, targetNode],
+  ])
+
+  return {
+    getCellById: (id: string) => nodeMap.get(id) ?? null,
+    getConnectedEdges: (node, opts) => {
+      if (node.id === sourceNode.id && opts.outgoing) return connectedEdges?.outgoing ?? []
+      if (node.id === targetNode.id && opts.incoming) return connectedEdges?.incoming ?? []
+      return []
+    },
+  }
+}
+
+function mockEdge(overrides: Partial<TestEdge> = {}): TestEdge {
+  return {
+    id: 'edge-1',
+    getSourceCellId: () => 'source',
+    getTargetCellId: () => 'target',
+    ...overrides,
+  }
+}
+
+function graphWithMissingNode(): TestGraph {
+  return {
+    getCellById: () => null,
+  }
+}
+
+function connectionArgs(args: TestConnectionArgs): X6ValidateConnectionArgs {
+  const { sourceCell, targetCell, edge, ...rest } = args
+  return {
+    ...rest,
+    sourceCell: sourceCell as unknown as X6ValidateConnectionArgs['sourceCell'],
+    targetCell: targetCell as unknown as X6ValidateConnectionArgs['targetCell'],
+    edge: edge as unknown as X6ValidateConnectionArgs['edge'],
+  }
+}
+
+function edgeArgs(args: TestEdgeArgs): X6ValidateEdgeArgs {
+  const { edge, ...rest } = args
+  return {
+    ...rest,
+    edge: edge as unknown as X6ValidateEdgeArgs['edge'],
+  }
+}
 
 // ============================================================================
 // getNodeCategory 测试
@@ -800,77 +911,73 @@ describe('validateBpmnConnection', () => {
 // ============================================================================
 
 describe('createBpmnValidateConnection', () => {
-  function mockNode(id: string, shape: string, graph?: any) {
-    return { id, shape, model: graph ? { graph } : null, getParent: () => null } as any
-  }
-
   it('目标无磁吸点时应返回 false', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({ targetMagnet: null, sourceCell: mockNode('1', BPMN_USER_TASK), targetCell: mockNode('2', BPMN_SERVICE_TASK) })).toBe(false)
+    expect(validate(connectionArgs({ targetMagnet: null, sourceCell: mockNode('1', BPMN_USER_TASK), targetCell: mockNode('2', BPMN_SERVICE_TASK) }))).toBe(false)
   })
 
   it('源节点为空时应返回 false', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({ targetMagnet: document.createElement('div'), sourceCell: null, targetCell: mockNode('2', BPMN_SERVICE_TASK) })).toBe(false)
+    expect(validate(connectionArgs({ targetMagnet: document.createElement('div'), sourceCell: null, targetCell: mockNode('2', BPMN_SERVICE_TASK) }))).toBe(false)
   })
 
   it('目标节点为空时应返回 false', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({ targetMagnet: document.createElement('div'), sourceCell: mockNode('1', BPMN_USER_TASK), targetCell: null })).toBe(false)
+    expect(validate(connectionArgs({ targetMagnet: document.createElement('div'), sourceCell: mockNode('1', BPMN_USER_TASK), targetCell: null }))).toBe(false)
   })
 
   it('自连接应返回 false', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
     const node = mockNode('same', BPMN_USER_TASK)
-    expect(validate({ targetMagnet: document.createElement('div'), sourceCell: node, targetCell: node })).toBe(false)
+    expect(validate(connectionArgs({ targetMagnet: document.createElement('div'), sourceCell: node, targetCell: node }))).toBe(false)
   })
 
   it('合法连线应返回 true', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNode('1', BPMN_USER_TASK),
       targetCell: mockNode('2', BPMN_SERVICE_TASK),
-    })).toBe(true)
+    }))).toBe(true)
   })
 
   it('结束事件作为源应返回 false (noOutgoing)', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNode('1', BPMN_END_EVENT),
       targetCell: mockNode('2', BPMN_USER_TASK),
-    })).toBe(false)
+    }))).toBe(false)
   })
 
   it('带 graph 的节点应能计算出入线数量', () => {
-    const graph = {
-      getConnectedEdges: (_node: any, opts: any) => {
-        if (opts.outgoing) return [1, 2, 3]
-        if (opts.incoming) return [1]
+    const graph: TestGraph = {
+      getConnectedEdges: (_node, opts) => {
+        if (opts.outgoing) return [{ id: 'out-1' }, { id: 'out-2' }, { id: 'out-3' }]
+        if (opts.incoming) return [{ id: 'in-1' }]
         return []
       },
     }
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW, {
       customRules: { task: { maxOutgoing: 3 } },
     })
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
-      sourceCell: mockNode('1', BPMN_USER_TASK, graph),
-      targetCell: mockNode('2', BPMN_SERVICE_TASK, graph),
-    })).toBe(false)
+      sourceCell: mockNode('1', BPMN_USER_TASK, { graph }),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK, { graph }),
+    }))).toBe(false)
   })
 
   it('graph.getConnectedEdges 抛异常时应返回 0 并正常验证', () => {
-    const graph = {
+    const graph: TestGraph = {
       getConnectedEdges: () => { throw new Error('mock error') },
     }
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
-      sourceCell: mockNode('1', BPMN_USER_TASK, graph),
-      targetCell: mockNode('2', BPMN_SERVICE_TASK, graph),
-    })).toBe(true)
+      sourceCell: mockNode('1', BPMN_USER_TASK, { graph }),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK, { graph }),
+    }))).toBe(true)
   })
 
   it('node.model 为空时 count 应为 0', () => {
@@ -878,38 +985,38 @@ describe('createBpmnValidateConnection', () => {
       customRules: { task: { maxOutgoing: 1 } },
     })
     // 无 graph，count = 0，maxOutgoing=1 时 0 < 1 应放行
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
-      sourceCell: { id: '1', shape: BPMN_USER_TASK, model: null, getParent: () => null } as any,
-      targetCell: { id: '2', shape: BPMN_SERVICE_TASK, model: null, getParent: () => null } as any,
-    })).toBe(true)
+      sourceCell: mockNode('1', BPMN_USER_TASK),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK),
+    }))).toBe(true)
   })
 
   it('节点 getData 返回对象时应正常读取持久化数据', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
-      sourceCell: { id: '1', shape: BPMN_USER_TASK, model: null, getParent: () => null, getData: () => ({ bpmn: { foo: 'bar' } }) } as any,
-      targetCell: { id: '2', shape: BPMN_SERVICE_TASK, model: null, getParent: () => null, getData: () => ({ bpmn: { baz: 'qux' } }) } as any,
-    })).toBe(true)
+      sourceCell: mockNode('1', BPMN_USER_TASK, { data: { bpmn: { foo: 'bar' } } }),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK, { data: { bpmn: { baz: 'qux' } } }),
+    }))).toBe(true)
   })
 
   it('节点 getData 抛异常时应按无持久化数据处理', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
-      sourceCell: { id: '1', shape: BPMN_USER_TASK, model: null, getParent: () => null, getData: () => { throw new Error('mock data error') } } as any,
-      targetCell: { id: '2', shape: BPMN_SERVICE_TASK, model: null, getParent: () => null, getData: () => ({ bpmn: {} }) } as any,
-    })).toBe(true)
+      sourceCell: mockNode('1', BPMN_USER_TASK, { getData: () => { throw new Error('mock data error') } }),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK, { data: { bpmn: {} } }),
+    }))).toBe(true)
   })
 
   it('节点 getData 返回非对象时应按无持久化数据处理', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
-      sourceCell: { id: '1', shape: BPMN_USER_TASK, model: null, getParent: () => null, getData: () => 'not-an-object' } as any,
-      targetCell: { id: '2', shape: BPMN_SERVICE_TASK, model: null, getParent: () => null, getData: () => null } as any,
-    })).toBe(true)
+      sourceCell: mockNode('1', BPMN_USER_TASK, { getData: () => 'not-an-object' }),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK, { getData: () => null }),
+    }))).toBe(true)
   })
 })
 
@@ -918,27 +1025,23 @@ describe('createBpmnValidateConnection', () => {
 // ============================================================================
 
 describe('createBpmnValidateConnectionWithResult', () => {
-  function mockNode(id: string, shape: string, graph?: any) {
-    return { id, shape, model: graph ? { graph } : null, getParent: () => null } as any
-  }
-
   it('目标无磁吸点时应返回失败原因', () => {
     const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({ targetMagnet: null, sourceCell: mockNode('1', BPMN_USER_TASK), targetCell: mockNode('2', BPMN_SERVICE_TASK) })
+    const result = validate(connectionArgs({ targetMagnet: null, sourceCell: mockNode('1', BPMN_USER_TASK), targetCell: mockNode('2', BPMN_SERVICE_TASK) }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('连接桩')
   })
 
   it('源节点为空时应返回失败原因', () => {
     const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({ targetMagnet: document.createElement('div'), sourceCell: null, targetCell: mockNode('2', BPMN_SERVICE_TASK) })
+    const result = validate(connectionArgs({ targetMagnet: document.createElement('div'), sourceCell: null, targetCell: mockNode('2', BPMN_SERVICE_TASK) }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('不存在')
   })
 
   it('目标节点为空时应返回失败原因', () => {
     const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({ targetMagnet: document.createElement('div'), sourceCell: mockNode('1', BPMN_USER_TASK), targetCell: null })
+    const result = validate(connectionArgs({ targetMagnet: document.createElement('div'), sourceCell: mockNode('1', BPMN_USER_TASK), targetCell: null }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('不存在')
   })
@@ -946,24 +1049,24 @@ describe('createBpmnValidateConnectionWithResult', () => {
   it('自连接应返回失败原因', () => {
     const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
     const node = mockNode('same', BPMN_USER_TASK)
-    const result = validate({ targetMagnet: document.createElement('div'), sourceCell: node, targetCell: node })
+    const result = validate(connectionArgs({ targetMagnet: document.createElement('div'), sourceCell: node, targetCell: node }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('自连接')
   })
 
   it('合法连线应返回 valid=true', () => {
     const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({
+    const result = validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNode('1', BPMN_USER_TASK),
       targetCell: mockNode('2', BPMN_SERVICE_TASK),
-    })
+    }))
     expect(result.valid).toBe(true)
   })
 
   it('带 graph 的节点应统计出入线数量用于验证', () => {
-    const graph = {
-      getConnectedEdges: (_node: any, opts: any) => {
+    const graph: TestGraph = {
+      getConnectedEdges: (_node, opts) => {
         if (opts.outgoing) return Array.from({ length: 5 }, (_, index) => ({ id: `out-${index}`, shape: BPMN_SEQUENCE_FLOW }))
         if (opts.incoming) return Array.from({ length: 5 }, (_, index) => ({ id: `in-${index}`, shape: BPMN_SEQUENCE_FLOW }))
         return []
@@ -972,19 +1075,19 @@ describe('createBpmnValidateConnectionWithResult', () => {
     const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW, {
       customRules: { task: { maxOutgoing: 5 } },
     })
-    const result = validate({
+    const result = validate(connectionArgs({
       targetMagnet: document.createElement('div'),
-      sourceCell: mockNode('1', BPMN_USER_TASK, graph),
-      targetCell: mockNode('2', BPMN_SERVICE_TASK, graph),
-    })
+      sourceCell: mockNode('1', BPMN_USER_TASK, { graph }),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK, { graph }),
+    }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('上限')
   })
 
   it('重连当前边时不应将当前边计入出入线数量', () => {
-    const currentEdge = { id: 'edge-1', shape: BPMN_SEQUENCE_FLOW } as any
-    const graph = {
-      getConnectedEdges: (_node: any, opts: any) => {
+    const currentEdge: TestEdge = { id: 'edge-1', shape: BPMN_SEQUENCE_FLOW }
+    const graph: TestGraph = {
+      getConnectedEdges: (_node, opts) => {
         if (opts.outgoing) return [currentEdge]
         if (opts.incoming) return [currentEdge]
         return []
@@ -995,12 +1098,12 @@ describe('createBpmnValidateConnectionWithResult', () => {
         task: { maxOutgoing: 1, maxIncoming: 1 },
       },
     })
-    const result = validate({
+    const result = validate(connectionArgs({
       edge: currentEdge,
       targetMagnet: document.createElement('div'),
-      sourceCell: mockNode('1', BPMN_USER_TASK, graph),
-      targetCell: mockNode('2', BPMN_SERVICE_TASK, graph),
-    })
+      sourceCell: mockNode('1', BPMN_USER_TASK, { graph }),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK, { graph }),
+    }))
     expect(result.valid).toBe(true)
   })
 
@@ -1010,11 +1113,11 @@ describe('createBpmnValidateConnectionWithResult', () => {
       () => { throw new Error('mock getter error') },
       { onValidationException },
     )
-    const result = validate({
+    const result = validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNode('1', BPMN_USER_TASK),
       targetCell: mockNode('2', BPMN_SERVICE_TASK),
-    })
+    }))
 
     expect(result.valid).toBe(false)
     expect(result.kind).toBe('exception')
@@ -1026,11 +1129,11 @@ describe('createBpmnValidateConnectionWithResult', () => {
     const validate = createBpmnValidateConnectionWithResult(
       () => { throw 'mock string error' },
     )
-    const result = validate({
+    const result = validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNode('1', BPMN_USER_TASK),
       targetCell: mockNode('2', BPMN_SERVICE_TASK),
-    })
+    }))
 
     expect(result.valid).toBe(false)
     expect(result.kind).toBe('exception')
@@ -1043,79 +1146,51 @@ describe('createBpmnValidateConnectionWithResult', () => {
 // ============================================================================
 
 describe('createBpmnValidateEdgeWithResult', () => {
-  function mockNode(id: string, shape: string, graph?: any, data?: any) {
-    return {
-      id,
-      shape,
-      model: graph ? { graph } : null,
-      getParent: () => null,
-      getData: () => data ?? {},
-    } as any
-  }
-
-  function createGraph(sourceNode: any, targetNode: any, connectedEdges?: { outgoing?: any[]; incoming?: any[] }) {
-    const nodeMap = new Map([
-      [sourceNode.id, sourceNode],
-      [targetNode.id, targetNode],
-    ])
-
-    return {
-      getCellById: (id: string) => nodeMap.get(id) ?? null,
-      getConnectedEdges: (node: any, opts: any) => {
-        if (node.id === sourceNode.id && opts.outgoing) return connectedEdges?.outgoing ?? []
-        if (node.id === targetNode.id && opts.incoming) return connectedEdges?.incoming ?? []
-        return []
-      },
-    }
-  }
-
   it('edge 缺失时应返回失败原因', () => {
     const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({ edge: null })
+    const result = validate(edgeArgs({ edge: null }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('连线实例不存在')
   })
 
   it('edge 所属 graph 缺失时应返回失败原因', () => {
     const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({
-      edge: {
+    const result = validate(edgeArgs({
+      edge: mockEdge({
         id: 'edge-1',
         shape: BPMN_SEQUENCE_FLOW,
         getSourceCellId: () => 'source',
         getTargetCellId: () => 'target',
-      },
-    })
+      }),
+    }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('图实例')
   })
 
   it('edge 未连接完整源目标节点时应返回失败原因', () => {
     const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({
-      edge: {
-        id: 'edge-1',
+    const result = validate(edgeArgs({
+      edge: mockEdge({
         shape: BPMN_SEQUENCE_FLOW,
-        model: { graph: { getCellById: () => null } },
+        model: { graph: graphWithMissingNode() },
         getSourceCellId: () => 'source',
         getTargetCellId: () => '',
-      },
-    })
+      }),
+    }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('有效的源节点和目标节点')
   })
 
   it('edge 无法解析节点时应返回失败原因', () => {
     const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({
-      edge: {
-        id: 'edge-1',
+    const result = validate(edgeArgs({
+      edge: mockEdge({
         shape: BPMN_SEQUENCE_FLOW,
-        model: { graph: { getCellById: () => null } },
+        model: { graph: graphWithMissingNode() },
         getSourceCellId: () => 'source',
         getTargetCellId: () => 'target',
-      },
-    })
+      }),
+    }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('无法解析')
   })
@@ -1125,15 +1200,14 @@ describe('createBpmnValidateEdgeWithResult', () => {
     const graph = createGraph(sourceNode, sourceNode)
     sourceNode.model = { graph }
     const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({
-      edge: {
-        id: 'edge-1',
+    const result = validate(edgeArgs({
+      edge: mockEdge({
         shape: BPMN_SEQUENCE_FLOW,
         model: { graph },
         getSourceCellId: () => 'same',
         getTargetCellId: () => 'same',
-      },
-    })
+      }),
+    }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('自连接')
   })
@@ -1145,15 +1219,14 @@ describe('createBpmnValidateEdgeWithResult', () => {
     sourceNode.model = { graph }
     targetNode.model = { graph }
     const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({
-      edge: {
-        id: 'edge-1',
+    const result = validate(edgeArgs({
+      edge: mockEdge({
         shape: BPMN_SEQUENCE_FLOW,
         model: { graph },
         getSourceCellId: () => 'source',
         getTargetCellId: () => 'target',
-      },
-    })
+      }),
+    }))
     expect(result.valid).toBe(true)
   })
 
@@ -1164,14 +1237,13 @@ describe('createBpmnValidateEdgeWithResult', () => {
     sourceNode.model = { graph }
     targetNode.model = { graph }
     const validate = createBpmnValidateEdgeWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({
-      edge: {
-        id: 'edge-1',
+    const result = validate(edgeArgs({
+      edge: mockEdge({
         model: { graph },
         getSourceCellId: () => 'source',
         getTargetCellId: () => 'target',
-      },
-    })
+      }),
+    }))
     expect(result.valid).toBe(true)
   })
 
@@ -1194,14 +1266,14 @@ describe('createBpmnValidateEdgeWithResult', () => {
         task: { maxOutgoing: 1, maxIncoming: 1 },
       },
     })
-    const result = validate({
-      edge: {
+    const result = validate(edgeArgs({
+      edge: mockEdge({
         ...currentEdge,
         model: { graph },
         getSourceCellId: () => 'source',
         getTargetCellId: () => 'target',
-      },
-    })
+      }),
+    }))
     expect(result.valid).toBe(true)
   })
 
@@ -1211,14 +1283,13 @@ describe('createBpmnValidateEdgeWithResult', () => {
       () => BPMN_SEQUENCE_FLOW,
       { onValidationException },
     )
-    const result = validate({
-      edge: {
-        id: 'edge-1',
-        model: { graph: { getCellById: () => null } },
+    const result = validate(edgeArgs({
+      edge: mockEdge({
+        model: { graph: graphWithMissingNode() },
         getSourceCellId: () => { throw new Error('mock edge error') },
         getTargetCellId: () => 'target',
-      },
-    })
+      }),
+    }))
 
     expect(result.valid).toBe(false)
     expect(result.kind).toBe('exception')
@@ -1230,13 +1301,13 @@ describe('createBpmnValidateEdgeWithResult', () => {
 describe('createBpmnValidateEdge', () => {
   it('未提供错误回调时仍应安全返回 false', () => {
     const validate = createBpmnValidateEdge(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({ edge: null })).toBe(false)
+    expect(validate(edgeArgs({ edge: null }))).toBe(false)
   })
 
   it('最终校验失败时应触发错误回调', () => {
     const onValidationError = vi.fn()
     const validate = createBpmnValidateEdge(() => BPMN_SEQUENCE_FLOW, { onValidationError })
-    const result = validate({ edge: null })
+    const result = validate(edgeArgs({ edge: null }))
     expect(result).toBe(false)
     expect(onValidationError).toHaveBeenCalledOnce()
     expect(onValidationError.mock.calls[0][0].reason).toContain('连线实例不存在')
@@ -1244,34 +1315,23 @@ describe('createBpmnValidateEdge', () => {
 
   it('最终校验通过时不应触发错误回调', () => {
     const onValidationError = vi.fn()
-    const sourceNode = {
-      id: 'source',
-      shape: BPMN_USER_TASK,
-      getParent: () => null,
-      getData: () => ({}),
-    } as any
-    const targetNode = {
-      id: 'target',
-      shape: BPMN_SERVICE_TASK,
-      getParent: () => null,
-      getData: () => ({}),
-    } as any
-    const graph = {
+    const sourceNode = mockNode('source', BPMN_USER_TASK)
+    const targetNode = mockNode('target', BPMN_SERVICE_TASK)
+    const graph: TestGraph = {
       getCellById: (id: string) => (id === 'source' ? sourceNode : targetNode),
       getConnectedEdges: () => [],
     }
     sourceNode.model = { graph }
     targetNode.model = { graph }
     const validate = createBpmnValidateEdge(() => BPMN_SEQUENCE_FLOW, { onValidationError })
-    const result = validate({
-      edge: {
-        id: 'edge-1',
+    const result = validate(edgeArgs({
+      edge: mockEdge({
         shape: BPMN_SEQUENCE_FLOW,
         model: { graph },
         getSourceCellId: () => 'source',
         getTargetCellId: () => 'target',
-      },
-    })
+      }),
+    }))
     expect(result).toBe(true)
     expect(onValidationError).not.toHaveBeenCalled()
   })
@@ -1283,33 +1343,22 @@ describe('createBpmnValidateEdge', () => {
       () => { throw new Error('mock getter error') },
       { onValidationError, onValidationException },
     )
-    const sourceNode = {
-      id: 'source',
-      shape: BPMN_USER_TASK,
-      getParent: () => null,
-      getData: () => ({}),
-    } as any
-    const targetNode = {
-      id: 'target',
-      shape: BPMN_SERVICE_TASK,
-      getParent: () => null,
-      getData: () => ({}),
-    } as any
-    const graph = {
+    const sourceNode = mockNode('source', BPMN_USER_TASK)
+    const targetNode = mockNode('target', BPMN_SERVICE_TASK)
+    const graph: TestGraph = {
       getCellById: (id: string) => (id === 'source' ? sourceNode : targetNode),
       getConnectedEdges: () => [],
     }
     sourceNode.model = { graph }
     targetNode.model = { graph }
 
-    const result = validate({
-      edge: {
-        id: 'edge-1',
+    const result = validate(edgeArgs({
+      edge: mockEdge({
         model: { graph },
         getSourceCellId: () => 'source',
         getTargetCellId: () => 'target',
-      },
-    })
+      }),
+    }))
 
     expect(result).toBe(false)
     expect(onValidationError).not.toHaveBeenCalled()
@@ -1483,55 +1532,54 @@ describe('validatePoolBoundary — Pool 边界约束', () => {
 // ============================================================================
 
 describe('createBpmnValidateConnection — Pool 边界集成', () => {
-  /** Creates a mock node with optional pool parent */
   function mockNodeInPool(id: string, shape: string, poolId: string | null) {
     const parent = poolId ? { id: poolId, shape: 'bpmn-pool', getParent: () => null } : null
-    return { id, shape, model: null, getParent: () => parent } as any
+    return mockNode(id, shape, { parent })
   }
 
   it('同 Pool 内顺序流应通过', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-1'),
       targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, 'pool-1'),
-    })).toBe(true)
+    }))).toBe(true)
   })
 
   it('跨 Pool 顺序流应拒绝', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-A'),
       targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, 'pool-B'),
-    })).toBe(false)
+    }))).toBe(false)
   })
 
   it('不同 Pool 消息流应通过', () => {
     const validate = createBpmnValidateConnection(() => BPMN_MESSAGE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-A'),
       targetCell: mockNodeInPool('2', BPMN_USER_TASK, 'pool-B'),
-    })).toBe(true)
+    }))).toBe(true)
   })
 
   it('无 Pool 父节点时跳过 Pool 边界检查', () => {
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({
+    expect(validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNodeInPool('1', BPMN_USER_TASK, null),
       targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, null),
-    })).toBe(true)
+    }))).toBe(true)
   })
 
   it('节点经由 Lane 找到 Pool（两层嵌套）', () => {
-    const pool = { id: 'pool-X', shape: 'bpmn-pool', getParent: () => null }
-    const lane = { id: 'lane-1', shape: 'bpmn-lane', getParent: () => pool }
-    const src = { id: 's1', shape: BPMN_USER_TASK, model: null, getParent: () => lane } as any
-    const tgt = { id: 't1', shape: BPMN_SERVICE_TASK, model: null, getParent: () => lane } as any
+    const pool: TestParentCell = { id: 'pool-X', shape: 'bpmn-pool', getParent: () => null }
+    const lane: TestParentCell = { id: 'lane-1', shape: 'bpmn-lane', getParent: () => pool }
+    const src = mockNode('s1', BPMN_USER_TASK, { parent: lane })
+    const tgt = mockNode('t1', BPMN_SERVICE_TASK, { parent: lane })
     const validate = createBpmnValidateConnection(() => BPMN_SEQUENCE_FLOW)
-    expect(validate({ targetMagnet: document.createElement('div'), sourceCell: src, targetCell: tgt })).toBe(true)
+    expect(validate(connectionArgs({ targetMagnet: document.createElement('div'), sourceCell: src, targetCell: tgt }))).toBe(true)
   })
 })
 
@@ -1542,27 +1590,27 @@ describe('createBpmnValidateConnection — Pool 边界集成', () => {
 describe('createBpmnValidateConnectionWithResult — Pool 边界集成', () => {
   function mockNodeInPool(id: string, shape: string, poolId: string | null) {
     const parent = poolId ? { id: poolId, shape: 'bpmn-pool', getParent: () => null } : null
-    return { id, shape, model: null, getParent: () => parent } as any
+    return mockNode(id, shape, { parent })
   }
 
   it('跨 Pool 顺序流应返回失败结果', () => {
     const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({
+    const result = validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-A'),
       targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, 'pool-B'),
-    })
+    }))
     expect(result.valid).toBe(false)
     expect(result.reason).toContain('顺序流')
   })
 
   it('同 Pool 内顺序流应返回成功结果', () => {
     const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
-    const result = validate({
+    const result = validate(connectionArgs({
       targetMagnet: document.createElement('div'),
       sourceCell: mockNodeInPool('1', BPMN_USER_TASK, 'pool-1'),
       targetCell: mockNodeInPool('2', BPMN_SERVICE_TASK, 'pool-1'),
-    })
+    }))
     expect(result.valid).toBe(true)
   })
 })

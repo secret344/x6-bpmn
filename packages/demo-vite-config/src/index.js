@@ -3,7 +3,8 @@ import { dirname, resolve } from 'node:path'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
-const WORKSPACE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const PACKAGE_ROOT = dirname(fileURLToPath(import.meta.url))
+const WORKSPACE_ROOT = resolve(PACKAGE_ROOT, '../../..')
 
 const X6_ALIAS_ENTRIES = {
   '@antv/x6': 'node_modules/@antv/x6/es/index.js',
@@ -16,7 +17,7 @@ const X6_ALIAS_ENTRIES = {
   '@antv/x6-plugin-minimap': 'node_modules/@antv/x6/es/plugin/minimap/index.js',
   '@antv/x6-vue-shape': 'node_modules/@antv/x6-vue-shape/es/index.js',
   '@x6-bpmn2/plugin': 'packages/x6-plugin-bpmn/src/index.ts',
-} as const
+}
 
 function createX6Aliases() {
   return Object.fromEntries(
@@ -27,7 +28,7 @@ function createX6Aliases() {
   )
 }
 
-export function createDemoViteConfig(port: number) {
+export function createDemoViteConfig(port) {
   return defineConfig({
     plugins: [vue()],
     optimizeDeps: {

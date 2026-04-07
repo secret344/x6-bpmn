@@ -264,10 +264,8 @@ For example:
 
 ## 8. 相关阅读 / Related Reading
 
-- [dynamic-config-architecture.md](dynamic-config-architecture.md)：看 profile、context 和 `DialectManager` 的整体结构。
-- [runtime-constraints-design.md](runtime-constraints-design.md)：看交互限制和行为模块应该落在哪一层。
+- [../README.md](../README.md)：看工作区总览和包级分工。
 - [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md)：看公开 API 和源码入口。
 
-- [dynamic-config-architecture.md](dynamic-config-architecture.md): review the overall structure of profiles, contexts, and `DialectManager`.
-- [runtime-constraints-design.md](runtime-constraints-design.md): see where interaction restrictions and behavior modules belong.
+- [../README.md](../README.md): review the workspace overview and package-level responsibilities.
 - [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md): review the public API and source entry points.

@@ -1,7 +1,9 @@
 {
   "name": "x6-bpmn2-workspace",
   "private": true,
+  "packageManager": "pnpm@10.9.0",
   "workspaces": [
+    "packages/demo-vite-config",
     "packages/x6-plugin-bpmn",
     "packages/example",
     "packages/approval-flow",
@@ -9,19 +11,19 @@
     "packages/smartengine-demo"
   ],
   "scripts": {
-    "build:plugin": "cd packages/x6-plugin-bpmn && npm run build",
-    "build:example": "cd packages/example && npm run build",
-    "build:approval": "cd packages/approval-flow && npm run build",
-    "build:dialect": "cd packages/dialect-demo && npm run build",
-    "build:smartengine": "cd packages/smartengine-demo && npm run build",
-    "build": "npm run build:plugin && npm run build:example",
-    "test": "cd packages/x6-plugin-bpmn && npm run test",
-    "test:coverage": "cd packages/x6-plugin-bpmn && npm run test:coverage",
-    "test:plugin:browser": "cd packages/x6-plugin-bpmn && npm run test:browser",
-    "dev": "cd packages/example && npm run dev",
-    "dev:approval": "cd packages/approval-flow && npm run dev",
-    "dev:dialect": "cd packages/dialect-demo && npm run dev",
-    "dev:smartengine": "cd packages/smartengine-demo && npm run dev"
+    "build:plugin": "pnpm --filter @x6-bpmn2/plugin build",
+    "build:example": "pnpm --filter @x6-bpmn2/example build",
+    "build:approval": "pnpm --filter @x6-bpmn2/approval-flow build",
+    "build:dialect": "pnpm --filter @x6-bpmn2/dialect-demo build",
+    "build:smartengine": "pnpm --filter @x6-bpmn2/smartengine-demo build",
+    "build": "pnpm run build:plugin && pnpm run build:example",
+    "test": "pnpm --filter @x6-bpmn2/plugin test",
+    "test:coverage": "pnpm --filter @x6-bpmn2/plugin test:coverage",
+    "test:plugin:browser": "pnpm --filter @x6-bpmn2/plugin test:browser",
+    "dev": "pnpm --filter @x6-bpmn2/example dev",
+    "dev:approval": "pnpm --filter @x6-bpmn2/approval-flow dev",
+    "dev:dialect": "pnpm --filter @x6-bpmn2/dialect-demo dev",
+    "dev:smartengine": "pnpm --filter @x6-bpmn2/smartengine-demo dev"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
