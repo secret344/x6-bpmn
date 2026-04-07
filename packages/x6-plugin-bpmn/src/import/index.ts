@@ -18,8 +18,10 @@ import type { BpmnNodeMapping, BpmnEdgeMapping } from '../export/bpmn-mapping'
 // 重新导出各子模块公开 API
 export { parseBpmnXml } from './xml-parser'
 export { loadBpmnGraph } from './graph-loader'
+export { createBpmn2ImporterAdapter } from './adapter'
 export type { LoadBpmnOptions } from './graph-loader'
 export type { BpmnImportData, BpmnNodeData, BpmnEdgeData, BpmnEdgeLabelData } from './types'
+export type { Bpmn2ImporterAdapterOptions, Bpmn2ImportPostProcessor } from './adapter'
 
 export interface ImportBpmnOptions extends LoadBpmnOptions {
   /** 使用方言序列化层覆盖默认 BPMN 映射 */

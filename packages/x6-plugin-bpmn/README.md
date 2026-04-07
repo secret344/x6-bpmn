@@ -20,12 +20,11 @@
 | `src/shapes` | BPMN 节点图形定义 | `registerEventShapes`, `registerActivityShapes` |
 | `src/connections` | BPMN 连接线定义 | `registerConnectionShapes` |
 | `src/rules` | 传统 BPMN 连线规则 | `validateBpmnConnection`, `createBpmnValidateConnection` |
-| `src/core/dialect` | Profile 注册、编译、合并、检测、上下文 | `ProfileRegistry`, `compileProfile`, `createDialectDetector` |
-| `src/core/rules` | 方言感知的规则适配层 | `createContextValidateConnection`, `createContextValidateEdge` |
+| `src/core/dialect` | Profile 注册、绑定与方言运行时能力 | `ProfileRegistry`, `createDialectManager` |
+| `src/core/rules` | 方言感知的规则入口 | `createContextValidateConnection`, `createContextValidateEdge` |
 | `src/core/data-model` | 字段能力与默认值、规范化、校验 | `buildDefaultData`, `validateFields` |
-| `src/adapters` | BPMN2 / SmartEngine / X6 适配器 | `createBpmn2ExporterAdapter`, `DialectManager` |
 | `src/import` | XML -> 中间数据 -> 图形 | `parseBpmnXml`, `loadBpmnGraph` |
-| `src/export` | 图形 -> BPMN XML | `exportBpmnXml`, `NODE_MAPPING` |
+| `src/export` | 图形 -> BPMN XML | `exportBpmnXml`, `createBpmn2ExporterAdapter` |
 | `src/behaviors` | 运行时交互行为 | `setupBoundaryAttach`, `setupPoolContainment` |
 | `src/builtin` | 内置方言定义 | `bpmn2Profile`, `smartengineBaseProfile` |
 | `src/config` | 标签、分类、图标与配置辅助 | `getShapeLabel`, `classifyShape` |
@@ -37,12 +36,11 @@
 | `src/shapes` | BPMN node shape definitions | `registerEventShapes`, `registerActivityShapes` |
 | `src/connections` | BPMN edge definitions | `registerConnectionShapes` |
 | `src/rules` | Traditional BPMN connection rules | `validateBpmnConnection`, `createBpmnValidateConnection` |
-| `src/core/dialect` | Profile registration, compilation, merge, detection, context | `ProfileRegistry`, `compileProfile`, `createDialectDetector` |
-| `src/core/rules` | Dialect-aware rule adapters | `createContextValidateConnection`, `createContextValidateEdge` |
+| `src/core/dialect` | Profile registration, binding, and dialect runtime APIs | `ProfileRegistry`, `createDialectManager` |
+| `src/core/rules` | Dialect-aware rule entry points | `createContextValidateConnection`, `createContextValidateEdge` |
 | `src/core/data-model` | Field capabilities, defaults, normalization, validation | `buildDefaultData`, `validateFields` |
-| `src/adapters` | BPMN2 / SmartEngine / X6 adapters | `createBpmn2ExporterAdapter`, `DialectManager` |
 | `src/import` | XML -> intermediate data -> graph | `parseBpmnXml`, `loadBpmnGraph` |
-| `src/export` | Graph -> BPMN XML | `exportBpmnXml`, `NODE_MAPPING` |
+| `src/export` | Graph -> BPMN XML | `exportBpmnXml`, `createBpmn2ExporterAdapter` |
 | `src/behaviors` | Runtime graph behaviors | `setupBoundaryAttach`, `setupPoolContainment` |
 | `src/builtin` | Built-in dialect definitions | `bpmn2Profile`, `smartengineBaseProfile` |
 | `src/config` | Labels, classification, icons, and config helpers | `getShapeLabel`, `classifyShape` |
@@ -51,13 +49,13 @@
 ## 3. 常用入口 / Common Entry Points
 
 1. [src/index.ts](src/index.ts)：公开 API 总入口。
-2. [src/adapters/x6/bind.ts](src/adapters/x6/bind.ts)：graph 绑定、自动校验接线。
-3. [src/import/index.ts](src/import/index.ts) 与 [src/export/exporter.ts](src/export/exporter.ts)：XML 双向转换。
+2. [src/core/dialect](src/core/dialect)：方言注册、绑定和运行时入口。
+3. [src/import/index.ts](src/import/index.ts) 与 [src/export/index.ts](src/export/index.ts)：XML 双向转换与相关工厂。
 4. [src/behaviors](src/behaviors)：边界事件附着、Pool/Lane containment 等运行时行为。
 
 1. [src/index.ts](src/index.ts): public API entry.
-2. [src/adapters/x6/bind.ts](src/adapters/x6/bind.ts): graph binding and auto-wired validation.
-3. [src/import/index.ts](src/import/index.ts) and [src/export/exporter.ts](src/export/exporter.ts): XML round-trip.
+2. [src/core/dialect](src/core/dialect): dialect registration, binding, and runtime entry points.
+3. [src/import/index.ts](src/import/index.ts) and [src/export/index.ts](src/export/index.ts): XML round-trip and related factories.
 4. [src/behaviors](src/behaviors): runtime behaviors such as boundary attachment and Pool/Lane containment.
 
 ## 4. 两条主要 API 路线 / Two Main API Paths
@@ -145,7 +143,7 @@ manager.bind(graph, 'bpmn2')
 | 调整连线合法性 | `src/rules`、`src/core/rules` |
 | 调整字段默认值、规范化、字段校验 | `src/core/data-model` |
 | 调整方言继承、合并、编译 | `src/core/dialect` |
-| 调整 graph 与方言的绑定方式 | `src/adapters/x6/bind.ts` |
+| 调整 graph 与方言的绑定方式 | `src/core/dialect` |
 | 调整 XML 解析或导出 | `src/import`、`src/export` |
 | 调整边界事件附着、Pool/Lane containment | `src/behaviors` |
 | 调整宿主 demo 接入方式 | 对应 `packages/*-demo` 或 `packages/example` |
@@ -156,7 +154,7 @@ manager.bind(graph, 'bpmn2')
 | Change connection legality | `src/rules`, `src/core/rules` |
 | Change field defaults, normalization, or field validation | `src/core/data-model` |
 | Change dialect inheritance, merge, or compilation | `src/core/dialect` |
-| Change graph-to-dialect binding behavior | `src/adapters/x6/bind.ts` |
+| Change graph-to-dialect binding behavior | `src/core/dialect` |
 | Change XML parsing or export | `src/import`, `src/export` |
 | Change boundary attachment or containment interactions | `src/behaviors` |
 | Change host demo integration | the relevant `packages/*-demo` or `packages/example` |

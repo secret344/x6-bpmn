@@ -165,9 +165,9 @@ manager.registerExporter(createBpmn2ExporterAdapter())
 manager.bind(graph, 'approval-flow')
 ```
 
-如果你的扩展仍然遵守 BPMN2 的 XML 语义，通常不需要写新的 importer/exporter；复用 BPMN2 适配器就够了。
+如果你的扩展仍然遵守 BPMN2 的 XML 语义，通常不需要新增单独的导入导出入口；复用现有 BPMN2 工厂就够了。
 
-If your extension still follows BPMN2 XML semantics, you usually do not need a new importer/exporter. Reusing the BPMN2 adapters is enough.
+If your extension still follows BPMN2 XML semantics, you usually do not need a separate import/export entry. Reusing the existing BPMN2 factories is enough.
 
 ## 4. 路径 C: 表单与 UI 留在宿主 / Path C: Keep Forms and UI in the Host
 
@@ -206,11 +206,11 @@ It is useful to split UI responsibility into two parts:
 - The plugin tells you which fields exist, their defaults, and whether the values are valid.
 - The host decides how to render, layout, and communicate them to the user.
 
-## 5. 什么时候需要新适配器 / When You Need a New Adapter
+## 5. 什么时候需要新的导入导出入口 / When You Need a New Import or Export Entry
 
-下面这些情况通常意味着你要新增 importer/exporter adapter，而不仅仅是改 profile：
+下面这些情况通常意味着你需要新增导入或导出入口，而不仅仅是改 profile：
 
-The following cases usually mean you need a new importer/exporter adapter instead of only changing the profile:
+The following cases usually mean you need a new import or export entry instead of only changing the profile:
 
 - 需要新的 XML 命名空间处理。
 - 需要新的 extensionElements 结构。

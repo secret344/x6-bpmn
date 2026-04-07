@@ -67,6 +67,10 @@ export {
   unbindProfile,
 } from './context'
 
+// 运行时管理器
+export { DialectManager, createDialectManager } from './manager'
+export type { DialectManagerOptions } from './manager'
+
 // 检测器
 export {
   DialectDetector,

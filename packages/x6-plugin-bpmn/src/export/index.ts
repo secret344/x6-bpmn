@@ -16,6 +16,12 @@
 
 export { exportBpmnXml } from './exporter'
 export type { ExportBpmnOptions } from './exporter'
+export { createBpmn2ExporterAdapter } from './adapter'
+export type {
+  Bpmn2ExporterAdapterOptions,
+  Bpmn2ExportPreProcessor,
+  Bpmn2ExportPostProcessor,
+} from './adapter'
 
 export { importBpmnXml } from './importer'
 export type { ImportBpmnOptions } from './importer'

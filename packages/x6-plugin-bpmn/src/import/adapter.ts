@@ -1,22 +1,37 @@
 /**
- * BPMN 2.0 标准导入适配器
+ * BPMN 2.0 标准导入工厂
  *
- * 将已有的 importBpmnXml() 封装为 ImporterAdapter 接口，
- * 使其可被方言系统统一调度。
+ * 将 importBpmnXml() 封装为 ImporterAdapter 接口，
+ * 供方言运行时统一调度。
  */
 
 import type { Graph } from '@antv/x6'
-import type { ImporterAdapter, ProfileContext } from '../../core/dialect/types'
-import { importBpmnXml } from '../../export/importer'
-import type { ImportBpmnOptions } from '../../export/importer'
+import type { ImporterAdapter, ProfileContext } from '../core/dialect/types'
+import { importBpmnXml } from './index'
+import type { ImportBpmnOptions } from './index'
+
+/** BPMN 2.0 导入后置扩展钩子。 */
+export type Bpmn2ImportPostProcessor = (
+  graph: Graph,
+  context: ProfileContext,
+) => void | Promise<void>
+
+/** BPMN 2.0 导入工厂选项。 */
+export interface Bpmn2ImporterAdapterOptions extends ImportBpmnOptions {
+  /**
+   * 导入完成后的扩展处理。
+   * 可用于方言场景中的轻量后处理，而不必再复制一套 importer。
+   */
+  postImport?: Bpmn2ImportPostProcessor
+}
 
 /**
- * 创建 BPMN 2.0 标准导入适配器。
+ * 创建 BPMN 2.0 标准导入工厂。
  *
  * @param options — 传递给底层 importBpmnXml 的选项
  */
 export function createBpmn2ImporterAdapter(
-  options?: ImportBpmnOptions,
+  options?: Bpmn2ImporterAdapterOptions,
 ): ImporterAdapter {
   return {
     dialect: 'bpmn2',
@@ -43,6 +58,10 @@ export function createBpmn2ImporterAdapter(
       return importBpmnXml(graph, xml, {
         ...options,
         serialization,
+      }).then(async () => {
+        if (options?.postImport) {
+          await options.postImport(graph, context)
+        }
       })
     },
   }

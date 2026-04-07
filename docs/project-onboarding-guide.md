@@ -31,8 +31,7 @@ Project Onboarding and Code Reading Guide
 | 目录 / Directory | 作用 / Responsibility |
 |---|---|
 | `src/index.ts` | 总入口，统一导出公开能力 |
-| `src/adapters` | 宿主接入层，负责 graph 绑定和适配器接线 |
-| `src/core/dialect` | 方言注册、继承、编译、绑定、检测 |
+| `src/core/dialect` | 方言注册、编译、绑定与运行时入口 |
 | `src/rules` 与 `src/core/rules` | BPMN 规则与方言规则适配 |
 | `src/import` 与 `src/export` | XML 与图状态的双向转换 |
 | `src/behaviors` | 边界事件附着、containment 等运行时行为 |
@@ -41,8 +40,7 @@ Project Onboarding and Code Reading Guide
 | Directory | Responsibility |
 |---|---|
 | `src/index.ts` | Public entry point |
-| `src/adapters` | Host integration and adapter wiring |
-| `src/core/dialect` | Dialect registration, inheritance, compilation, binding, and detection |
+| `src/core/dialect` | Dialect registration, compilation, binding, and runtime entry points |
 | `src/rules` and `src/core/rules` | BPMN rules and dialect-aware rule adapters |
 | `src/import` and `src/export` | Two-way conversion between XML and graph state |
 | `src/behaviors` | Runtime behaviors such as boundary attachment and containment |
@@ -55,11 +53,11 @@ Project Onboarding and Code Reading Guide
 3. `src/core/dialect/registry.ts`
 4. `src/core/dialect/compiler.ts`
 5. `src/core/dialect/context.ts`
-6. `src/adapters/x6/bind.ts`
+6. `src/core/dialect/index.ts`
 7. `src/rules/validator.ts`
 8. `src/core/rules/validator.ts`
 9. `src/import/index.ts` -> `src/import/xml-parser.ts` -> `src/import/graph-loader.ts`
-10. `src/export/bpmn-mapping.ts` -> `src/export/exporter.ts`
+10. `src/export/index.ts` -> `src/export/bpmn-mapping.ts` -> `src/export/exporter.ts`
 11. `src/behaviors/boundary-attach.ts` 与 `src/behaviors/pool-containment.ts`
 
 1. `src/index.ts`
@@ -67,11 +65,11 @@ Project Onboarding and Code Reading Guide
 3. `src/core/dialect/registry.ts`
 4. `src/core/dialect/compiler.ts`
 5. `src/core/dialect/context.ts`
-6. `src/adapters/x6/bind.ts`
+6. `src/core/dialect/index.ts`
 7. `src/rules/validator.ts`
 8. `src/core/rules/validator.ts`
 9. `src/import/index.ts` -> `src/import/xml-parser.ts` -> `src/import/graph-loader.ts`
-10. `src/export/bpmn-mapping.ts` -> `src/export/exporter.ts`
+10. `src/export/index.ts` -> `src/export/bpmn-mapping.ts` -> `src/export/exporter.ts`
 11. `src/behaviors/boundary-attach.ts` and `src/behaviors/pool-containment.ts`
 
 ## 4. 常见改动应该去哪里 / Where Common Changes Usually Belong
@@ -82,7 +80,7 @@ Project Onboarding and Code Reading Guide
 | 修改连线规则 | `src/rules`、`src/core/rules` |
 | 修改字段默认值、规范化、字段校验 | `src/core/data-model` |
 | 修改方言继承、合并、编译 | `src/core/dialect` |
-| 修改 graph 绑定、自动校验接线 | `src/adapters/x6` |
+| 修改 graph 绑定、自动校验接线 | `src/core/dialect` |
 | 修改 XML 解析 | `src/import` |
 | 修改 XML 导出 | `src/export` |
 | 修改边界事件或 containment 交互 | `src/behaviors` |
@@ -94,7 +92,7 @@ Project Onboarding and Code Reading Guide
 | Change connection rules | `src/rules`, `src/core/rules` |
 | Change field defaults, normalization, or validation | `src/core/data-model` |
 | Change dialect inheritance, merge, or compilation | `src/core/dialect` |
-| Change graph binding or auto-wired validation | `src/adapters/x6` |
+| Change graph binding or auto-wired validation | `src/core/dialect` |
 | Change XML parsing | `src/import` |
 | Change XML export | `src/export` |
 | Change boundary or containment interactions | `src/behaviors` |

@@ -8,12 +8,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Graph } from '@antv/x6'
 import { buildTestXml } from '../../helpers/xml-test-utils'
-import { DialectManager, createDialectManager } from '../../../src/adapters/x6/bind'
+import { DialectManager, createDialectManager } from '../../../src/core/dialect/manager'
 import { ProfileRegistry } from '../../../src/core/dialect/registry'
 import type { ExporterAdapter, ImporterAdapter, ProfileContext, ResolvedProfile } from '../../../src/core/dialect/types'
-import { createBpmn2ExporterAdapter } from '../../../src/adapters/bpmn2/exporter'
-import { createBpmn2ImporterAdapter } from '../../../src/adapters/bpmn2/importer'
+import { createBpmn2ExporterAdapter } from '../../../src/export/adapter'
+import { createBpmn2ImporterAdapter } from '../../../src/import/adapter'
 import type { Profile } from '../../../src/core/dialect/types'
+import { bpmn2Profile, smartengineBaseProfile } from '../../../src/builtin'
 import { importBpmnXml } from '../../../src/import'
 
 // ============================================================================
@@ -828,7 +829,7 @@ describe('DialectManager', () => {
 
 describe('createBpmn2ExporterAdapter', () => {
   it('应返回 dialect = bpmn2 的适配器', async () => {
-    const mod = await import('../../../src/adapters/bpmn2/exporter')
+    const mod = await import('../../../src/export/adapter')
     const adapter = mod.createBpmn2ExporterAdapter()
     expect(adapter.dialect).toBe('bpmn2')
     expect(typeof adapter.exportXML).toBe('function')
@@ -837,7 +838,7 @@ describe('createBpmn2ExporterAdapter', () => {
   it('exportXML 应调用底层 exportBpmnXml 并返回 XML', async () => {
     // 注册图形
     try { Graph.registerNode('bpmn-start-event', { inherit: 'rect' }, true) } catch {}
-    const mod = await import('../../../src/adapters/bpmn2/exporter')
+    const mod = await import('../../../src/export/adapter')
     const adapter = mod.createBpmn2ExporterAdapter()
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -942,7 +943,7 @@ describe('createBpmn2ExporterAdapter', () => {
       exportBpmnXml: vi.fn().mockResolvedValue('<root />'),
     }))
 
-    const mod = await import('../../../src/adapters/bpmn2/exporter')
+    const mod = await import('../../../src/export/adapter')
     const adapter = mod.createBpmn2ExporterAdapter({
       serialization: {
         namespaces: { custom: 'http://example.com/custom' },
@@ -954,11 +955,29 @@ describe('createBpmn2ExporterAdapter', () => {
     vi.doUnmock('../../../src/export/exporter')
     vi.resetModules()
   })
+
+  it('exportXML 应支持 preExport 和 postExportXml 钩子', async () => {
+    try { Graph.registerNode('bpmn-start-event', { inherit: 'rect' }, true) } catch {}
+    const preExport = vi.fn()
+    const postExportXml = vi.fn((xml: string) => `${xml}\n<!--hook-->`)
+    const adapter = createBpmn2ExporterAdapter({ preExport, postExportXml })
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const graph = new Graph({ container, width: 800, height: 600 })
+    graph.addNode({ shape: 'bpmn-start-event', id: 'start', x: 100, y: 100, width: 36, height: 36 })
+
+    const xml = await adapter.exportXML(graph, {} as any)
+
+    expect(preExport).toHaveBeenCalledOnce()
+    expect(postExportXml).toHaveBeenCalledOnce()
+    expect(xml).toContain('<!--hook-->')
+    graph.dispose()
+  })
 })
 
 describe('createBpmn2ImporterAdapter', () => {
   it('应返回 dialect = bpmn2 的适配器', async () => {
-    const mod = await import('../../../src/adapters/bpmn2/importer')
+    const mod = await import('../../../src/import/adapter')
     const adapter = mod.createBpmn2ImporterAdapter()
     expect(adapter.dialect).toBe('bpmn2')
     expect(typeof adapter.importXML).toBe('function')
@@ -967,7 +986,7 @@ describe('createBpmn2ImporterAdapter', () => {
   it('importXML 应调用底层 importBpmnXml 并还原图形', async () => {
     try { Graph.registerNode('bpmn-start-event', { inherit: 'rect' }, true) } catch {}
     try { Graph.registerEdge('bpmn-sequence-flow', { inherit: 'edge' }, true) } catch {}
-    const mod = await import('../../../src/adapters/bpmn2/importer')
+    const mod = await import('../../../src/import/adapter')
     const adapter = mod.createBpmn2ImporterAdapter()
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -1086,6 +1105,62 @@ describe('createBpmn2ImporterAdapter', () => {
     await adapter.importXML(graph, xml, {} as any)
     expect(nodes).toHaveLength(1)
     expect(nodes[0].shape).toBe('bpmn-start-event')
+  })
+
+  it('importXML 应支持 postImport 钩子承载方言后处理', async () => {
+    try { Graph.registerNode('bpmn-user-task', { inherit: 'rect' }, true) } catch {}
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const graph = new Graph({ container, width: 800, height: 600 })
+    graph.addNode({
+      shape: 'bpmn-user-task',
+      id: 'task1',
+      x: 100,
+      y: 100,
+      width: 120,
+      height: 60,
+      data: {
+        extensionProperties: {
+          'smart:action': 'approve',
+          'smart_retry': '3',
+          plain: 'keep',
+        },
+      },
+    })
+
+    const postImport = vi.fn((currentGraph: Graph) => {
+      for (const node of currentGraph.getNodes()) {
+        const data = node.getData<Record<string, unknown>>()
+        const extProps = data?.extensionProperties as Record<string, unknown> | undefined
+        if (!extProps) continue
+
+        const promoted: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(extProps)) {
+          if (key.startsWith('smart:') || key.startsWith('smart_')) {
+            promoted[key.replace(/^smart[:_]/, '')] = value
+          }
+        }
+
+        if (Object.keys(promoted).length > 0) {
+          node.setData({ ...data, ...promoted }, { silent: true })
+        }
+      }
+    })
+
+    const adapter = createBpmn2ImporterAdapter({ clearGraph: false, postImport })
+    const xml = await buildTestXml({
+      processes: [{ id: 'Process_1', isExecutable: true, elements: [] }],
+    })
+
+    await adapter.importXML(graph, xml, {} as any)
+
+    const node = graph.getCellById('task1') as Graph.Node
+    const data = node.getData<Record<string, unknown>>()
+    expect(postImport).toHaveBeenCalledOnce()
+    expect(data.action).toBe('approve')
+    expect(data.retry).toBe('3')
+    expect(data.plain).toBeUndefined()
+    graph.dispose()
   })
 })
 
@@ -1236,6 +1311,36 @@ describe('BPMN2 adapters with profile serialization', () => {
 
     expect(graph.getNodes()).toHaveLength(1)
     expect(graph.getNodes()[0].shape).toBe('approval-node')
+  })
+
+  it('exportXML 应沿继承链使用 smartengine-base profile 的命名空间', async () => {
+    const runtimeRegistry = new ProfileRegistry()
+    runtimeRegistry.register(bpmn2Profile)
+    runtimeRegistry.register(smartengineBaseProfile)
+
+    const runtimeManager = createDialectManager({ registry: runtimeRegistry })
+    runtimeManager.registerExporter(createBpmn2ExporterAdapter())
+
+    const graph = {
+      options: {},
+      getNodes: () => [{
+        id: 'start',
+        shape: 'bpmn-start-event',
+        getPosition: () => ({ x: 80, y: 80 }),
+        getSize: () => ({ width: 36, height: 36 }),
+        getData: () => ({}),
+        getAttrs: () => ({}),
+        getParent: () => null,
+      }],
+      getEdges: () => [],
+      getCellById: () => undefined,
+      getConnectedEdges: () => [],
+    } as any
+
+    runtimeManager.bind(graph, 'smartengine-base')
+    const xml = await runtimeManager.exportXML(graph)
+
+    expect(xml).toContain('xmlns:smart="http://smartengine.alibaba.com/schema"')
   })
 })
 

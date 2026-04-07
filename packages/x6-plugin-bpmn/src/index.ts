@@ -165,17 +165,19 @@ export { smartengineCustomProfile } from './builtin/smartengine-custom'
 export { smartengineDatabaseProfile } from './builtin/smartengine-database'
 
 // 适配器
-export { createBpmn2ExporterAdapter, createBpmn2ImporterAdapter } from './adapters/bpmn2'
-export {
-  createSmartEngineExporterAdapter,
-  createSmartEngineImporterAdapter,
-} from './adapters/smartengine'
+export { createBpmn2ExporterAdapter } from './export'
+export { createBpmn2ImporterAdapter } from './import'
 export type {
-  SmartEngineExportOptions,
-  SmartEngineImportOptions,
-} from './adapters/smartengine'
-export { DialectManager, createDialectManager } from './adapters/x6'
-export type { DialectManagerOptions } from './adapters/x6'
+  Bpmn2ExporterAdapterOptions,
+  Bpmn2ExportPreProcessor,
+  Bpmn2ExportPostProcessor,
+} from './export'
+export type {
+  Bpmn2ImporterAdapterOptions,
+  Bpmn2ImportPostProcessor,
+} from './import'
+export { DialectManager, createDialectManager } from './core/dialect'
+export type { DialectManagerOptions } from './core/dialect'
 
 // ============================================================================
 // BpmnPlugin — 统一注册所有 BPMN 2.0 图形的插件函数

@@ -81,6 +81,8 @@ describe('src/core/dialect/index.ts barrel', () => {
     expect(mod.DialectDetector).toBeDefined()
     expect(mod.createDialectDetector).toBeDefined()
     expect(mod.smartEngineNamespaceRule).toBeDefined()
+    expect(mod.DialectManager).toBeDefined()
+    expect(mod.createDialectManager).toBeDefined()
     // Types
     expect(mod.isRemoveMarker).toBeDefined()
   })
@@ -123,14 +125,21 @@ describe('src/core/rules/index.ts barrel', () => {
   })
 })
 
-describe('src/adapters/index.ts barrel', () => {
-  it('应导出所有适配器工厂和管理器', async () => {
-    const mod = await import('../../../src/adapters')
+describe('src/export/index.ts barrel', () => {
+  it('应导出导出链路和 BPMN2 导出工厂', async () => {
+    const mod = await import('../../../src/export')
     expect(mod.createBpmn2ExporterAdapter).toBeDefined()
+    expect(mod.exportBpmnXml).toBeDefined()
+    expect(mod.NODE_MAPPING).toBeDefined()
+  })
+})
+
+describe('src/import/index.ts barrel', () => {
+  it('应导出导入链路和 BPMN2 导入工厂', async () => {
+    const mod = await import('../../../src/import')
     expect(mod.createBpmn2ImporterAdapter).toBeDefined()
-    expect(mod.createSmartEngineExporterAdapter).toBeDefined()
-    expect(mod.createSmartEngineImporterAdapter).toBeDefined()
-    expect(mod.DialectManager).toBeDefined()
-    expect(mod.createDialectManager).toBeDefined()
+    expect(mod.importBpmnXml).toBeDefined()
+    expect(mod.parseBpmnXml).toBeDefined()
+    expect(mod.loadBpmnGraph).toBeDefined()
   })
 })
