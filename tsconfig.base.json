@@ -3,18 +3,6 @@
     "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "baseUrl": ".",
-    "paths": {
-      "@x6-bpmn2/plugin": ["packages/x6-plugin-bpmn/src/index.ts"],
-      "@antv/x6-plugin-selection": ["node_modules/@antv/x6/lib/plugin/selection/index.d.ts"],
-      "@antv/x6-plugin-transform": ["node_modules/@antv/x6/lib/plugin/transform/index.d.ts"],
-      "@antv/x6-plugin-snapline": ["node_modules/@antv/x6/lib/plugin/snapline/index.d.ts"],
-      "@antv/x6-plugin-history": ["node_modules/@antv/x6/lib/plugin/history/index.d.ts"],
-      "@antv/x6-plugin-keyboard": ["node_modules/@antv/x6/lib/plugin/keyboard/index.d.ts"],
-      "@antv/x6-plugin-clipboard": ["node_modules/@antv/x6/lib/plugin/clipboard/index.d.ts"],
-      "@antv/x6-plugin-minimap": ["node_modules/@antv/x6/lib/plugin/minimap/index.d.ts"],
-      "@antv/x6-vue-shape": ["node_modules/@antv/x6-vue-shape/es/index.d.ts"]
-    },
     "esModuleInterop": true,
     "strict": true,
     "jsx": "react-jsx",

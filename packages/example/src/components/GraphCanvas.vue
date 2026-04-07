@@ -33,13 +33,13 @@
 import { ref, onMounted, onUnmounted, nextTick } from "vue";
 import { Graph, type Node } from "@antv/x6";
 import { Message } from "@arco-design/web-vue";
-import { Selection } from "@antv/x6-plugin-selection";
-import { Transform } from "@antv/x6-plugin-transform";
-import { Snapline } from "@antv/x6-plugin-snapline";
-import { Keyboard } from "@antv/x6-plugin-keyboard";
-import { Clipboard } from "@antv/x6-plugin-clipboard";
-import { History } from "@antv/x6-plugin-history";
-import { MiniMap } from "@antv/x6-plugin-minimap";
+import { Selection } from "@antv/x6/es/plugin/selection/index.js";
+import { Transform } from "@antv/x6/es/plugin/transform/index.js";
+import { Snapline } from "@antv/x6/es/plugin/snapline/index.js";
+import { Keyboard } from "@antv/x6/es/plugin/keyboard/index.js";
+import { Clipboard } from "@antv/x6/es/plugin/clipboard/index.js";
+import { History } from "@antv/x6/es/plugin/history/index.js";
+import { MiniMap } from "@antv/x6/es/plugin/minimap/index.js";
 import {
   registerBpmnShapes,
   getShapeLabel,

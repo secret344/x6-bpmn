@@ -4,17 +4,18 @@
   "description": "BPMN 2.0 plugin for AntV X6",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
+      "source": "./src/index.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
-    },
-    "./dist/style.css": "./dist/style.css"
+    }
   },
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
   "scripts": {
     "build": "tsup",
@@ -29,8 +30,6 @@
   },
   "devDependencies": {
     "@antv/x6": "^3.1.7",
-    "@antv/x6-plugin-selection": "^3.0.0",
-    "@antv/x6-plugin-transform": "^3.0.0",
     "@vitest/coverage-v8": "4.1.2",
     "jsdom": "^29.0.1",
     "tsup": "^8.5.1",

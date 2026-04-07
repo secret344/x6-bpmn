@@ -72,24 +72,6 @@ importers:
       '@antv/x6':
         specifier: ^3.1.7
         version: 3.1.7
-      '@antv/x6-plugin-clipboard':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-history':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-keyboard':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-selection':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-snapline':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-transform':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
       '@arco-design/web-vue':
         specifier: ^2.57.0
         version: 2.57.0(vue@3.5.32(typescript@6.0.2))
@@ -124,27 +106,6 @@ importers:
       '@antv/x6':
         specifier: ^3.1.7
         version: 3.1.7
-      '@antv/x6-plugin-clipboard':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-history':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-keyboard':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-minimap':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-selection':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-snapline':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-transform':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
       '@arco-design/web-vue':
         specifier: ^2.57.0
         version: 2.57.0(vue@3.5.32(typescript@6.0.2))
@@ -182,24 +143,6 @@ importers:
       '@antv/x6':
         specifier: ^3.1.7
         version: 3.1.7
-      '@antv/x6-plugin-clipboard':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-history':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-keyboard':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-selection':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-snapline':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-transform':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
       '@arco-design/web-vue':
         specifier: ^2.57.0
         version: 2.57.0(vue@3.5.32(typescript@6.0.2))
@@ -238,12 +181,6 @@ importers:
       '@antv/x6':
         specifier: ^3.1.7
         version: 3.1.7
-      '@antv/x6-plugin-selection':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
-      '@antv/x6-plugin-transform':
-        specifier: ^3.0.0
-        version: 3.0.0(@antv/x6@3.1.7)
       '@vitest/coverage-v8':
         specifier: 4.1.2
         version: 4.1.2(vitest@4.1.2(@types/node@25.5.2)(jsdom@29.0.2)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@25.5.2)(esbuild@0.27.7)))
@@ -261,48 +198,6 @@ importers:
         version: 4.1.2(@types/node@25.5.2)(jsdom@29.0.2)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@25.5.2)(esbuild@0.27.7))
 
 packages:
-
-  '@antv/x6-plugin-clipboard@3.0.0':
-    resolution: {integrity: sha512-fi8Sdz0xuE+6okhq9QplrVcALA3ow1/SCSzQB5e7DxpcKOztJreMOf3tR1cnrfkL1aOp7ckKAKTAhYbIDspC7A==}
-    deprecated: this package has been deprecated
-    peerDependencies:
-      '@antv/x6': ^3.x
-
-  '@antv/x6-plugin-history@3.0.0':
-    resolution: {integrity: sha512-wfFnRtH3L9gvxsoS8t8i2PJbR/jYB698Nh8RXKMn7eOXJpZEkKMKsRjfa+v/Iwq0IqCyeZIi1j5YHikqwJWX3A==}
-    deprecated: this package has been deprecated
-    peerDependencies:
-      '@antv/x6': ^3.x
-
-  '@antv/x6-plugin-keyboard@3.0.0':
-    resolution: {integrity: sha512-ECN5VWjYXAR+lLhCbtwSAW0mNA1bqQjbYk2ewKj1JQVjfkmvogBIXuEjANqVXH8IdmlgJEPptuBKIS3kO4AdWQ==}
-    deprecated: this package has been deprecated
-    peerDependencies:
-      '@antv/x6': ^3.x
-
-  '@antv/x6-plugin-minimap@3.0.0':
-    resolution: {integrity: sha512-YYNFhN7xZLn7rFWDvAhsDj4QSsjeC3TyP27hHwSqJfFHmppa/xc/IETxphILb9CUHS2trDy/2uaD2ojYN4gZBA==}
-    deprecated: this package has been deprecated
-    peerDependencies:
-      '@antv/x6': ^3.x
-
-  '@antv/x6-plugin-selection@3.0.0':
-    resolution: {integrity: sha512-/POImdCnhi1E38Wvq9gZ4zaXm0vxwo1MLUO36rha1UnMOWf1m6X8jvdV7W9YZnGRkEsTbqKcju7tscz49xpxdQ==}
-    deprecated: this package has been deprecated
-    peerDependencies:
-      '@antv/x6': ^3.x
-
-  '@antv/x6-plugin-snapline@3.0.0':
-    resolution: {integrity: sha512-2CUbH40UHaPn7gnO0aMeef6pVT/DoGSFXrhZN07iC39IynCbR6x6MJpSZrZ17Hl834GpQvuGA7wVXJ8TJ1yAaw==}
-    deprecated: this package has been deprecated
-    peerDependencies:
-      '@antv/x6': ^3.x
-
-  '@antv/x6-plugin-transform@3.0.0':
-    resolution: {integrity: sha512-xDm1+VJRB1sUMdo6nkQoTnW9eniVKfzm30Y6l3BFftV6He0SgnahhQZHD9huI5razMnSfcLeQ02FUpmeqhx6nQ==}
-    deprecated: this package has been deprecated
-    peerDependencies:
-      '@antv/x6': ^3.x
 
   '@antv/x6-vue-shape@3.0.2':
     resolution: {integrity: sha512-HWnYFvLCaUD9ernINxTn9vCRj66eG/nXKErSSq0hfI4U1HOitC/1oUrzDdwL/BT80HKAQeSsmy7gpDA/79jYlw==}
@@ -1799,35 +1694,6 @@ packages:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
 snapshots:
-
-  '@antv/x6-plugin-clipboard@3.0.0(@antv/x6@3.1.7)':
-    dependencies:
-      '@antv/x6': 3.1.7
-
-  '@antv/x6-plugin-history@3.0.0(@antv/x6@3.1.7)':
-    dependencies:
-      '@antv/x6': 3.1.7
-
-  '@antv/x6-plugin-keyboard@3.0.0(@antv/x6@3.1.7)':
-    dependencies:
-      '@antv/x6': 3.1.7
-      mousetrap: 1.6.5
-
-  '@antv/x6-plugin-minimap@3.0.0(@antv/x6@3.1.7)':
-    dependencies:
-      '@antv/x6': 3.1.7
-
-  '@antv/x6-plugin-selection@3.0.0(@antv/x6@3.1.7)':
-    dependencies:
-      '@antv/x6': 3.1.7
-
-  '@antv/x6-plugin-snapline@3.0.0(@antv/x6@3.1.7)':
-    dependencies:
-      '@antv/x6': 3.1.7
-
-  '@antv/x6-plugin-transform@3.0.0(@antv/x6@3.1.7)':
-    dependencies:
-      '@antv/x6': 3.1.7
 
   '@antv/x6-vue-shape@3.0.2(@antv/x6@3.1.7)(vue@3.5.32(typescript@6.0.2))':
     dependencies:

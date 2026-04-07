@@ -1,6 +1,6 @@
 import { Graph, type Cell, type Edge, type Node } from '@antv/x6'
-import { Selection } from '@antv/x6-plugin-selection'
-import { Transform } from '@antv/x6-plugin-transform'
+import { Selection } from '@antv/x6/es/plugin/selection/index.js'
+import { Transform } from '@antv/x6/es/plugin/transform/index.js'
 import {
   registerBpmnShapes,
   setupPoolContainment,

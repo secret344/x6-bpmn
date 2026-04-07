@@ -10,12 +10,6 @@
   },
   "dependencies": {
     "@antv/x6": "^3.1.7",
-    "@antv/x6-plugin-selection": "^3.0.0",
-    "@antv/x6-plugin-snapline": "^3.0.0",
-    "@antv/x6-plugin-transform": "^3.0.0",
-    "@antv/x6-plugin-clipboard": "^3.0.0",
-    "@antv/x6-plugin-history": "^3.0.0",
-    "@antv/x6-plugin-keyboard": "^3.0.0",
     "@arco-design/web-vue": "^2.57.0",
     "@x6-bpmn2/plugin": "workspace:*",
     "tslib": "^2.8.1",

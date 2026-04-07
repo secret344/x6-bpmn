@@ -31,8 +31,6 @@ import {
   // Adapters
   createBpmn2ExporterAdapter,
   createBpmn2ImporterAdapter,
-  createSmartEngineExporterAdapter,
-  createSmartEngineImporterAdapter,
 
   // Detector
   createDialectDetector,
@@ -172,8 +170,6 @@ export function useDialect() {
   // 注册导入/导出适配器
   manager.registerExporter(createBpmn2ExporterAdapter())
   manager.registerImporter(createBpmn2ImporterAdapter())
-  manager.registerExporter(createSmartEngineExporterAdapter())
-  manager.registerImporter(createSmartEngineImporterAdapter())
 
   // 方言检测器
   const detector = createDialectDetector()

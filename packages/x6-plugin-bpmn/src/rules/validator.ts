@@ -585,7 +585,7 @@ function resolveEdgeShape(edge: Edge | null | undefined, edgeShapeGetter: () => 
 }
 
 function getGraphFromCell(cell: Node | Edge): GraphLike | null | undefined {
-  const graphRef = cell as Node | Edge | CellWithGraphRef
+  const graphRef = cell as CellWithGraphRef
   return graphRef.model?.graph ?? graphRef.graph
 }
 

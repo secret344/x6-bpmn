@@ -8,11 +8,12 @@ const ROOT_NODE_MODULES = resolve(WORKSPACE_ROOT, 'node_modules')
 export default defineConfig({
   root: resolve(PACKAGE_ROOT, 'tests/browser/harness'),
   resolve: {
-    alias: {
-      '@antv/x6': resolve(PACKAGE_ROOT, '../../node_modules/@antv/x6/es/index.js'),
-      '@antv/x6-plugin-selection': resolve(PACKAGE_ROOT, '../../node_modules/@antv/x6/es/plugin/selection/index.js'),
-      '@antv/x6-plugin-transform': resolve(PACKAGE_ROOT, '../../node_modules/@antv/x6/es/plugin/transform/index.js'),
-    },
+    alias: [
+      {
+        find: /^@antv\/x6$/,
+        replacement: resolve(PACKAGE_ROOT, '../../node_modules/@antv/x6/es/index.js'),
+      },
+    ],
   },
   server: {
     open: false,

@@ -25,8 +25,6 @@ import {
   smartengineDatabaseProfile,
   createBpmn2ExporterAdapter,
   createBpmn2ImporterAdapter,
-  createSmartEngineExporterAdapter,
-  createSmartEngineImporterAdapter,
   createDialectDetector,
   validateConstraints,
   getFieldsForCategory,
@@ -122,8 +120,6 @@ export function useSmartEngine() {
   // 注册适配器
   manager.registerExporter(createBpmn2ExporterAdapter())
   manager.registerImporter(createBpmn2ImporterAdapter())
-  manager.registerExporter(createSmartEngineExporterAdapter())
-  manager.registerImporter(createSmartEngineImporterAdapter())
 
   const detector = createDialectDetector()
 
