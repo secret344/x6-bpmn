@@ -89,6 +89,8 @@ const nodeGroups = computed(() => {
   }
 
   for (const node of enabledNodes.value) {
+    // Lane 不再作为独立可拖拽元素，改由 Pool 右侧浮动菜单添加。
+    if (node.shape === 'bpmn-lane') continue
     const cat = categoryGroupMap[node.category] || 'other'
     if (!groups[cat]) {
       groups[cat] = {
