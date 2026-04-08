@@ -8,7 +8,6 @@
  */
 
 import type { Graph, Node, Cell } from '@antv/x6'
-import { isSwimlaneShape } from '../export/bpmn-mapping'
 import { resolveSwimlaneIsHorizontal } from '../shapes/swimlane-presentation'
 import { BPMN_LANE, BPMN_POOL } from '../utils/constants'
 import { normalizeSwimlaneLayers } from './swimlane-layout'
