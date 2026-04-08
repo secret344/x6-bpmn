@@ -80,15 +80,15 @@ function poolContentRect(pool: Node): Rect {
     return {
       x: r.x + HEADER_SIZE,
       y: r.y,
-      width: r.width - HEADER_SIZE,
-      height: r.height,
+      width: Math.max(0, r.width - HEADER_SIZE),
+      height: Math.max(0, r.height),
     }
   }
   return {
     x: r.x,
     y: r.y + HEADER_SIZE,
-    width: r.width,
-    height: r.height - HEADER_SIZE,
+    width: Math.max(0, r.width),
+    height: Math.max(0, r.height - HEADER_SIZE),
   }
 }
 
