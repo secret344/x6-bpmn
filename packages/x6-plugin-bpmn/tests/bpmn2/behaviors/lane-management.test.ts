@@ -267,16 +267,20 @@ describe('setupLaneManagement', () => {
     const dispose = setupLaneManagement(graph as any)
 
     expect(typeof dispose).toBe('function')
+    expect(graph.on).toHaveBeenCalledWith('node:change:size', expect.any(Function))
   })
 
   it('dispose 后应移除事件监听器', () => {
     const graph = createMockGraph([])
 
     const dispose = setupLaneManagement(graph as any)
+    const [[eventName, handler]] = graph.on.mock.calls
+
     dispose()
 
-    // 确认 off 被调用（dispose 不会抛出）
-    expect(typeof dispose).toBe('function')
+    // 确认 dispose 会移除注册时的同一事件监听器
+    expect(graph.off).toHaveBeenCalledWith(eventName, handler)
+    expect(eventName).toBe('node:change:size')
   })
 
   it('Lane resize 时应触发 onLaneResize 回调', () => {
