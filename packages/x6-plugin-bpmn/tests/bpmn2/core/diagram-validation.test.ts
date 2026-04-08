@@ -120,7 +120,7 @@ describe('validateDiagram', () => {
       data: {
         bpmn: {
           name: '服务任务',
-          smartRetry: -1,
+          smartProperties: '[{"value":"broken"}]',
         },
       },
     })
@@ -138,7 +138,7 @@ describe('validateDiagram', () => {
         cellId: 'service-1',
       }),
     ]))
-    expect(report.issues.some((issue) => issue.message.includes('smartRetry'))).toBe(true)
+    expect(report.issues.some((issue) => issue.message.includes('smartProperties'))).toBe(true)
   })
 
   it('应报告缺失端点和非法 BPMN 连线', async () => {

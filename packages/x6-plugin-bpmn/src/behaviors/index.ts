@@ -8,6 +8,12 @@
 export { setupBoundaryAttach, attachBoundaryToHost } from './boundary-attach'
 export type { BoundaryAttachOptions } from './boundary-attach'
 
+import type { Graph } from '@antv/x6'
+import type { BoundaryAttachOptions } from './boundary-attach'
+import type { PoolContainmentOptions } from './pool-containment'
+import { setupBoundaryAttach } from './boundary-attach'
+import { setupPoolContainment } from './pool-containment'
+
 export {
   setupPoolContainment,
   validatePoolContainment,
@@ -16,9 +22,32 @@ export {
   isContainedFlowNode,
 } from './pool-containment'
 export type {
-  PoolContainmentOptions,
   PoolContainmentResult,
 } from './pool-containment'
+export type { PoolContainmentOptions } from './pool-containment'
+
+export interface BpmnInteractionBehaviorOptions {
+  boundaryAttach?: BoundaryAttachOptions
+  poolContainment?: PoolContainmentOptions
+}
+
+/**
+ * 安装常用 BPMN 交互行为。
+ *
+ * 统一收敛边界事件吸附与 Pool/Lane 容器约束，减少宿主侧重复 wiring。
+ */
+export function setupBpmnInteractionBehaviors(
+  graph: Graph,
+  options: BpmnInteractionBehaviorOptions = {},
+): () => void {
+  const disposeBoundaryAttach = setupBoundaryAttach(graph, options.boundaryAttach)
+  const disposePoolContainment = setupPoolContainment(graph, options.poolContainment)
+
+  return () => {
+    disposePoolContainment()
+    disposeBoundaryAttach()
+  }
+}
 
 export {
   snapToRectEdge,

@@ -7,6 +7,10 @@
 
 import type { Graph } from '@antv/x6'
 import type { ExporterAdapter, ProfileContext } from '../core/dialect/types'
+import {
+  createBpmnOpeningTagRegex,
+  mergeBpmnXmlNameSettings,
+} from '../utils/bpmn-xml-names'
 import { exportBpmnXml } from './exporter'
 import type { ExportBpmnOptions } from './exporter'
 
@@ -30,8 +34,16 @@ export interface Bpmn2ExporterAdapterOptions extends ExportBpmnOptions {
   postExportXml?: Bpmn2ExportPostProcessor
 }
 
-function injectNamespaces(xml: string, namespaces: Record<string, string>): string {
-  const defPattern = /(<(?:bpmn:)?definitions\b)/
+function injectNamespaces(
+  xml: string,
+  namespaces: Record<string, string>,
+  xmlNames?: ExportBpmnOptions['serialization'] extends infer T
+    ? T extends { xmlNames?: infer U }
+      ? U
+      : never
+    : never,
+): string {
+  const defPattern = new RegExp(`(${createBpmnOpeningTagRegex('definitions', xmlNames).source})`)
   const match = xml.match(defPattern)
   if (!match) return xml
 
@@ -71,6 +83,9 @@ export function createBpmn2ExporterAdapter(
                   ...options?.serialization?.namespaces,
                 }
               : undefined,
+            xmlNames: profileSerialization?.xmlNames || options?.serialization?.xmlNames
+              ? mergeBpmnXmlNameSettings(profileSerialization?.xmlNames, options?.serialization?.xmlNames)
+              : undefined,
             nodeMapping: profileSerialization?.nodeMapping || options?.serialization?.nodeMapping
               ? {
                   ...(profileSerialization?.nodeMapping ?? {}),
@@ -83,12 +98,31 @@ export function createBpmn2ExporterAdapter(
                   ...options?.serialization?.edgeMapping,
                 }
               : undefined,
+            targetNamespace: options?.serialization?.targetNamespace ?? profileSerialization?.targetNamespace,
+            processAttributes: profileSerialization?.processAttributes || options?.serialization?.processAttributes
+              ? {
+                  ...(profileSerialization?.processAttributes ?? {}),
+                  ...options?.serialization?.processAttributes,
+                }
+              : undefined,
+            nodeSerializers: profileSerialization?.nodeSerializers || options?.serialization?.nodeSerializers
+              ? {
+                  ...(profileSerialization?.nodeSerializers ?? {}),
+                  ...options?.serialization?.nodeSerializers,
+                }
+              : undefined,
+            edgeSerializers: profileSerialization?.edgeSerializers || options?.serialization?.edgeSerializers
+              ? {
+                  ...(profileSerialization?.edgeSerializers ?? {}),
+                  ...options?.serialization?.edgeSerializers,
+                }
+              : undefined,
           }
         : undefined
 
       const xml = await exportBpmnXml(graph, { ...options, serialization })
       const xmlWithNamespaces = serialization?.namespaces
-        ? injectNamespaces(xml, serialization.namespaces)
+        ? injectNamespaces(xml, serialization.namespaces, serialization.xmlNames)
         : xml
 
       if (options?.postExportXml) {

@@ -46,24 +46,24 @@ async function buildDefinitionsXml(
 // ============================================================================
 
 describe('smartEngineNamespaceRule', () => {
-  it('包含 xmlns:smart= 应检测为 smartengine-base', async () => {
-    const xml = await buildDefinitionsXml(' xmlns:smart="http://smartengine.io"')
+  it('包含官方 SmartEngine 命名空间应检测为 smartengine-base', async () => {
+    const xml = await buildDefinitionsXml(' xmlns:smart="http://smartengine.org/schema/process"')
     expect(smartEngineNamespaceRule.test(xml)).toBe('smartengine-base')
   })
 
-  it('包含 smart: 前缀应检测为 smartengine-base', async () => {
-    const xml = await buildDefinitionsXml(
-      ' xmlns:smart="http://smartengine.io"',
-      '<smart:action>test</smart:action>',
-    )
-    expect(smartEngineNamespaceRule.test(xml)).toBe('smartengine-base')
-  })
-
-  it('包含 smartengine 关键词应检测为 smartengine-base', async () => {
+  it('包含历史 SmartEngine 命名空间应兼容检测', async () => {
     const xml = await buildDefinitionsXml(
       ' xmlns:smart="http://smartengine.alibaba.com/schema"',
     )
     expect(smartEngineNamespaceRule.test(xml)).toBe('smartengine-base')
+  })
+
+  it('仅有 smart 前缀但 URI 不匹配时不应检测', async () => {
+    const xml = await buildDefinitionsXml(
+      ' xmlns:smart="http://example.com/custom-smart"',
+      '<smart:action>test</smart:action>',
+    )
+    expect(smartEngineNamespaceRule.test(xml)).toBeNull()
   })
 
   it('标准 BPMN XML 不应匹配', async () => {
@@ -79,7 +79,7 @@ describe('smartEngineNamespaceRule', () => {
 describe('createDialectDetector', () => {
   it('应创建内含 smartEngine 规则的检测器', async () => {
     const detector = createDialectDetector()
-    const smartXml = await buildDefinitionsXml(' xmlns:smart="http://smartengine.io"')
+    const smartXml = await buildDefinitionsXml(' xmlns:smart="http://smartengine.org/schema/process"')
     const bpmnXml = await buildDefinitionsXml()
     expect(detector.detect(smartXml)).toBe('smartengine-base')
     expect(detector.detect(bpmnXml)).toBe('bpmn2')
@@ -100,7 +100,6 @@ describe('smartEngineNamespaceRule — 边界场景', () => {
       '',
       '<bpmn:documentation>This is a smart solution</bpmn:documentation>',
     )
-    const result = smartEngineNamespaceRule.test(xml)
-    expect(result === 'smartengine-base' || result === null).toBe(true)
+    expect(smartEngineNamespaceRule.test(xml)).toBeNull()
   })
 })

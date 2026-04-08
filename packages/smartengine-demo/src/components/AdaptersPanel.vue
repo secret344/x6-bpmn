@@ -37,7 +37,7 @@
         </div>
         <div class="ns-row">
           <span class="ns-label">URI</span>
-          <span class="ns-value mono">http://smartengine.alibaba.com/schema</span>
+          <span class="ns-value mono">http://smartengine.org/schema/process</span>
         </div>
         <div class="ns-row">
           <span class="ns-label">扩展字段位置</span>
@@ -88,7 +88,7 @@
         </div>
         <div class="feature-item">
           <div class="feature-name">📋 扩展字段序列化</div>
-          <div class="feature-desc">smartAction/smartType/smartRetry 等字段序列化为 extensionElements</div>
+          <div class="feature-desc">smart:class、smart:properties、smart:executionListener 等 Smart 扩展按 profile 规则写入 XML</div>
         </div>
         <div class="feature-item">
           <div class="feature-name">🔄 继承链回退</div>
@@ -129,7 +129,7 @@ async function refreshPreview() {
       nodeCount: props.graph.getNodes().length,
       edgeCount: props.graph.getEdges().length,
       xmlLength: xml.length,
-      hasSmartengineNS: xml.includes('xmlns:smart="http://smartengine.alibaba.com/schema"'),
+        hasSmartengineNS: xml.includes('xmlns:smart="http://smartengine.org/schema/process"'),
     }
   } catch (e: any) {
     xmlPreview.value = `导出失败: ${e.message}`

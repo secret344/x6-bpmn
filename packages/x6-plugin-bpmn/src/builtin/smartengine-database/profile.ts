@@ -12,6 +12,8 @@
  */
 
 import type { Profile } from '../../core/dialect/types'
+import { createSmartNodeSerializer } from '../smartengine-base/serialization'
+import { BPMN_USER_TASK } from '../../utils/constants'
 
 export const smartengineDatabaseProfile: Profile = {
   meta: {
@@ -19,14 +21,17 @@ export const smartengineDatabaseProfile: Profile = {
     name: 'SmartEngine Database',
     parent: 'smartengine-base',
     version: '1.0.0',
-    description: 'SmartEngine 审批/工单模式，增强 UserTask 审批和多实例能力',
+    description: 'SmartEngine 审批/工单模式，在 BPMN 2.0 基础上增强 UserTask、多实例与包容网关场景',
   },
 
-  // 审批场景下禁用不需要的元素
-  availability: {
-    nodes: {
-      'bpmn-complex-gateway': 'disabled',
-      'bpmn-ad-hoc-sub-process': 'disabled',
+  serialization: {
+    nodeSerializers: {
+      [BPMN_USER_TASK]: createSmartNodeSerializer({
+        readProperties: true,
+        readExecutionListeners: true,
+        autoPropertyKeys: ['approvalType', 'approvalStrategy'],
+        multiInstance: true,
+      }),
     },
   },
 

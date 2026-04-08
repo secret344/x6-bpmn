@@ -16,6 +16,10 @@ import type {
   SerializationSet,
   ConstraintRule,
 } from './types'
+import {
+  cloneBpmnXmlNameSettings,
+  mergeBpmnXmlNameSettings,
+} from '../../utils/bpmn-xml-names'
 
 // ============================================================================
 // 通用深度合并
@@ -163,12 +167,25 @@ export function mergeSerialization(
     namespaces: child.namespaces
       ? { ...parent.namespaces, ...child.namespaces }
       : { ...parent.namespaces },
+    xmlNames: child.xmlNames
+      ? mergeBpmnXmlNameSettings(parent.xmlNames, child.xmlNames)
+      : cloneBpmnXmlNameSettings(parent.xmlNames),
     nodeMapping: child.nodeMapping
       ? mergeRecords(parent.nodeMapping, child.nodeMapping as any)
       : { ...parent.nodeMapping },
     edgeMapping: child.edgeMapping
       ? mergeRecords(parent.edgeMapping, child.edgeMapping as any)
       : { ...parent.edgeMapping },
+    targetNamespace: child.targetNamespace ?? parent.targetNamespace,
+    processAttributes: child.processAttributes
+      ? { ...(parent.processAttributes ?? {}), ...child.processAttributes }
+      : { ...(parent.processAttributes ?? {}) },
+    nodeSerializers: child.nodeSerializers
+      ? { ...(parent.nodeSerializers ?? {}), ...child.nodeSerializers }
+      : { ...(parent.nodeSerializers ?? {}) },
+    edgeSerializers: child.edgeSerializers
+      ? { ...(parent.edgeSerializers ?? {}), ...child.edgeSerializers }
+      : { ...(parent.edgeSerializers ?? {}) },
   }
 }
 
@@ -221,6 +238,15 @@ export function mergeProfileLayers(
       : { ...parent.dataModel, fields: { ...parent.dataModel.fields }, categoryFields: { ...parent.dataModel.categoryFields } },
     serialization: child.serialization
       ? mergeSerialization(parent.serialization, child.serialization)
-      : { ...parent.serialization, namespaces: { ...parent.serialization.namespaces }, nodeMapping: { ...parent.serialization.nodeMapping }, edgeMapping: { ...parent.serialization.edgeMapping } },
+      : {
+          ...parent.serialization,
+          namespaces: { ...parent.serialization.namespaces },
+          xmlNames: cloneBpmnXmlNameSettings(parent.serialization.xmlNames),
+          nodeMapping: { ...parent.serialization.nodeMapping },
+          edgeMapping: { ...parent.serialization.edgeMapping },
+          processAttributes: { ...(parent.serialization.processAttributes ?? {}) },
+          nodeSerializers: { ...(parent.serialization.nodeSerializers ?? {}) },
+          edgeSerializers: { ...(parent.serialization.edgeSerializers ?? {}) },
+        },
   }
 }

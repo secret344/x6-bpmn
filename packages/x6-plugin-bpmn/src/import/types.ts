@@ -80,4 +80,9 @@ export interface BpmnImportData {
   nodes: BpmnNodeData[]
   /** 边列表（有序） */
   edges: BpmnEdgeData[]
+  /** 文档级元数据。 */
+  metadata?: {
+    targetNamespace?: string
+    processVersion?: string
+  }
 }

@@ -17,12 +17,14 @@
 
 import { BpmnModdle } from 'bpmn-moddle'
 import type { ModdleElement } from 'bpmn-moddle'
+import { classifyShape } from '../config'
 import {
   type BpmnNodeMapping,
   type BpmnEdgeMapping,
   NODE_MAPPING,
   EDGE_MAPPING,
 } from '../export/bpmn-mapping'
+import type { SerializationOverrides } from '../core/dialect/types'
 import {
   BPMN_DEFAULT_FLOW,
   BPMN_CONDITIONAL_FLOW,
@@ -41,6 +43,12 @@ import {
   BPMN_CALL_ACTIVITY,
 } from '../utils/constants'
 import type { BpmnImportData, BpmnNodeData, BpmnEdgeData } from './types'
+import {
+  createBpmnElementTagRegex,
+  createBpmnOpeningTagRegex,
+  getBpmnLocalName,
+  resolveBpmnXmlNameSettings,
+} from '../utils/bpmn-xml-names'
 
 // ============================================================================
 // 内部类型：BPMN DI 几何信息
@@ -134,11 +142,8 @@ const FLOW_CONTAINER_TAGS = new Set([
  * 例：'bpmn:StartEvent' → 'startEvent'
  */
 function localTag(element: ModdleElement): string {
-  /* istanbul ignore next — moddle 始终提供 $type 且含命名空间前缀 */
-  const type = element.$type || ''
-  /* istanbul ignore next */
-  const name = type.includes(':') ? type.split(':')[1] : type
-  return name.charAt(0).toLowerCase() + name.slice(1)
+  /* istanbul ignore next — moddle 始终提供 $type */
+  return getBpmnLocalName(String(element.$type || ''))
 }
 
 interface XmlEventHints {
@@ -151,14 +156,21 @@ interface XmlDiHints {
   edgeMessageVisibleKinds: Map<string, 'initiating' | 'non_initiating'>
 }
 
-function collectEventXmlHints(xml: string): XmlEventHints {
+function collectEventXmlHints(
+  xml: string,
+  xmlNames?: SerializationOverrides['xmlNames'],
+): XmlEventHints {
   const hints: XmlEventHints = {
     boundaryEventsWithoutCancelActivity: new Set<string>(),
     multipleEventDefinitionIds: new Set<string>(),
     parallelMultipleIds: new Set<string>(),
   }
 
-  const pattern = /<(?:\w+:)?(startEvent|intermediateThrowEvent|intermediateCatchEvent|boundaryEvent|endEvent)\b([^>]*)\bid="([^"]+)"([^>]*)>([\s\S]*?)<\/(?:\w+:)?\1>/g
+  const pattern = createBpmnElementTagRegex(
+    ['startEvent', 'intermediateThrowEvent', 'intermediateCatchEvent', 'boundaryEvent', 'endEvent'],
+    xmlNames,
+  )
+  const multipleEventDefinitionPattern = createBpmnOpeningTagRegex('multipleEventDefinition', xmlNames)
   let match: RegExpExecArray | null = pattern.exec(xml)
 
   while (match) {
@@ -168,7 +180,7 @@ function collectEventXmlHints(xml: string): XmlEventHints {
     if (tag === 'boundaryEvent' && !/\bcancelActivity=/.test(attrs)) {
       hints.boundaryEventsWithoutCancelActivity.add(id)
     }
-    if (/<(?:\w+:)?multipleEventDefinition\b/.test(body)) {
+    if (multipleEventDefinitionPattern.test(body)) {
       hints.multipleEventDefinitionIds.add(id)
     }
     if (/\bparallelMultiple="true"/.test(attrs)) {
@@ -437,7 +449,7 @@ function parseExtensionProps(element: ModdleElement): Record<string, unknown> | 
   const propsContainer = values.find((v) => {
     /* istanbul ignore next — moddle 始终提供 $type */
     const t = v.$type || (v as any).name || ''
-    return t.includes('properties')
+    return /^x6bpmn:properties$/i.test(String(t))
   })
 
   /* istanbul ignore next — extensionElements 不含 x6bpmn:properties 时防御性返回（第三方命名空间扩展触发） */
@@ -489,10 +501,7 @@ function mergeNodeBpmnData(
 
 export interface ParseBpmnOptions {
   /** 使用方言序列化层覆盖默认 BPMN 映射 */
-  serialization?: {
-    nodeMapping?: Record<string, BpmnNodeMapping>
-    edgeMapping?: Record<string, BpmnEdgeMapping>
-  }
+  serialization?: SerializationOverrides
 }
 
 /**
@@ -506,10 +515,13 @@ export interface ParseBpmnOptions {
  */
 export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}): Promise<BpmnImportData> {
   const moddle = new BpmnModdle()
-  const xmlEventHints = collectEventXmlHints(xml)
+  const xmlNames = resolveBpmnXmlNameSettings(options.serialization?.xmlNames)
+  const xmlEventHints = collectEventXmlHints(xml, xmlNames)
   const xmlDiHints = collectDiXmlHints(xml)
   const reverseNodeMap = buildReverseNodeMap(options.serialization?.nodeMapping ?? NODE_MAPPING)
   const reverseEdgeMap = buildReverseEdgeMap(options.serialization?.edgeMapping ?? EDGE_MAPPING)
+  const nodeSerializers = options.serialization?.nodeSerializers ?? {}
+  const edgeSerializers = options.serialization?.edgeSerializers ?? {}
   void reverseEdgeMap
 
   let definitions: ModdleElement
@@ -538,6 +550,10 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
 
   const nodes: BpmnNodeData[] = []
   const edges: BpmnEdgeData[] = []
+  const metadata = {
+    targetNamespace: definitions.targetNamespace as string | undefined,
+    processVersion: processes[0]?.$attrs?.version as string | undefined,
+  }
   const processPoolParents = new Map<string, string>()
   const laneFlowNodeParents = new Map<string, string>()
 
@@ -572,7 +588,7 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
   }
 
   // 无 process 时（仅 collaboration）提前返回
-  if (processes.length === 0) return { nodes, edges }
+  if (processes.length === 0) return { nodes, edges, metadata }
 
   // ---------- 解析泳道（Lane）----------
   for (const process of processes) {
@@ -729,6 +745,16 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
     const extData = parseExtensionProps(element)
     if (extData) nodeData.data = extData
 
+    const importedNodeBpmn = nodeSerializers[shape]?.import?.({
+      shape,
+      category: classifyShape(shape),
+      element,
+      namespaces: options.serialization?.namespaces ?? {},
+    })
+    if (importedNodeBpmn && Object.keys(importedNodeBpmn).length > 0) {
+      nodeData.data = mergeNodeBpmnData(nodeData.data, importedNodeBpmn)
+    }
+
     if (typeof diShape?.isExpanded === 'boolean' && EXPANDABLE_ACTIVITY_SHAPES.has(shape)) {
       nodeData.data = mergeNodeBpmnData(nodeData.data, { isExpanded: diShape.isExpanded })
     }
@@ -768,7 +794,17 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         ? diEdge.waypoints.slice(1, -1).map((wp) => ({ x: wp.x, y: wp.y }))
         : []
 
-    edges.push({ shape: edgeShape, id: bpmnId, source: sourceRef, target: targetRef, labels, vertices })
+    const edgeData: BpmnEdgeData = { shape: edgeShape, id: bpmnId, source: sourceRef, target: targetRef, labels, vertices }
+    const importedEdgeBpmn = edgeSerializers[edgeShape]?.import?.({
+      shape: edgeShape,
+      element: sf,
+      namespaces: options.serialization?.namespaces ?? {},
+    })
+    if (importedEdgeBpmn && Object.keys(importedEdgeBpmn).length > 0) {
+      edgeData.data = { bpmn: importedEdgeBpmn }
+    }
+
+    edges.push(edgeData)
   }
 
   // ---------- 解析消息流 ----------
@@ -859,5 +895,5 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
     }
   }
 
-  return { nodes, edges }
+  return { nodes, edges, metadata }
 }

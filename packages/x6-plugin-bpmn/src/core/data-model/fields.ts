@@ -2,11 +2,28 @@
  * 核心数据模型层 — 字段能力定义与验证
  *
  * FieldCapability 是主库对字段的能力定义（默认值、normalize、validate、serialize、deserialize），
- * 主库不负责 UI 展示相关定义。
+ * 同时可附带声明式编辑提示，供示例项目或宿主 UI 复用。
  */
 
-import type { FieldCapability, FieldValidateContext, DataModelSet } from '../dialect/types'
+import type {
+  DataModelSet,
+  FieldCapability,
+  FieldEditorInput,
+  FieldEditorOption,
+  FieldValidateContext,
+} from '../dialect/types'
 import { classifyShape } from '../../config'
+
+export interface ResolvedFieldEditor {
+  key: string
+  label: string
+  input: FieldEditorInput
+  placeholder?: string
+  options?: FieldEditorOption[]
+  scope?: FieldCapability['scope']
+  defaultValue?: unknown
+  description?: string
+}
 
 // ============================================================================
 // 字段能力辅助函数
@@ -120,6 +137,66 @@ export function getFieldsForShape(
   if (directFields.length === 0) return classifiedFields
 
   return Array.from(new Set([...directFields, ...classifiedFields]))
+}
+
+function getResolvedFieldNamesForShape(
+  shape: string,
+  category: string,
+  dataModel: DataModelSet,
+): string[] {
+  const fieldNames = getFieldsForShape(shape, category, dataModel)
+
+  if (
+    shape.includes('boundary') &&
+    'cancelActivity' in dataModel.fields &&
+    !fieldNames.includes('cancelActivity')
+  ) {
+    return [...fieldNames, 'cancelActivity']
+  }
+
+  return fieldNames
+}
+
+function resolveFieldEditors(
+  fieldNames: string[],
+  dataModel: DataModelSet,
+): ResolvedFieldEditor[] {
+  return fieldNames.map((fieldName) => {
+    const field = dataModel.fields[fieldName]
+    const editor = field?.editor
+
+    return {
+      key: fieldName,
+      label: editor?.label || fieldName,
+      input: editor?.input || 'text',
+      ...(editor?.placeholder ? { placeholder: editor.placeholder } : {}),
+      ...(editor?.options ? { options: editor.options } : {}),
+      ...(field?.scope ? { scope: field.scope } : {}),
+      ...(field && 'defaultValue' in field ? { defaultValue: field.defaultValue } : {}),
+      ...(field?.description ? { description: field.description } : {}),
+    }
+  })
+}
+
+/**
+ * 获取指定分类下的字段编辑提示。
+ */
+export function getFieldEditorsForCategory(
+  category: string,
+  dataModel: DataModelSet,
+): ResolvedFieldEditor[] {
+  return resolveFieldEditors(getFieldsForCategory(category, dataModel), dataModel)
+}
+
+/**
+ * 获取指定 shape 下的字段编辑提示。
+ */
+export function getFieldEditorsForShape(
+  shape: string,
+  category: string,
+  dataModel: DataModelSet,
+): ResolvedFieldEditor[] {
+  return resolveFieldEditors(getResolvedFieldNamesForShape(shape, category, dataModel), dataModel)
 }
 
 /**

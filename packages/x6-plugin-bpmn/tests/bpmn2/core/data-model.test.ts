@@ -14,6 +14,8 @@ import {
   deserializeFieldValue,
   getFieldsForCategory,
   getFieldsForShape,
+  getFieldEditorsForCategory,
+  getFieldEditorsForShape,
   buildDefaultData,
   validateFields,
 } from '../../../src/core/data-model/fields'
@@ -28,6 +30,11 @@ const testDataModel: DataModelSet = {
     assignee: {
       scope: 'node',
       defaultValue: '',
+      editor: {
+        label: '处理人',
+        input: 'text',
+        placeholder: '如: admin',
+      },
       normalize: (v) => String(v ?? '').trim(),
       validate: (v, ctx) => {
         if (ctx.category === 'task' && v === '') return '任务必须指定处理人'
@@ -43,9 +50,21 @@ const testDataModel: DataModelSet = {
     description: {
       scope: 'node',
       defaultValue: '',
+      editor: {
+        label: '说明',
+        input: 'textarea',
+      },
     },
     noDefault: {
       scope: 'node',
+    },
+    cancelActivity: {
+      scope: 'node',
+      defaultValue: true,
+      editor: {
+        label: '中断活动',
+        input: 'boolean',
+      },
     },
   },
   categoryFields: {
@@ -207,6 +226,127 @@ describe('getFieldsForShape', () => {
 
     const fields = getFieldsForShape('bpmn-user-task', 'task', dm)
     expect(fields).toEqual(['priority', 'owner', 'assignee'])
+  })
+})
+
+describe('getFieldEditorsForCategory', () => {
+  it('应返回字段的声明式编辑提示', () => {
+    const editors = getFieldEditorsForCategory('task', testDataModel)
+    expect(editors).toEqual([
+      {
+        key: 'assignee',
+        label: '处理人',
+        input: 'text',
+        placeholder: '如: admin',
+        scope: 'node',
+        defaultValue: '',
+      },
+      {
+        key: 'priority',
+        label: 'priority',
+        input: 'text',
+        scope: 'node',
+        defaultValue: 'medium',
+      },
+    ])
+  })
+
+  it('应保留字段选项和描述信息', () => {
+    const dm: DataModelSet = {
+      fields: {
+        implementationType: {
+          scope: 'node',
+          defaultValue: 'class',
+          description: '服务任务实现方式',
+          editor: {
+            label: '实现方式',
+            input: 'select',
+            options: [
+              { label: 'Class', value: 'class' },
+              { label: 'Expression', value: 'expression' },
+            ],
+          },
+        },
+      },
+      categoryFields: {
+        serviceTask: ['implementationType'],
+      },
+    }
+
+    const editors = getFieldEditorsForCategory('serviceTask', dm)
+    expect(editors).toEqual([
+      {
+        key: 'implementationType',
+        label: '实现方式',
+        input: 'select',
+        options: [
+          { label: 'Class', value: 'class' },
+          { label: 'Expression', value: 'expression' },
+        ],
+        scope: 'node',
+        defaultValue: 'class',
+        description: '服务任务实现方式',
+      },
+    ])
+  })
+})
+
+describe('getFieldEditorsForShape', () => {
+  it('应返回 shape 级字段的编辑提示', () => {
+    const editors = getFieldEditorsForShape('bpmn-user-task', 'task', testDataModel)
+    expect(editors.map((field) => field.key)).toEqual(['assignee', 'priority', 'description'])
+    expect(editors[2]).toMatchObject({
+      key: 'description',
+      label: '说明',
+      input: 'textarea',
+    })
+  })
+
+  it('边界事件应自动补上 cancelActivity 编辑提示', () => {
+    const dm: DataModelSet = {
+      fields: {
+        cancelActivity: {
+          scope: 'node',
+          defaultValue: true,
+          editor: {
+            label: '中断活动',
+            input: 'boolean',
+          },
+        },
+      },
+      categoryFields: {
+        timerEvent: [],
+      },
+    }
+
+    const editors = getFieldEditorsForShape('bpmn-boundary-event-timer', 'timerEvent', dm)
+    expect(editors).toEqual([
+      {
+        key: 'cancelActivity',
+        label: '中断活动',
+        input: 'boolean',
+        scope: 'node',
+        defaultValue: true,
+      },
+    ])
+  })
+
+  it('字段能力缺失时应回退为基础文本编辑提示', () => {
+    const dm: DataModelSet = {
+      fields: {},
+      categoryFields: {
+        task: ['ghostField'],
+      },
+    }
+
+    const editors = getFieldEditorsForShape('bpmn-task', 'task', dm)
+    expect(editors).toEqual([
+      {
+        key: 'ghostField',
+        label: 'ghostField',
+        input: 'text',
+      },
+    ])
   })
 })
 

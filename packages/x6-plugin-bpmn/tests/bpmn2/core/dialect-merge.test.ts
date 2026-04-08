@@ -16,6 +16,7 @@ import {
   mergeSerialization,
   mergeProfileLayers,
 } from '../../../src/core/dialect/merge'
+import { DEFAULT_BPMN_XML_NAME_SETTINGS } from '../../../src/utils/bpmn-xml-names'
 import type {
   DefinitionsSet,
   AvailabilitySet,
@@ -320,6 +321,7 @@ describe('mergeDataModel', () => {
 describe('mergeSerialization', () => {
   const parent: SerializationSet = {
     namespaces: { bpmn: 'http://bpmn.io' },
+    xmlNames: DEFAULT_BPMN_XML_NAME_SETTINGS,
     nodeMapping: { task: { tag: 'bpmn:task' } as any },
     edgeMapping: { seq: { tag: 'bpmn:sequenceFlow' } as any },
   }
@@ -348,6 +350,20 @@ describe('mergeSerialization', () => {
     }
     const result = mergeSerialization(parent, child)
     expect('seq' in result.edgeMapping).toBe(false)
+  })
+
+  it('应合并 xmlNames 的前缀与特殊构造配置', () => {
+    const child: Partial<SerializationSet> = {
+      xmlNames: {
+        acceptedTagPrefixes: ['', 'flow'],
+        createModes: { formalExpression: 'create' },
+      },
+    }
+    const result = mergeSerialization(parent, child)
+    expect(result.xmlNames?.moddlePrefix).toBe('bpmn')
+    expect(result.xmlNames?.acceptedTagPrefixes).toEqual(['', 'flow'])
+    expect(result.xmlNames?.createModes?.multipleEventDefinition).toBe('createAny')
+    expect(result.xmlNames?.createModes?.formalExpression).toBe('create')
   })
 })
 

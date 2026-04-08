@@ -10,8 +10,7 @@
 
 import { BpmnModdle } from 'bpmn-moddle'
 import type { ModdleElement } from 'bpmn-moddle'
-
-const NS_BPMN = 'http://www.omg.org/spec/BPMN/20100524/MODEL'
+import { createBpmnElement } from '../../src/utils/bpmn-xml-names'
 
 // ============================================================================
 // Types
@@ -238,6 +237,14 @@ export interface BpmnValidationResult {
   rootElement: ModdleElement | null
 }
 
+function createBpmn(
+  moddle: BpmnModdle,
+  localName: string,
+  attrs: Record<string, unknown>,
+): ModdleElement {
+  return createBpmnElement(moddle, localName, attrs)
+}
+
 // ============================================================================
 // Builder
 // ============================================================================
@@ -311,9 +318,9 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
       targetRef: tgt,
     }
     if (sf.name) props.name = sf.name
-    const seqFlow = moddle.create('bpmn:SequenceFlow', props)
+    const seqFlow = createBpmn(moddle, 'sequenceFlow', props)
     if (sf.hasCondition) {
-      seqFlow.conditionExpression = moddle.create('bpmn:FormalExpression', {
+      seqFlow.conditionExpression = createBpmn(moddle, 'formalExpression', {
         body: sf.conditionBody ?? 'condition',
       })
     }
@@ -346,7 +353,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
       targetRef: tgt,
     }
     if (assoc.direction) props.associationDirection = assoc.direction
-    const assocEl = moddle.create('bpmn:Association', props)
+    const assocEl = createBpmn(moddle, 'association', props)
     associationElements.set(assoc.id, assocEl)
   }
 
@@ -358,14 +365,14 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
       throw new Error(`BpmnBuilder: unknown taskId "${da.taskId}" or dataRef "${da.dataRef}" in ${da.kind}`)
     }
     if (da.kind === 'dataInputAssociation') {
-      const daEl = moddle.create('bpmn:DataInputAssociation', {
+      const daEl = createBpmn(moddle, 'dataInputAssociation', {
         id: da.id,
         sourceRef: [dataRef],
         targetRef: task,
       })
       task.dataInputAssociations = [...(task.dataInputAssociations ?? []), daEl]
     } else {
-      const daEl = moddle.create('bpmn:DataOutputAssociation', {
+      const daEl = createBpmn(moddle, 'dataOutputAssociation', {
         id: da.id,
         sourceRef: [task],
         targetRef: dataRef,
@@ -380,7 +387,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
   for (const proc of spec.processes) {
     const laneSetSpec = proc.elements.find((e) => e.kind === 'laneSet') as LaneSetSpec | undefined
 
-    const processEl = moddle.create('bpmn:Process', {
+    const processEl = createBpmn(moddle, 'process', {
       id: proc.id,
       isExecutable: proc.isExecutable ?? false,
     })
@@ -428,13 +435,13 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
     if (laneSetSpec) {
       const lanes = laneSetSpec.lanes.map((lane) => {
         const flowNodeRefs = (lane.flowNodeRefs ?? []).map((refId) => nodeRegistry.get(refId)).filter(Boolean) as ModdleElement[]
-        return moddle.create('bpmn:Lane', {
+        return createBpmn(moddle, 'lane', {
           id: lane.id,
           name: lane.name,
           flowNodeRef: flowNodeRefs,
         })
       })
-      processEl.laneSets = [moddle.create('bpmn:LaneSet', {
+      processEl.laneSets = [createBpmn(moddle, 'laneSet', {
         id: laneSetSpec.id,
         lanes,
       })]
@@ -448,7 +455,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
   if (spec.collaboration) {
     const coll = spec.collaboration
     const participants = coll.participants.map((p) =>
-      moddle.create('bpmn:Participant', {
+      createBpmn(moddle, 'participant', {
         id: p.id,
         name: p.name,
         processRef: processElements.get(p.processRef),
@@ -458,7 +465,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
     const msgFlows = (coll.messageFlows ?? []).map((mf) => {
       const src = nodeRegistry.get(mf.sourceRef) ?? processElements.get(mf.sourceRef)
       const tgt = nodeRegistry.get(mf.targetRef) ?? processElements.get(mf.targetRef)
-      return moddle.create('bpmn:MessageFlow', {
+      return createBpmn(moddle, 'messageFlow', {
         id: mf.id,
         sourceRef: src,
         targetRef: tgt,
@@ -466,7 +473,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
       })
     })
 
-    collaborationEl = moddle.create('bpmn:Collaboration', {
+    collaborationEl = createBpmn(moddle, 'collaboration', {
       id: coll.id,
       participants,
       ...(msgFlows.length > 0 ? { messageFlows: msgFlows } : {}),
@@ -529,7 +536,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
   diagram.plane = plane
 
   // ---- Assemble definitions ----
-  const definitions = moddle.create('bpmn:Definitions', {
+  const definitions = createBpmn(moddle, 'definitions', {
     id: spec.id ?? 'Definitions_1',
     targetNamespace: spec.targetNamespace ?? 'http://bpmn.io/schema/bpmn',
   })
@@ -590,7 +597,7 @@ export async function validateBpmnXml(xml: string): Promise<BpmnValidationResult
 function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement {
   switch (spec.kind) {
     case 'startEvent': {
-      const el = moddle.create('bpmn:StartEvent', {
+      const el = createBpmn(moddle, 'startEvent', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
         ...(spec.parallelMultiple ? { parallelMultiple: true } : {}),
@@ -602,7 +609,7 @@ function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement
     }
 
     case 'endEvent': {
-      const el = moddle.create('bpmn:EndEvent', {
+      const el = createBpmn(moddle, 'endEvent', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
@@ -620,8 +627,7 @@ function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement
     case 'receiveTask':
     case 'manualTask':
     case 'businessRuleTask': {
-      const bpmnType = `bpmn:${capitalize(spec.kind)}`
-      return moddle.create(bpmnType, {
+      return createBpmn(moddle, spec.kind, {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
@@ -632,15 +638,14 @@ function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement
     case 'inclusiveGateway':
     case 'complexGateway':
     case 'eventBasedGateway': {
-      const bpmnType = `bpmn:${capitalize(spec.kind)}`
-      return moddle.create(bpmnType, {
+      return createBpmn(moddle, spec.kind, {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
     }
 
     case 'subProcess': {
-      return moddle.create('bpmn:SubProcess', {
+      return createBpmn(moddle, 'subProcess', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
         ...(spec.triggeredByEvent ? { triggeredByEvent: true } : {}),
@@ -648,42 +653,42 @@ function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement
     }
 
     case 'transaction': {
-      return moddle.create('bpmn:Transaction', {
+      return createBpmn(moddle, 'transaction', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
     }
 
     case 'adHocSubProcess': {
-      return moddle.create('bpmn:AdHocSubProcess', {
+      return createBpmn(moddle, 'adHocSubProcess', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
     }
 
     case 'callActivity': {
-      return moddle.create('bpmn:CallActivity', {
+      return createBpmn(moddle, 'callActivity', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
     }
 
     case 'dataObjectReference': {
-      return moddle.create('bpmn:DataObjectReference', {
+      return createBpmn(moddle, 'dataObjectReference', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
     }
 
     case 'dataStoreReference': {
-      return moddle.create('bpmn:DataStoreReference', {
+      return createBpmn(moddle, 'dataStoreReference', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
     }
 
     case 'intermediateThrowEvent': {
-      const el = moddle.create('bpmn:IntermediateThrowEvent', {
+      const el = createBpmn(moddle, 'intermediateThrowEvent', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
@@ -694,7 +699,7 @@ function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement
     }
 
     case 'intermediateCatchEvent': {
-      const el = moddle.create('bpmn:IntermediateCatchEvent', {
+      const el = createBpmn(moddle, 'intermediateCatchEvent', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
       })
@@ -706,7 +711,7 @@ function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement
 
     case 'boundaryEvent': {
       const eventDefinition = (spec.eventDefinition ?? '').toLowerCase()
-      const el = moddle.create('bpmn:BoundaryEvent', {
+      const el = createBpmn(moddle, 'boundaryEvent', {
         id: spec.id,
         ...(spec.name ? { name: spec.name } : {}),
         cancelActivity: spec.cancelActivity ?? (eventDefinition === 'escalationeventdefinition' ? false : true),
@@ -719,14 +724,14 @@ function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement
     }
 
     case 'textAnnotation': {
-      return moddle.create('bpmn:TextAnnotation', {
+      return createBpmn(moddle, 'textAnnotation', {
         id: spec.id,
         text: spec.text ?? '',
       })
     }
 
     case 'group': {
-      return moddle.create('bpmn:Group', {
+      return createBpmn(moddle, 'group', {
         id: spec.id,
       })
     }
@@ -736,13 +741,6 @@ function createFlowElement(moddle: BpmnModdle, spec: ElementSpec): ModdleElement
   }
 }
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1)
-}
-
 function createEventDefinition(moddle: BpmnModdle, eventDefinition: string, id: string): ModdleElement {
-  if (eventDefinition === 'multipleEventDefinition') {
-    return moddle.createAny('bpmn:multipleEventDefinition', NS_BPMN, { id }) as ModdleElement
-  }
-  return moddle.create(`bpmn:${capitalize(eventDefinition)}`, { id })
+  return createBpmn(moddle, eventDefinition, { id })
 }

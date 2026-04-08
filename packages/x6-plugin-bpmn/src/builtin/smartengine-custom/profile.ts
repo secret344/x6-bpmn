@@ -20,53 +20,24 @@ export const smartengineCustomProfile: Profile = {
     name: 'SmartEngine Custom',
     parent: 'smartengine-base',
     version: '1.0.0',
-    description: 'SmartEngine 服务编排模式，强化 ServiceTask/ReceiveTask，收紧规则',
+    description: 'SmartEngine 服务编排模式，在 BPMN 2.0 基础上叠加 Custom 模式限制',
   },
 
-  // 禁用 custom mode 下不推荐的元素
+  // 仅禁用文档明确声明为 Database 模式专属的元素
   availability: {
     nodes: {
       'bpmn-user-task': 'disabled',
-      'bpmn-manual-task': 'disabled',
-      'bpmn-ad-hoc-sub-process': 'disabled',
+      'bpmn-inclusive-gateway': 'disabled',
     },
   },
 
-  // 收紧规则
+  // 收紧规则，避免在 Custom 模式下误用 Database 专属能力
   rules: {
     constraints: [
       createForbiddenShapes(
-        ['bpmn-user-task', 'bpmn-manual-task'],
-        'SmartEngine Custom 模式下不建议使用人工任务',
+        ['bpmn-user-task', 'bpmn-inclusive-gateway'],
+        'SmartEngine Custom 模式下不支持仅限 DataBase 模式的节点',
       ),
     ],
-  },
-
-  // 扩展服务编排相关字段能力
-  dataModel: {
-    fields: {
-      smartServiceName: {
-        scope: 'node',
-        defaultValue: '',
-        description: '服务名称',
-        normalize: (v) => String(v ?? ''),
-      },
-      smartServiceVersion: {
-        scope: 'node',
-        defaultValue: '',
-        description: '服务版本',
-        normalize: (v) => String(v ?? ''),
-      },
-      smartServiceGroup: {
-        scope: 'node',
-        defaultValue: '',
-        description: '服务分组',
-        normalize: (v) => String(v ?? ''),
-      },
-    },
-    categoryFields: {
-      serviceTask: ['smartServiceName', 'smartServiceVersion', 'smartServiceGroup'],
-      receiveTask: ['smartServiceName', 'smartServiceVersion'],
-    },
   },
 }

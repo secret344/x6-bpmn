@@ -7,16 +7,16 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { Graph } from '@antv/x6'
-import { Selection } from '@antv/x6/es/plugin/selection/index.js'
-import { Transform } from '@antv/x6/es/plugin/transform/index.js'
-import { Snapline } from '@antv/x6/es/plugin/snapline/index.js'
-import { History } from '@antv/x6/es/plugin/history/index.js'
-import { Keyboard } from '@antv/x6/es/plugin/keyboard/index.js'
-import { Clipboard } from '@antv/x6/es/plugin/clipboard/index.js'
+import { Selection } from '@antv/x6/lib/plugin/selection'
+import { Transform } from '@antv/x6/lib/plugin/transform'
+import { Snapline } from '@antv/x6/lib/plugin/snapline'
+import { History } from '@antv/x6/lib/plugin/history'
+import { Keyboard } from '@antv/x6/lib/plugin/keyboard'
+import { Clipboard } from '@antv/x6/lib/plugin/clipboard'
 import {
   registerBpmnShapes,
   getShapeLabel,
-  setupBoundaryAttach,
+  setupBpmnInteractionBehaviors,
   isBoundaryShape,
   attachBoundaryToHost,
   distanceToRectEdge,
@@ -49,6 +49,7 @@ const { bind, selectedMode } = useSmartEngineSingleton()
 
 let graph: Graph | null = null
 let resizeObserver: ResizeObserver | null = null
+let disposeBpmnBehaviors: (() => void) | null = null
 
 const CONTAINER_SHAPES = new Set([
   BPMN_POOL, BPMN_LANE, BPMN_GROUP,
@@ -205,25 +206,7 @@ onMounted(async () => {
   graph.bindKey('meta+v', () => { graph!.paste({ offset: 32 }); return false })
   graph.bindKey('meta+a', () => { graph!.select(graph!.getCells()); return false })
 
-  setupBoundaryAttach(graph)
-
-  graph.on('node:added', ({ node }) => {
-    if (isBoundaryShape(node.shape)) {
-      for (const host of graph!.getNodes()) {
-        if (host.id === node.id || !ACTIVITY_SHAPES.has(host.shape as string)) continue
-        const hostBBox = host.getBBox()
-        const center = node.getBBox().center
-        const dist = distanceToRectEdge(
-          { x: center.x, y: center.y },
-          { x: hostBBox.x, y: hostBBox.y, width: hostBBox.width, height: hostBBox.height },
-        )
-        if (dist < 40) {
-          attachBoundaryToHost(graph!, node, host)
-          break
-        }
-      }
-    }
-  })
+  disposeBpmnBehaviors = setupBpmnInteractionBehaviors(graph)
 
   // 边工具：悬停/选中时显示
   graph.on('edge:mouseenter', ({ edge }) => {
@@ -285,6 +268,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  disposeBpmnBehaviors?.()
+  disposeBpmnBehaviors = null
   resizeObserver?.disconnect()
   graph?.dispose()
 })

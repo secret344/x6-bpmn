@@ -7,6 +7,7 @@
 
 import type { BpmnConnectionRule, BpmnNodeCategory } from '../../rules/connection-rules'
 import type { BpmnNodeMapping, BpmnEdgeMapping } from '../../export/bpmn-mapping'
+import type { BpmnXmlNameSettings } from '../../utils/bpmn-xml-names'
 
 // ============================================================================
 // 1. definitions — 元素定义
@@ -154,7 +155,28 @@ export interface FieldValidateContext {
   nodeData?: Record<string, unknown>
 }
 
-/** 字段能力定义（主库只负责能力，不负责 UI 展示） */
+/** 字段编辑器类型（声明式提示，不绑定具体 UI 组件） */
+export type FieldEditorInput = 'text' | 'textarea' | 'boolean' | 'select'
+
+/** 字段编辑器可选项 */
+export interface FieldEditorOption {
+  value: string
+  label: string
+}
+
+/** 字段编辑器提示 */
+export interface FieldEditorHint {
+  /** 显示名称 */
+  label?: string
+  /** 输入控件类型 */
+  input?: FieldEditorInput
+  /** 占位提示 */
+  placeholder?: string
+  /** 选择项 */
+  options?: FieldEditorOption[]
+}
+
+/** 字段能力定义（主库负责字段能力，并可提供声明式编辑提示） */
 export interface FieldCapability {
   /** 该字段适用的范围 */
   scope?: 'node' | 'edge' | 'graph'
@@ -170,6 +192,8 @@ export interface FieldCapability {
   serialize?: (value: unknown) => unknown
   /** 反序列化转换（XML / JSON → 节点数据） */
   deserialize?: (value: unknown) => unknown
+  /** 声明式编辑提示，由消费方决定如何渲染 */
+  editor?: FieldEditorHint
 }
 
 /** 数据模型集合 */
@@ -186,15 +210,86 @@ export interface DataModelSet {
 // 6. serialization — 序列化层
 // ============================================================================
 
+/** 节点导出序列化上下文。 */
+export interface NodeSerializationExportContext {
+  shape: string
+  category: string
+  bpmnData: Record<string, unknown>
+  element: unknown
+  moddle: unknown
+  namespaces: Record<string, string>
+}
+
+/** 节点导出序列化结果。 */
+export interface NodeSerializationExportResult {
+  /** 已由自定义序列化消费的 bpmn key，后续跳过通用扩展属性导出。 */
+  omitBpmnKeys?: string[]
+}
+
+/** 节点导入序列化上下文。 */
+export interface NodeSerializationImportContext {
+  shape: string
+  category: string
+  element: unknown
+  namespaces: Record<string, string>
+}
+
+/** 节点序列化处理器。 */
+export interface NodeSerializationHandler {
+  export?: (context: NodeSerializationExportContext) => void | NodeSerializationExportResult
+  import?: (context: NodeSerializationImportContext) => void | Record<string, unknown>
+}
+
+/** 边导出序列化上下文。 */
+export interface EdgeSerializationExportContext {
+  shape: string
+  edgeData: Record<string, unknown>
+  element: unknown
+  moddle: unknown
+  namespaces: Record<string, string>
+}
+
+/** 边导出序列化结果。 */
+export interface EdgeSerializationExportResult {
+  /** 已由自定义序列化消费的 bpmn key。 */
+  omitBpmnKeys?: string[]
+}
+
+/** 边导入序列化上下文。 */
+export interface EdgeSerializationImportContext {
+  shape: string
+  element: unknown
+  namespaces: Record<string, string>
+}
+
+/** 边序列化处理器。 */
+export interface EdgeSerializationHandler {
+  export?: (context: EdgeSerializationExportContext) => void | EdgeSerializationExportResult
+  import?: (context: EdgeSerializationImportContext) => void | Record<string, unknown>
+}
+
 /** 序列化集合 */
 export interface SerializationSet {
   /** 命名空间映射，如 { bpmn: 'http://...', smart: 'http://...' } */
   namespaces: Record<string, string>
+  /** BPMN XML 名称规则，如前缀、本地名接受策略与特殊构造模式。 */
+  xmlNames?: BpmnXmlNameSettings
   /** 节点 shape → BPMN 节点映射 */
   nodeMapping: Record<string, BpmnNodeMapping>
   /** 边 shape → BPMN 边映射 */
   edgeMapping: Record<string, BpmnEdgeMapping>
+  /** definitions.targetNamespace。 */
+  targetNamespace?: string
+  /** process 节点附加属性，如 version。 */
+  processAttributes?: Record<string, unknown>
+  /** 节点级 XML 导入导出处理器。 */
+  nodeSerializers?: Record<string, NodeSerializationHandler>
+  /** 边级 XML 导入导出处理器。 */
+  edgeSerializers?: Record<string, EdgeSerializationHandler>
 }
+
+/** 运行时可覆写的序列化选项。 */
+export type SerializationOverrides = Partial<SerializationSet>
 
 // ============================================================================
 // 顶层类型

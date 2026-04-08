@@ -1593,6 +1593,54 @@ describe('BPMN XML 导入（parseBpmnXml + loadBpmnGraph）', () => {
     graph.dispose()
   })
 
+  it('应导入默认命名空间下的无前缀 BPMN 标签', async () => {
+    const xml = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        await buildTestXml({
+          processes: [{ id: 'Process_1', elements: [
+            { kind: 'startEvent', id: 'S1', name: '开始' },
+          ] }],
+          shapes: { S1: { id: 'S1', x: 100, y: 100, width: 36, height: 36 } },
+        }),
+        /xmlns:bpmn="([^"]+)"/,
+        'xmlns="$1" xmlns:bpmn="$1"',
+        '应能补入默认 BPMN 命名空间',
+      ),
+      /<(\/?)(bpmn:)/g,
+      '<$1',
+      '应能移除 BPMN 元素标签前缀',
+    )
+
+    const graph = createTestGraph()
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
+    expect(graph.getCellById('S1')).toBeDefined()
+    graph.dispose()
+  })
+
+  it('应导入使用自定义 BPMN 前缀的标签', async () => {
+    const xml = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        await buildTestXml({
+          processes: [{ id: 'Process_1', elements: [
+            { kind: 'startEvent', id: 'S1', name: '开始' },
+          ] }],
+          shapes: { S1: { id: 'S1', x: 100, y: 100, width: 36, height: 36 } },
+        }),
+        /xmlns:bpmn="([^"]+)"/,
+        'xmlns:flow="$1" xmlns:bpmn="$1"',
+        '应能替换 BPMN 标签前缀声明',
+      ),
+      /<(\/?)(bpmn:)/g,
+      '<$1flow:',
+      '应能将 BPMN 元素标签改写为自定义前缀',
+    )
+
+    const graph = createTestGraph()
+    loadBpmnGraph(graph, await parseBpmnXml(xml), { zoomToFit: false })
+    expect(graph.getCellById('S1')).toBeDefined()
+    graph.dispose()
+  })
+
   it('无 DI Shape 的 participant 应使用默认尺寸', async () => {
     // 不提供 shapes → P1 和 S1 均使用默认尺寸
     const { graph } = await bpmnRoundtrip({

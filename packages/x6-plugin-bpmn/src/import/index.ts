@@ -14,6 +14,11 @@ import { parseBpmnXml } from './xml-parser'
 import { loadBpmnGraph } from './graph-loader'
 import type { LoadBpmnOptions } from './graph-loader'
 import type { BpmnNodeMapping, BpmnEdgeMapping } from '../export/bpmn-mapping'
+import type {
+  EdgeSerializationHandler,
+  NodeSerializationHandler,
+  SerializationOverrides,
+} from '../core/dialect/types'
 
 // 重新导出各子模块公开 API
 export { parseBpmnXml } from './xml-parser'
@@ -25,10 +30,7 @@ export type { Bpmn2ImporterAdapterOptions, Bpmn2ImportPostProcessor } from './ad
 
 export interface ImportBpmnOptions extends LoadBpmnOptions {
   /** 使用方言序列化层覆盖默认 BPMN 映射 */
-  serialization?: {
-    nodeMapping?: Record<string, BpmnNodeMapping>
-    edgeMapping?: Record<string, BpmnEdgeMapping>
-  }
+  serialization?: SerializationOverrides
 }
 
 // ============================================================================

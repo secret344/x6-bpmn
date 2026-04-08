@@ -8,6 +8,20 @@
 
 import type { Profile } from '../../core/dialect/types'
 import { createStartEventLimit } from '../../core/rules/constraints'
+import {
+  createSmartNodeSerializer,
+  smartClassField,
+  smartConditionalFlowSerializer,
+  smartExecutionListenersField,
+  smartPropertiesField,
+  SMARTENGINE_NAMESPACE_URI,
+} from './serialization'
+import {
+  BPMN_CONDITIONAL_FLOW,
+  BPMN_EXCLUSIVE_GATEWAY,
+  BPMN_RECEIVE_TASK,
+  BPMN_SERVICE_TASK,
+} from '../../utils/constants'
 
 /**
  * SmartEngine Base Profile
@@ -23,13 +37,37 @@ export const smartengineBaseProfile: Profile = {
     name: 'SmartEngine',
     parent: 'bpmn2',
     version: '1.0.0',
-    description: 'SmartEngine 公共扩展，完整继承 BPMN 2.0',
+    description: 'SmartEngine 公共扩展，保持 BPMN 2.0 默认能力并叠加 SmartEngine 配置',
   },
 
   // SmartEngine 命名空间扩展
   serialization: {
+    targetNamespace: 'Examples',
     namespaces: {
-      smart: 'http://smartengine.alibaba.com/schema',
+      smart: SMARTENGINE_NAMESPACE_URI,
+    },
+    processAttributes: {
+      version: '1.0.0',
+    },
+    nodeSerializers: {
+      [BPMN_SERVICE_TASK]: createSmartNodeSerializer({
+        allowSmartClass: true,
+        readProperties: true,
+        readExecutionListeners: true,
+      }),
+      [BPMN_RECEIVE_TASK]: createSmartNodeSerializer({
+        allowSmartClass: true,
+        readProperties: true,
+        readExecutionListeners: true,
+      }),
+      [BPMN_EXCLUSIVE_GATEWAY]: createSmartNodeSerializer({
+        allowSmartClass: true,
+        readProperties: true,
+        readExecutionListeners: true,
+      }),
+    },
+    edgeSerializers: {
+      [BPMN_CONDITIONAL_FLOW]: smartConditionalFlowSerializer,
     },
   },
 
@@ -43,40 +81,15 @@ export const smartengineBaseProfile: Profile = {
   // SmartEngine 公共字段能力扩展
   dataModel: {
     fields: {
-      // SmartEngine 扩展字段
-      smartAction: {
-        scope: 'node',
-        defaultValue: '',
-        description: 'SmartEngine 动作类型',
-        normalize: (v) => String(v ?? ''),
-      },
-      smartType: {
-        scope: 'node',
-        defaultValue: '',
-        description: 'SmartEngine 节点类型',
-        normalize: (v) => String(v ?? ''),
-      },
-      smartRetry: {
-        scope: 'node',
-        defaultValue: 0,
-        description: 'SmartEngine 重试次数',
-        normalize: (v) => Number(v) || 0,
-        validate: (v) => {
-          const num = Number(v)
-          if (isNaN(num) || num < 0) return '重试次数必须为非负整数'
-          return true
-        },
-      },
-      smartTimeout: {
-        scope: 'node',
-        defaultValue: '',
-        description: 'SmartEngine 超时配置',
-        normalize: (v) => String(v ?? ''),
-      },
+      smartClass: smartClassField,
+      smartProperties: smartPropertiesField,
+      smartExecutionListeners: smartExecutionListenersField,
     },
     categoryFields: {
-      serviceTask: ['smartAction', 'smartType', 'smartRetry', 'smartTimeout'],
-      userTask: ['smartAction', 'smartType'],
+      serviceTask: ['smartClass', 'smartProperties', 'smartExecutionListeners'],
+      receiveTask: ['smartClass', 'smartProperties', 'smartExecutionListeners'],
+      exclusiveGateway: ['smartClass', 'smartProperties', 'smartExecutionListeners'],
+      userTask: ['smartProperties', 'smartExecutionListeners'],
     },
   },
 }

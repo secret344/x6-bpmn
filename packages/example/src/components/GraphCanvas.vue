@@ -33,13 +33,13 @@
 import { ref, onMounted, onUnmounted, nextTick } from "vue";
 import { Graph, type Node } from "@antv/x6";
 import { Message } from "@arco-design/web-vue";
-import { Selection } from "@antv/x6/es/plugin/selection/index.js";
-import { Transform } from "@antv/x6/es/plugin/transform/index.js";
-import { Snapline } from "@antv/x6/es/plugin/snapline/index.js";
-import { Keyboard } from "@antv/x6/es/plugin/keyboard/index.js";
-import { Clipboard } from "@antv/x6/es/plugin/clipboard/index.js";
-import { History } from "@antv/x6/es/plugin/history/index.js";
-import { MiniMap } from "@antv/x6/es/plugin/minimap/index.js";
+import { Selection } from "@antv/x6/lib/plugin/selection";
+import { Transform } from "@antv/x6/lib/plugin/transform";
+import { Snapline } from "@antv/x6/lib/plugin/snapline";
+import { Keyboard } from "@antv/x6/lib/plugin/keyboard";
+import { Clipboard } from "@antv/x6/lib/plugin/clipboard";
+import { History } from "@antv/x6/lib/plugin/history";
+import { MiniMap } from "@antv/x6/lib/plugin/minimap";
 import {
   registerBpmnShapes,
   getShapeLabel,
@@ -47,8 +47,7 @@ import {
   importBpmnXml,
   createBpmnValidateConnection,
   createBpmnValidateEdge,
-  setupBoundaryAttach,
-  setupPoolContainment,
+  setupBpmnInteractionBehaviors,
   attachBoundaryToHost,
   isBoundaryShape,
   distanceToRectEdge,
@@ -94,8 +93,7 @@ declare global {
 
 let graph: Graph | null = null;
 let resizeObserver: ResizeObserver | null = null;
-let disposeBoundaryAttach: (() => void) | null = null;
-let disposePoolContainment: (() => void) | null = null;
+let disposeBpmnBehaviors: (() => void) | null = null;
 
 /** 可作为边界事件宿主的 Activity 图形集合 */
 const ACTIVITY_SHAPES = new Set([
@@ -514,12 +512,13 @@ onMounted(async () => {
   });
 
   // 安装边界事件吸附行为
-  disposeBoundaryAttach = setupBoundaryAttach(graph);
-  disposePoolContainment = setupPoolContainment(graph, {
+  disposeBpmnBehaviors = setupBpmnInteractionBehaviors(graph, {
+    poolContainment: {
     onViolation(result: { reason?: string }) {
       if (result.reason) {
         Message.warning(result.reason);
       }
+    },
     },
   });
 
@@ -549,10 +548,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  disposeBoundaryAttach?.();
-  disposeBoundaryAttach = null;
-  disposePoolContainment?.();
-  disposePoolContainment = null;
+  disposeBpmnBehaviors?.();
+  disposeBpmnBehaviors = null;
   resizeObserver?.disconnect();
   resizeObserver = null;
   if (typeof window !== "undefined" && window.__x6BpmnExampleGraph === graph) {

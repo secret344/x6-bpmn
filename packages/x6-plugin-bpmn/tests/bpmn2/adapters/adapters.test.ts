@@ -6,13 +6,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { Graph } from '@antv/x6'
+import { Graph, type Node as X6Node } from '@antv/x6'
 import { buildTestXml } from '../../helpers/xml-test-utils'
 import { DialectManager, createDialectManager } from '../../../src/core/dialect/manager'
 import { ProfileRegistry } from '../../../src/core/dialect/registry'
 import type { ExporterAdapter, ImporterAdapter, ProfileContext, ResolvedProfile } from '../../../src/core/dialect/types'
 import { createBpmn2ExporterAdapter } from '../../../src/export/adapter'
 import { createBpmn2ImporterAdapter } from '../../../src/import/adapter'
+import { DEFAULT_BPMN_XML_NAME_SETTINGS } from '../../../src/utils/bpmn-xml-names'
 import type { Profile } from '../../../src/core/dialect/types'
 import { bpmn2Profile, smartengineBaseProfile } from '../../../src/builtin'
 import { importBpmnXml } from '../../../src/import'
@@ -956,6 +957,36 @@ describe('createBpmn2ExporterAdapter', () => {
     vi.resetModules()
   })
 
+  it('exportXML 在无 profile 时应透传 options 的 processAttributes 与 serializers', async () => {
+    vi.resetModules()
+    const exportBpmnXml = vi.fn().mockResolvedValue('<bpmn:definitions />')
+    vi.doMock('../../../src/export/exporter', () => ({ exportBpmnXml }))
+
+    const mod = await import('../../../src/export/adapter')
+    const nodeSerializer = { export: vi.fn(() => ({ omitBpmnKeys: [] })) }
+    const edgeSerializer = { export: vi.fn(() => ({ omitBpmnKeys: [] })) }
+    const adapter = mod.createBpmn2ExporterAdapter({
+      serialization: {
+        processAttributes: { version: '2.0.0' },
+        nodeSerializers: { 'approval-node': nodeSerializer as any },
+        edgeSerializers: { 'approval-edge': edgeSerializer as any },
+      },
+    })
+
+    await adapter.exportXML({} as any, {} as any)
+
+    expect(exportBpmnXml).toHaveBeenCalledWith({} as any, expect.objectContaining({
+      serialization: expect.objectContaining({
+        processAttributes: { version: '2.0.0' },
+        nodeSerializers: { 'approval-node': nodeSerializer },
+        edgeSerializers: { 'approval-edge': edgeSerializer },
+      }),
+    }))
+
+    vi.doUnmock('../../../src/export/exporter')
+    vi.resetModules()
+  })
+
   it('exportXML 应支持 preExport 和 postExportXml 钩子', async () => {
     try { Graph.registerNode('bpmn-start-event', { inherit: 'rect' }, true) } catch {}
     const preExport = vi.fn()
@@ -1154,13 +1185,58 @@ describe('createBpmn2ImporterAdapter', () => {
 
     await adapter.importXML(graph, xml, {} as any)
 
-    const node = graph.getCellById('task1') as Graph.Node
+    const node = graph.getCellById('task1') as X6Node
     const data = node.getData<Record<string, unknown>>()
     expect(postImport).toHaveBeenCalledOnce()
     expect(data.action).toBe('approve')
     expect(data.retry).toBe('3')
     expect(data.plain).toBeUndefined()
     graph.dispose()
+  })
+
+  it('importXML 在无 profile 时应透传 options 的 namespaces 与 serializers', async () => {
+    vi.resetModules()
+    const parseBpmnXml = vi.fn().mockResolvedValue({ nodes: [], edges: [] })
+    const loadBpmnGraph = vi.fn()
+    vi.doMock('../../../src/import/index', () => ({ parseBpmnXml, loadBpmnGraph }))
+
+    const mod = await import('../../../src/import/adapter')
+    const nodeSerializer = { import: vi.fn(() => ({ fromNodeSerializer: true })) }
+    const edgeSerializer = { import: vi.fn(() => ({ fromEdgeSerializer: true })) }
+    const adapter = mod.createBpmn2ImporterAdapter({
+      serialization: {
+        namespaces: { smart: 'http://smartengine.org/schema/process' },
+        xmlNames: {
+          ...DEFAULT_BPMN_XML_NAME_SETTINGS,
+          acceptedTagPrefixes: ['', 'flow'],
+        },
+        nodeSerializers: { 'approval-node': nodeSerializer as any },
+        edgeSerializers: { 'approval-edge': edgeSerializer as any },
+      },
+    })
+
+    await adapter.importXML({} as any, '<bpmn:definitions />', {} as any)
+
+    expect(parseBpmnXml).toHaveBeenCalledWith('<bpmn:definitions />', {
+      serialization: {
+        nodeMapping: undefined,
+        edgeMapping: undefined,
+        namespaces: { smart: 'http://smartengine.org/schema/process' },
+        xmlNames: {
+          moddlePrefix: 'bpmn',
+          namespaceUri: 'http://www.omg.org/spec/BPMN/20100524/MODEL',
+          acceptedTagPrefixes: ['', 'flow'],
+          moddleNames: { multipleEventDefinition: 'bpmn:multipleEventDefinition' },
+          createModes: { multipleEventDefinition: 'createAny' },
+        },
+        nodeSerializers: { 'approval-node': nodeSerializer },
+        edgeSerializers: { 'approval-edge': edgeSerializer },
+      },
+    })
+    expect(loadBpmnGraph).toHaveBeenCalledOnce()
+
+    vi.doUnmock('../../../src/import/index')
+    vi.resetModules()
   })
 })
 
@@ -1340,7 +1416,7 @@ describe('BPMN2 adapters with profile serialization', () => {
     runtimeManager.bind(graph, 'smartengine-base')
     const xml = await runtimeManager.exportXML(graph)
 
-    expect(xml).toContain('xmlns:smart="http://smartengine.alibaba.com/schema"')
+    expect(xml).toContain('xmlns:smart="http://smartengine.org/schema/process"')
   })
 })
 

@@ -271,7 +271,7 @@ export function useSmartEngine() {
         width: 120,
         height: 60,
         label: '调用服务A',
-        data: { smartAction: 'invoke', smartType: 'rpc' },
+        data: { smartClass: 'com.example.ServiceADelegation' },
       })
       const gw = createLabeledNode(g, { shape: BPMN_EXCLUSIVE_GATEWAY, x: 450, y: 195, label: '路由' })
       const svc2 = createLabeledNode(g, {
@@ -281,7 +281,10 @@ export function useSmartEngine() {
         width: 120,
         height: 60,
         label: '调用服务B',
-        data: { smartServiceName: 'serviceB' },
+        data: {
+          smartClass: 'com.example.ServiceBDelegation',
+          smartProperties: '[{"name":"serviceName","value":"serviceB"}]',
+        },
       })
       const svc3 = createLabeledNode(g, {
         shape: BPMN_SERVICE_TASK,
@@ -290,7 +293,10 @@ export function useSmartEngine() {
         width: 120,
         height: 60,
         label: '调用服务C',
-        data: { smartServiceName: 'serviceC' },
+        data: {
+          smartClass: 'com.example.ServiceCDelegation',
+          smartProperties: '[{"name":"serviceName","value":"serviceC"}]',
+        },
       })
       const end = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 820, y: 200, label: '结束' })
 
@@ -354,7 +360,9 @@ export function useSmartEngine() {
         width: 120,
         height: 60,
         label: '人工处理',
-        data: { smartAction: 'review', smartType: 'manual' },
+        data: {
+          smartProperties: '[{"name":"taskType","value":"manual-review"}]',
+        },
       })
       const task2 = createLabeledNode(g, {
         shape: BPMN_SERVICE_TASK,
@@ -363,7 +371,11 @@ export function useSmartEngine() {
         width: 120,
         height: 60,
         label: '自动处理',
-        data: { smartAction: 'auto', smartType: 'rpc', smartRetry: 3 },
+        data: {
+          smartClass: 'com.example.AutoTaskDelegation',
+          smartProperties: '[{"name":"retry","value":"3"},{"name":"channel","value":"rpc"}]',
+          smartExecutionListeners: '[{"event":"ACTIVITY_START","class":"com.example.StartListener"}]',
+        },
       })
       const end = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 650, y: 200, label: '结束' })
 

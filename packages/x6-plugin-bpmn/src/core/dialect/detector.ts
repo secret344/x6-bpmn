@@ -55,11 +55,10 @@ export interface DialectDetectRule {
 export const smartEngineNamespaceRule: DialectDetectRule = {
   name: 'smartengine-namespace',
   test(xml: string): string | null {
-    // 检测 SmartEngine 相关命名空间
+    // 优先识别官方 SmartEngine 命名空间，同时兼容历史 URI
     if (
-      xml.includes('smartengine') ||
-      xml.includes('smart:') ||
-      xml.includes('xmlns:smart=')
+      xml.includes('http://smartengine.org/schema/process') ||
+      xml.includes('http://smartengine.alibaba.com/schema')
     ) {
       return 'smartengine-base'
     }

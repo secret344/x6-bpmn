@@ -9,6 +9,7 @@
 import type { Graph, Node, Edge } from '@antv/x6'
 import { BpmnModdle } from 'bpmn-moddle'
 import type { ModdleElement } from 'bpmn-moddle'
+import { classifyShape } from '../config'
 import {
   type BpmnNodeMapping,
   type BpmnEdgeMapping,
@@ -22,6 +23,11 @@ import {
   isDefaultFlow,
   isConditionalFlow,
 } from './bpmn-mapping'
+import type {
+  EdgeSerializationHandler,
+  NodeSerializationHandler,
+  SerializationOverrides,
+} from '../core/dialect/types'
 import {
   BPMN_SEQUENCE_FLOW,
   BPMN_DEFAULT_FLOW,
@@ -38,6 +44,10 @@ import {
   BPMN_AD_HOC_SUB_PROCESS,
   BPMN_CALL_ACTIVITY,
 } from '../utils/constants'
+import {
+  createBpmnElement,
+  resolveBpmnXmlNameSettings,
+} from '../utils/bpmn-xml-names'
 import { resolveSwimlaneIsHorizontal } from '../shapes/swimlane-presentation'
 
 // ============================================================================
@@ -45,7 +55,6 @@ import { resolveSwimlaneIsHorizontal } from '../shapes/swimlane-presentation'
 // ============================================================================
 
 const NS_X6BPMN = 'http://x6-bpmn2.io/schema'
-const NS_BPMN = 'http://www.omg.org/spec/BPMN/20100524/MODEL'
 const EXPANDABLE_ACTIVITY_SHAPES = new Set([
   BPMN_SUB_PROCESS,
   BPMN_EVENT_SUB_PROCESS,
@@ -68,6 +77,32 @@ interface ProcessBuildContext {
   rootFlowElements: ModdleElement[]
   nestedFlowElements: Map<string, ModdleElement[]>
   artifactElements: ModdleElement[]
+}
+
+function appendXmlAttributes(element: ModdleElement, attrs: Record<string, unknown> | undefined): void {
+  if (!attrs || Object.keys(attrs).length === 0) return
+  /* istanbul ignore next -- 防御性回退，合法 moddle 元素都会持有 $attrs 对象 */
+  Object.assign((element.$attrs || {}) as Record<string, unknown>, attrs)
+}
+
+function appendExtensionValue(
+  element: ModdleElement,
+  moddle: BpmnModdle,
+  value: ModdleElement,
+  xmlNames?: SerializationOverrides['xmlNames'],
+): void {
+  const extensionElements = element.extensionElements as ModdleElement | undefined
+  if (!extensionElements) {
+    element.extensionElements = createBpmnElement(moddle, 'extensionElements', { values: [value] }, xmlNames)
+    return
+  }
+
+  /* istanbul ignore next -- 防御性回退，合法 ExtensionElements 总会提供 values */
+  const extensionValues = (extensionElements.values || []) as ModdleElement[]
+  extensionElements.values = [
+    ...extensionValues,
+    value,
+  ]
 }
 
 // ============================================================================
@@ -214,18 +249,6 @@ function computeConnectionPoint(
   return boundaryPoint(pos.x, pos.y, size.width, size.height, directionPt.x, directionPt.y)
 }
 
-/** 将 bpmn-mapping 的驼峰标签转换为 bpmn-moddle 类型（PascalCase + bpmn: 前缀） */
-function toBpmnType(tag: string): string {
-  return `bpmn:${tag.charAt(0).toUpperCase()}${tag.slice(1)}`
-}
-
-function createEventDefinition(moddle: BpmnModdle, tag: string, id: string): ModdleElement {
-  if (tag === 'multipleEventDefinition') {
-    return moddle.createAny('bpmn:multipleEventDefinition', NS_BPMN, { id }) as ModdleElement
-  }
-  return moddle.create(toBpmnType(tag), { id })
-}
-
 function resolveActivityIsExpanded(node: Node): boolean | undefined {
   if (!EXPANDABLE_ACTIVITY_SHAPES.has(node.shape)) return undefined
   const bpmn = node.getData<{ bpmn?: { isExpanded?: unknown } }>()?.bpmn
@@ -299,11 +322,7 @@ export interface ExportBpmnOptions {
   /** 流程名称，默认为空 */
   processName?: string
   /** 使用方言序列化层覆盖默认 BPMN 映射 */
-  serialization?: {
-    namespaces?: Record<string, string>
-    nodeMapping?: Record<string, BpmnNodeMapping>
-    edgeMapping?: Record<string, BpmnEdgeMapping>
-  }
+  serialization?: SerializationOverrides
 }
 
 /**
@@ -322,9 +341,15 @@ export interface ExportBpmnOptions {
 export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {}): Promise<string> {
   const { processId = 'Process_1', processName = '' } = options
   const moddle = new BpmnModdle()
+  const xmlNames = resolveBpmnXmlNameSettings(options.serialization?.xmlNames)
   const nodeMapping = options.serialization?.nodeMapping ?? NODE_MAPPING
   const edgeMapping = options.serialization?.edgeMapping ?? EDGE_MAPPING
-  const x6bpmnNamespace = options.serialization?.namespaces?.x6bpmn ?? NS_X6BPMN
+  const namespaces = options.serialization?.namespaces ?? {}
+  const x6bpmnNamespace = namespaces.x6bpmn ?? NS_X6BPMN
+  const targetNamespace = options.serialization?.targetNamespace ?? 'http://bpmn.io/schema/bpmn'
+  const processAttributes = options.serialization?.processAttributes ?? {}
+  const nodeSerializers = options.serialization?.nodeSerializers ?? {}
+  const edgeSerializers = options.serialization?.edgeSerializers ?? {}
 
   const nodes = graph.getNodes()
   const edges = graph.getEdges()
@@ -454,16 +479,18 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const uniqueId = ensureUniqueProcessId(candidateId, usedProcessIds)
     const context: ProcessBuildContext = {
       id: uniqueId,
-      process: moddle.create('bpmn:Process', {
+      process: createBpmnElement(moddle, 'process', {
         id: uniqueId,
         name,
         isExecutable: false,
-      }),
+      }, xmlNames),
       poolId,
       rootFlowElements: [],
       nestedFlowElements: new Map<string, ModdleElement[]>(),
       artifactElements: [],
     }
+
+    appendXmlAttributes(context.process, processAttributes)
 
     processContexts.push(context)
     if (poolId) {
@@ -618,25 +645,47 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     }
 
     // 边界事件 → attachedToRef（在所有节点创建后再设置）
-    const bpmnType = toBpmnType(mapping.tag)
-    const element = moddle.create(bpmnType, props)
+    const element = createBpmnElement(moddle, mapping.tag, props, xmlNames)
 
     // 事件定义
     if (mapping.eventDefinition) {
-      const eventDef = createEventDefinition(moddle, mapping.eventDefinition, `${toXmlId(node.id)}_ed`)
+      const eventDef = createBpmnElement(
+        moddle,
+        mapping.eventDefinition,
+        { id: `${toXmlId(node.id)}_ed` },
+        xmlNames,
+      )
       element.eventDefinitions = [eventDef]
     }
 
     // 扩展属性
     const bpmnData = node.getData<{ bpmn?: Record<string, any> }>()?.bpmn
+    const nodeSerializer = nodeSerializers[node.shape]
+    const omitBpmnKeys = new Set<string>()
+
+    if (nodeSerializer?.export) {
+      const result = nodeSerializer.export({
+        shape: node.shape,
+        category: classifyShape(node.shape),
+        bpmnData: bpmnData ?? {},
+        element,
+        moddle,
+        namespaces,
+      })
+
+      for (const key of result?.omitBpmnKeys ?? []) {
+        omitBpmnKeys.add(key)
+      }
+    }
+
     if (bpmnData && Object.keys(bpmnData).length > 0) {
       const propChildren = Object.entries(bpmnData)
-        .filter(([, v]) => v !== undefined && v !== null && v !== '')
+        .filter(([key, v]) => !omitBpmnKeys.has(key) && v !== undefined && v !== null && v !== '')
         .map(([k, v]) => moddle.createAny('x6bpmn:property', x6bpmnNamespace, { name: k, value: String(v) }))
       /* istanbul ignore else */
       if (propChildren.length > 0) {
         const propsContainer = moddle.createAny('x6bpmn:properties', x6bpmnNamespace, { $children: propChildren })
-        element.extensionElements = moddle.create('bpmn:ExtensionElements', { values: [propsContainer] })
+        appendExtensionValue(element, moddle, propsContainer, xmlNames)
       }
     }
 
@@ -691,14 +740,23 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       targetRef: tgtEl,
     }
 
-    const seqFlow = moddle.create('bpmn:SequenceFlow', props)
+    const seqFlow = createBpmnElement(moddle, 'sequenceFlow', props, xmlNames)
+    const edgeData = edge.getData<{ bpmn?: Record<string, any> }>()?.bpmn ?? {}
 
     // 条件流 → 添加 conditionExpression
     if (isConditionalFlow(edge.shape)) {
-      seqFlow.conditionExpression = moddle.create('bpmn:FormalExpression', {
-        body: getEdgeLabel(edge) || 'condition',
-      })
+      seqFlow.conditionExpression = createBpmnElement(moddle, 'formalExpression', {
+        body: String(edgeData.conditionExpression || getEdgeLabel(edge) || 'condition'),
+      }, xmlNames)
     }
+
+    edgeSerializers[edge.shape]?.export?.({
+      shape: edge.shape,
+      edgeData,
+      element: seqFlow,
+      moddle,
+      namespaces,
+    })
 
     flowEdgeElements.set(edge.id, seqFlow)
     appendFlowElement(
@@ -715,11 +773,11 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     /* v8 ignore next */ /* istanbul ignore next */
     if (!srcEl || !tgtEl) continue
 
-    const seqFlow = moddle.create('bpmn:SequenceFlow', {
+    const seqFlow = createBpmnElement(moddle, 'sequenceFlow', {
       id: toXmlId(be.id),
       sourceRef: srcEl,
       targetRef: tgtEl,
-    })
+    }, xmlNames)
     flowEdgeElements.set(be.id, seqFlow)
     appendFlowElement(
       resolveProcessContextForEdge(be.source, be.target),
@@ -762,14 +820,14 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
     let element: ModdleElement
     if (node.shape === BPMN_TEXT_ANNOTATION) {
-      element = moddle.create('bpmn:TextAnnotation', {
+      element = createBpmnElement(moddle, 'textAnnotation', {
         id: toXmlId(node.id),
         text: getNodeLabel(node),
-      })
+      }, xmlNames)
     } else {
-      element = moddle.create(toBpmnType(mapping.tag), {
+      element = createBpmnElement(moddle, mapping.tag, {
         id: toXmlId(node.id),
-      })
+      }, xmlNames)
     }
     nodeElements.set(node.id, element)
     const processContext = resolveProcessContextForNode(node)
@@ -796,21 +854,21 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
         if (isSourceData) {
           // 在目标任务上创建 DataInputAssociation
-          const dia = moddle.create('bpmn:DataInputAssociation', {
+          const dia = createBpmnElement(moddle, 'dataInputAssociation', {
             id: toXmlId(edge.id),
             sourceRef: [srcEl],
             targetRef: tgtEl,
-          })
+          }, xmlNames)
           /* istanbul ignore else */
           if (!tgtEl.dataInputAssociations) tgtEl.dataInputAssociations = []
           tgtEl.dataInputAssociations.push(dia)
         } else {
           // 在源任务上创建 DataOutputAssociation
-          const doa = moddle.create('bpmn:DataOutputAssociation', {
+          const doa = createBpmnElement(moddle, 'dataOutputAssociation', {
             id: toXmlId(edge.id),
             sourceRef: [srcEl],
             targetRef: tgtEl,
-          })
+          }, xmlNames)
           /* istanbul ignore else */
           if (!srcEl.dataOutputAssociations) srcEl.dataOutputAssociations = []
           srcEl.dataOutputAssociations.push(doa)
@@ -831,7 +889,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       }
       resolveProcessContextForEdge(edge.getSourceCellId(), edge.getTargetCellId())
         .artifactElements
-        .push(moddle.create('bpmn:Association', props))
+        .push(createBpmnElement(moddle, 'association', props, xmlNames))
     }
   }
 
@@ -866,21 +924,21 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
           .map((node) => nodeElements.get(node.id))
           .filter(Boolean) as ModdleElement[]
 
-        const laneElement = moddle.create('bpmn:Lane', {
+        const laneElement = createBpmnElement(moddle, 'lane', {
           id: toXmlId(lane.id),
           name: getNodeLabel(lane),
           flowNodeRef: refs,
-        })
+        }, xmlNames)
         swimlaneElements.set(lane.id, laneElement)
         nodeElements.set(lane.id, laneElement)
         return laneElement
       })
 
       context.process.laneSets = [
-        moddle.create('bpmn:LaneSet', {
+        createBpmnElement(moddle, 'laneSet', {
           id: `LaneSet_${context.id}`,
           lanes: laneElements,
-        }),
+        }, xmlNames),
       ]
     }
 
@@ -905,11 +963,11 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const participants: ModdleElement[] = pools.map((pool) => {
       /* istanbul ignore next -- participant 与 pool processContext 在上文已一一建立映射，兜底仅防御非法中间状态 */
       const processContext = processContextByPoolId.get(pool.id) ?? getFallbackProcessContext()
-      return moddle.create('bpmn:Participant', {
+      return createBpmnElement(moddle, 'participant', {
         id: toXmlId(pool.id),
         name: getNodeLabel(pool),
         processRef: processContext.process,
-      })
+      }, xmlNames)
     })
     pools.forEach((pool, index) => {
       const participant = participants[index] as ModdleElement
@@ -920,19 +978,19 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const msgFlowElements: ModdleElement[] = messageFlows.map((mf) => {
       const srcEl = nodeElements.get(mf.getSourceCellId())
       const tgtEl = nodeElements.get(mf.getTargetCellId())
-      return moddle.create('bpmn:MessageFlow', {
+      return createBpmnElement(moddle, 'messageFlow', {
         id: toXmlId(mf.id),
         name: getEdgeLabel(mf),
         sourceRef: srcEl,
         targetRef: tgtEl,
-      })
+      }, xmlNames)
     })
 
-    collaboration = moddle.create('bpmn:Collaboration', {
+    collaboration = createBpmnElement(moddle, 'collaboration', {
       id: collaborationId,
       participants,
       messageFlows: msgFlowElements.length > 0 ? msgFlowElements : undefined,
-    })
+    }, xmlNames)
   }
 
   // ---- Build BPMNDiagram ----
@@ -1082,10 +1140,16 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   diagram.plane = plane
 
   // ---- Assemble definitions ----
-  const definitions = moddle.create('bpmn:Definitions', {
+  const definitions = createBpmnElement(moddle, 'definitions', {
     id: 'Definitions_1',
-    targetNamespace: 'http://bpmn.io/schema/bpmn',
-  })
+    targetNamespace,
+  }, xmlNames)
+  appendXmlAttributes(
+    definitions,
+    Object.fromEntries(
+      Object.entries(namespaces).map(([prefix, uri]) => [`xmlns:${prefix}`, uri]),
+    ),
+  )
 
   const rootElements: ModdleElement[] = []
   if (collaboration) {

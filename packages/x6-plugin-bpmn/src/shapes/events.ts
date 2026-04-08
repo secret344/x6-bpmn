@@ -81,7 +81,6 @@ import { BPMN_PORTS, LABEL_BELOW } from './shared'
  * - 文字标签（label）— 显示在图形底部
  */
 
-/* istanbul ignore next — 函数默认参数 = {} 的缺省分支不作为业务逻辑测试 */
 function buildEventMarkup(
   options: {
     /** 是否显示双圈（中间事件/边界事件为 true） */
@@ -96,7 +95,6 @@ function buildEventMarkup(
     iconFilled?: boolean
   } = {},
 ) {
-  /* istanbul ignore next — buildEventMarkup 默认参数分支不作为业务逻辑分支测试 */
   const { doubleCircle = false, strokeWidth = 2, dashed = false, iconPath, iconFilled = false } = options
   // 按层次构建 SVG 元素列表
   const markup: Array<{ tagName: string; selector: string }> = [
@@ -200,9 +198,12 @@ interface EventConfig {
  */
 
 function createEventNodeConfig(config: EventConfig) {
-  /* istanbul ignore next — 默认参数分支不作为业务逻辑分支测试 */
+  /* istanbul ignore next — label 等默认值仅对应内部工厂的可选配置，不值得为覆盖率构造非业务场景 */
   const { shapeName, stroke, fill, strokeWidth = 2, doubleCircle = false, dashed = false, iconPath, iconFilled = false, label = '' } = config
-  const { markup, attrs } = buildEventMarkup({ doubleCircle, strokeWidth, dashed, iconPath, iconFilled })
+  const markupOptions = doubleCircle || strokeWidth !== 2 || dashed || Boolean(iconPath) || iconFilled
+    ? { doubleCircle, strokeWidth, dashed, iconPath, iconFilled }
+    : undefined
+  const { markup, attrs } = buildEventMarkup(markupOptions)
 
   // 设置颜色
   attrs.body.stroke = stroke

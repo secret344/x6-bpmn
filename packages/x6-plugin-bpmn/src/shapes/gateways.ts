@@ -45,7 +45,7 @@ interface GatewayConfig {
  */
 
 function createGatewayShape(config: GatewayConfig) {
-  /* istanbul ignore next — 默认参数分支不作为业务逻辑分支测试 */
+  /* istanbul ignore next — label 默认值只服务内部工厂兜底，真实网关注册配置都会显式给出标签 */
   const { shapeName, markerPath, label = '', outerCircle = false } = config
   const { stroke, fill } = BPMN_COLORS.gateway
 

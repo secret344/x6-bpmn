@@ -65,6 +65,9 @@ function emptySerialization(): SerializationSet {
     namespaces: {},
     nodeMapping: {},
     edgeMapping: {},
+    processAttributes: {},
+    nodeSerializers: {},
+    edgeSerializers: {},
   }
 }
 

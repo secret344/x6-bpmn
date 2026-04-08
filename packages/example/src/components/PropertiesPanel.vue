@@ -43,19 +43,19 @@
         <div class="section-title">BPMN 属性</div>
         <template v-for="field in categoryFields" :key="field.key">
           <!-- 布尔字段 -->
-          <div v-if="field.type === 'boolean'" class="field-row">
+          <div v-if="field.input === 'boolean'" class="field-row">
             <label>{{ field.label }}</label>
             <a-switch v-model="bpmnForm[field.key]" size="small" @change="onBpmnFieldChange" />
           </div>
           <!-- 选择字段 -->
-          <div v-else-if="field.type === 'select'" class="field-row">
+          <div v-else-if="field.input === 'select'" class="field-row">
             <label>{{ field.label }}</label>
             <a-select v-model="bpmnForm[field.key]" size="small" :placeholder="field.placeholder" allow-clear @change="onBpmnFieldChange">
               <a-option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</a-option>
             </a-select>
           </div>
           <!-- 多行文本 -->
-          <div v-else-if="field.type === 'textarea'" class="field-row vertical">
+          <div v-else-if="field.input === 'textarea'" class="field-row vertical">
             <label>{{ field.label }}</label>
             <a-textarea v-model="bpmnForm[field.key]" :auto-size="{ minRows: 2, maxRows: 6 }" :placeholder="field.placeholder" @change="onBpmnFieldChange" />
           </div>
@@ -67,33 +67,6 @@
         </template>
       </div>
 
-      <!-- 连线属性 -->
-      <div v-if="isEdge" class="field-section">
-        <div class="section-title">连线属性</div>
-        <div class="field-row">
-          <label>条件表达式</label>
-          <a-input v-model="bpmnForm.conditionExpression" size="small" placeholder="如: ${amount > 1000}" @change="onBpmnFieldChange" />
-        </div>
-      </div>
-
-      <!-- 自定义属性 -->
-      <div class="field-section">
-        <div class="section-title custom-attrs-title">
-          自定义属性
-          <a-button size="mini" type="text" @click="addCustomAttr">
-            <template #icon><icon-plus /></template>
-            添加
-          </a-button>
-        </div>
-        <div v-for="(attr, index) in customAttrs" :key="index" class="custom-attr-row">
-          <a-input v-model="attr.key" size="small" placeholder="属性名" class="attr-key" @change="onCustomAttrChange" />
-          <a-input v-model="attr.value" size="small" placeholder="属性值" class="attr-value" @change="onCustomAttrChange" />
-          <a-button size="mini" type="text" status="danger" @click="removeCustomAttr(index)">
-            <template #icon><icon-delete /></template>
-          </a-button>
-        </div>
-        <div v-if="customAttrs.length === 0" class="empty-hint">暂无自定义属性</div>
-      </div>
     </div>
   </div>
 </template>
@@ -101,16 +74,21 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed, onBeforeUnmount } from 'vue'
 import type { Graph, Cell } from '@antv/x6'
-import { IconSelectAll, IconPlus, IconDelete } from '@arco-design/web-vue/es/icon'
+import { IconSelectAll } from '@arco-design/web-vue/es/icon'
 import {
+  bpmn2Profile,
   classifyShape,
+  getFieldEditorsForShape,
   getShapeLabel,
   loadBpmnFormData,
   saveBpmnFormData,
   getCellLabel,
   type BpmnFormData,
+  type DataModelSet,
   type ShapeCategory,
 } from '@x6-bpmn2/plugin'
+
+const bpmn2DataModel = bpmn2Profile.dataModel as DataModelSet
 
 const props = defineProps<{
   graph: Graph | null
@@ -119,11 +97,9 @@ const props = defineProps<{
 const selectedCell = ref<Cell | null>(null)
 const cellPos = ref<{ x: number; y: number } | null>(null)
 const cellSize = ref<{ width: number; height: number } | null>(null)
-const isEdge = ref(false)
 
 const formData = reactive({ label: '' })
 const bpmnForm = reactive<BpmnFormData>({} as BpmnFormData)
-const customAttrs = reactive<Array<{ key: string; value: string }>>([])
 
 // 当前元素的分类
 const category = computed<ShapeCategory>(() => {
@@ -131,147 +107,19 @@ const category = computed<ShapeCategory>(() => {
   return classifyShape(selectedCell.value.shape)
 })
 
-// 字段配置定义
-interface FieldConfig {
-  key: string
-  label: string
-  type: 'text' | 'textarea' | 'boolean' | 'select'
-  placeholder?: string
-  options?: Array<{ value: string; label: string }>
-}
-
 // 根据分类动态计算字段列表
-const categoryFields = computed<FieldConfig[]>(() => {
-  const cat = category.value
-  const fields: FieldConfig[] = []
-
-  if (cat === 'userTask') {
-    fields.push(
-      { key: 'assignee', label: '处理人', type: 'text', placeholder: '如: admin' },
-      { key: 'candidateUsers', label: '候选用户', type: 'text', placeholder: '逗号分隔' },
-      { key: 'candidateGroups', label: '候选组', type: 'text', placeholder: '逗号分隔' },
-      { key: 'formKey', label: '表单Key', type: 'text', placeholder: '表单标识' },
-      { key: 'dueDate', label: '到期日', type: 'text', placeholder: '如: 2025-12-31' },
-      { key: 'priority', label: '优先级', type: 'text', placeholder: '如: 50' },
-    )
-  }
-  if (cat === 'serviceTask' || cat === 'businessRuleTask' || cat === 'sendTask' || cat === 'receiveTask') {
-    fields.push(
-      { key: 'implementationType', label: '实现类型', type: 'select', options: [
-        { value: 'class', label: 'Java 类' },
-        { value: 'expression', label: '表达式' },
-        { value: 'delegateExpression', label: '委托表达式' },
-      ]},
-      { key: 'implementation', label: '实现', type: 'text', placeholder: '类名/表达式' },
-      { key: 'resultVariable', label: '结果变量', type: 'text', placeholder: '变量名' },
-      { key: 'isAsync', label: '异步', type: 'boolean' },
-    )
-  }
-  if (cat === 'scriptTask') {
-    fields.push(
-      { key: 'scriptFormat', label: '脚本格式', type: 'select', options: [
-        { value: 'groovy', label: 'Groovy' },
-        { value: 'javascript', label: 'JavaScript' },
-        { value: 'python', label: 'Python' },
-      ]},
-      { key: 'script', label: '脚本内容', type: 'textarea', placeholder: '输入脚本...' },
-      { key: 'resultVariable', label: '结果变量', type: 'text', placeholder: '变量名' },
-    )
-  }
-  if (cat === 'callActivity') {
-    fields.push(
-      { key: 'calledElement', label: '被调流程', type: 'text', placeholder: '流程 ID' },
-      { key: 'isAsync', label: '异步', type: 'boolean' },
-    )
-  }
-  if (cat === 'subProcess') {
-    fields.push(
-      { key: 'isAsync', label: '异步', type: 'boolean' },
-      { key: 'triggeredByEvent', label: '事件触发', type: 'boolean' },
-    )
-  }
-  if (cat === 'gateway') {
-    fields.push(
-      { key: 'defaultFlow', label: '默认流', type: 'text', placeholder: '目标边 ID' },
-      { key: 'activationCondition', label: '激活条件', type: 'text', placeholder: '条件表达式' },
-    )
-  }
-  if (cat === 'timerEvent') {
-    fields.push(
-      { key: 'timerType', label: '定时类型', type: 'select', options: [
-        { value: 'timeDuration', label: '持续时间' },
-        { value: 'timeDate', label: '固定时间' },
-        { value: 'timeCycle', label: '循环' },
-      ]},
-      { key: 'timerValue', label: '定时值', type: 'text', placeholder: '如: PT5M' },
-    )
-  }
-  if (cat === 'messageEvent') {
-    fields.push(
-      { key: 'messageRef', label: '消息引用', type: 'text', placeholder: '消息定义 ID' },
-      { key: 'messageName', label: '消息名称', type: 'text', placeholder: '消息名' },
-    )
-  }
-  if (cat === 'signalEvent') {
-    fields.push(
-      { key: 'signalRef', label: '信号引用', type: 'text', placeholder: '信号定义 ID' },
-      { key: 'signalName', label: '信号名称', type: 'text', placeholder: '信号名' },
-    )
-  }
-  if (cat === 'errorEvent') {
-    fields.push(
-      { key: 'errorRef', label: '错误引用', type: 'text', placeholder: '错误定义 ID' },
-      { key: 'errorCode', label: '错误代码', type: 'text', placeholder: '错误码' },
-    )
-  }
-  if (cat === 'escalationEvent') {
-    fields.push(
-      { key: 'escalationRef', label: '升级引用', type: 'text', placeholder: '升级定义 ID' },
-      { key: 'escalationCode', label: '升级代码', type: 'text', placeholder: '升级码' },
-    )
-  }
-  if (cat === 'conditionalEvent') {
-    fields.push(
-      { key: 'conditionExpression', label: '条件表达式', type: 'text', placeholder: '条件表达式' },
-    )
-  }
-  if (cat === 'linkEvent') {
-    fields.push(
-      { key: 'linkName', label: '链接名称', type: 'text', placeholder: '链接名' },
-    )
-  }
-  if (cat === 'compensationEvent') {
-    fields.push(
-      { key: 'activityRef', label: '活动引用', type: 'text', placeholder: '被补偿活动 ID' },
-    )
-  }
-  if (cat === 'cancelEvent' || cat === 'terminateEvent' || cat === 'noneEvent' || cat === 'multipleEvent') {
-    // 这些事件没有额外的可编辑字段
-  }
-  if (cat === 'dataObject') {
-    fields.push({ key: 'isCollection', label: '集合', type: 'boolean' })
-  }
-  if (cat === 'pool') {
-    fields.push({ key: 'processRef', label: '流程引用', type: 'text', placeholder: '流程 ID' })
-  }
-  if (cat === 'textAnnotation') {
-    fields.push({ key: 'annotationText', label: '注释文本', type: 'textarea', placeholder: '输入注释...' })
-  }
-  if (cat === 'group') {
-    fields.push({ key: 'categoryValueRef', label: '分类值', type: 'text', placeholder: '分类标识' })
-  }
-  // 边界事件公共字段
-  if (selectedCell.value && selectedCell.value.shape.includes('boundary')) {
-    fields.push({ key: 'cancelActivity', label: '中断活动', type: 'boolean' })
-  }
-
-  return fields
+const categoryFields = computed(() => {
+  if (!selectedCell.value) return []
+  return getFieldEditorsForShape(
+    selectedCell.value.shape,
+    category.value,
+    bpmn2DataModel,
+  )
 })
 
 // ---- 选中逻辑 ----
 function onCellClick({ cell }: { cell: Cell }) {
   selectedCell.value = cell
-  isEdge.value = cell.isEdge()
   if (cell.isNode()) {
     cellPos.value = cell.getPosition()
     cellSize.value = cell.getSize()
@@ -284,18 +132,13 @@ function onCellClick({ cell }: { cell: Cell }) {
   // 加载 BPMN 表单数据
   const loaded = loadBpmnFormData(cell)
   Object.assign(bpmnForm, loaded)
-
-  // 加载自定义属性
-  loadCustomAttrs(cell)
 }
 
 function onBlankClick() {
   selectedCell.value = null
   cellPos.value = null
   cellSize.value = null
-  isEdge.value = false
   formData.label = ''
-  customAttrs.splice(0, customAttrs.length)
 }
 
 function onLabelChange() {
@@ -319,46 +162,11 @@ function onLabelChange() {
 function onBpmnFieldChange() {
   if (!selectedCell.value) return
   const cell = selectedCell.value
-  const cat = category.value
-  const bpmnData = saveBpmnFormData(cat, bpmnForm, cell.shape)
-  const data = cell.getData() || {}
-  cell.setData({ ...data, bpmn: bpmnData })
-}
-
-// ---- 自定义属性 ----
-function loadCustomAttrs(cell: Cell) {
-  customAttrs.splice(0, customAttrs.length)
-  const data = cell.getData() || {}
-  const attrs = data.customAttrs as Record<string, string> | undefined
-  if (attrs && typeof attrs === 'object') {
-    for (const [k, v] of Object.entries(attrs)) {
-      customAttrs.push({ key: k, value: String(v) })
-    }
-  }
-}
-
-function saveCustomAttrs() {
-  if (!selectedCell.value) return
-  const cell = selectedCell.value
-  const data = cell.getData() || {}
-  const attrs: Record<string, string> = {}
-  for (const item of customAttrs) {
-    if (item.key.trim()) attrs[item.key.trim()] = item.value
-  }
-  cell.setData({ ...data, customAttrs: attrs })
-}
-
-function addCustomAttr() {
-  customAttrs.push({ key: '', value: '' })
-}
-
-function removeCustomAttr(index: number) {
-  customAttrs.splice(index, 1)
-  saveCustomAttrs()
-}
-
-function onCustomAttrChange() {
-  saveCustomAttrs()
+  const data = (cell.getData() || {}) as Record<string, unknown>
+  cell.setData({
+    ...data,
+    bpmn: saveBpmnFormData(category.value, bpmnForm, cell.shape),
+  })
 }
 
 let prevGraph: Graph | null = null
@@ -470,33 +278,5 @@ onBeforeUnmount(() => bindEvents(null))
 .field-value {
   font-size: 12px;
   color: var(--color-text-3);
-}
-
-.custom-attrs-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.custom-attr-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.attr-key {
-  flex: 2;
-}
-
-.attr-value {
-  flex: 3;
-}
-
-.empty-hint {
-  font-size: 11px;
-  color: var(--color-text-4);
-  text-align: center;
-  padding: 8px 0;
 }
 </style>

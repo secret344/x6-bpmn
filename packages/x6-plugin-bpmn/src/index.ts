@@ -145,9 +145,12 @@ export {
   deserializeFieldValue,
   getFieldsForCategory,
   getFieldsForShape,
+  getFieldEditorsForCategory,
+  getFieldEditorsForShape,
   buildDefaultData,
   validateFields,
 } from './core/data-model/fields'
+export type { ResolvedFieldEditor } from './core/data-model/fields'
 
 // 图级校验
 export type {

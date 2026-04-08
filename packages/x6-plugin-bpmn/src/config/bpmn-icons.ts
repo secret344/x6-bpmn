@@ -29,37 +29,30 @@ const iNonInterrupting = '<circle cx="14" cy="14" r="5" fill="none" stroke="curr
 // ============================================================================
 
 /** 单圈事件（开始/空白） */
-/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgEvent = (inner: string, strokeW = 1.5, fill = 'none', stroke = '#52c41a') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="12" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}"/>${inner}</svg>`
 
 /** 双圈事件（中间抛出/捕获） */
-/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgEventDouble = (inner: string, stroke = '#e6a817') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="12" fill="none" stroke="${stroke}" stroke-width="1.5"/><circle cx="14" cy="14" r="9.5" fill="none" stroke="${stroke}" stroke-width="1"/>${inner}</svg>`
 
 /** 边界事件（虚线内圈） */
-/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgBoundary = (inner: string, stroke = '#722ed1') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="12" fill="none" stroke="${stroke}" stroke-width="1.5"/><circle cx="14" cy="14" r="9.5" fill="none" stroke="${stroke}" stroke-width="1" stroke-dasharray="3 2"/>${inner}</svg>`
 
 /** 结束事件（粗圈） */
-/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgEndEvent = (inner: string, stroke = '#f5222d') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="12" fill="none" stroke="${stroke}" stroke-width="2.5"/>${inner}</svg>`
 
 /** 任务（圆角矩形） */
-/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgTask = (inner: string, stroke = '#1890ff') =>
   `<svg viewBox="0 0 40 28" width="40" height="28"><rect x="1" y="1" width="38" height="26" rx="4" fill="#f0f5ff" stroke="${stroke}" stroke-width="1.5"/>${inner}</svg>`
 
 /** 子流程 */
-/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgSubProcess = (inner: string, stroke = '#13c2c2', dashed = false) =>
   `<svg viewBox="0 0 44 30" width="44" height="30"><rect x="1" y="1" width="42" height="28" rx="5" fill="#e6fffb" stroke="${stroke}" stroke-width="1.5" ${dashed ? 'stroke-dasharray="5 3"' : ''}/>${inner}</svg>`
 
 /** 网关（菱形） */
-/* istanbul ignore next — SVG 生成器默认参数不作为业务分支测试 */
 const svgGateway = (inner: string, stroke = '#faad14') =>
   `<svg viewBox="0 0 28 28" width="28" height="28"><polygon points="14,2 26,14 14,26 2,14" fill="#fffbe6" stroke="${stroke}" stroke-width="1.5"/>${inner}</svg>`
 
@@ -149,11 +142,11 @@ function getEventMarker(shape: string): string {
 export function getBpmnShapeIcon(shape: string): string {
   // ---- Start events ----
   if (shape.startsWith('bpmn-start-event'))
-    return svgEvent(getEventMarker(shape), 1.5, 'none', '#52c41a')
+    return svgEvent(getEventMarker(shape))
 
   // ---- Intermediate throw events ----
   if (shape.startsWith('bpmn-intermediate-throw-event'))
-    return svgEventDouble(getEventMarker(shape), '#e6a817')
+    return svgEventDouble(getEventMarker(shape))
 
   // ---- Intermediate catch events ----
   if (shape.startsWith('bpmn-intermediate-catch-event'))
@@ -161,21 +154,21 @@ export function getBpmnShapeIcon(shape: string): string {
 
   // ---- Boundary events ----
   if (shape.startsWith('bpmn-boundary-event'))
-    return svgBoundary(getEventMarker(shape), '#722ed1')
+    return svgBoundary(getEventMarker(shape))
 
   // ---- End events ----
   if (shape.startsWith('bpmn-end-event'))
-    return svgEndEvent(getEventMarker(shape), '#f5222d')
+    return svgEndEvent(getEventMarker(shape))
 
   // ---- Tasks ----
-  if (shape === 'bpmn-task') return svgTask('', '#1890ff')
-  if (shape === 'bpmn-user-task') return svgTask(iUser, '#1890ff')
-  if (shape === 'bpmn-service-task') return svgTask(iService, '#1890ff')
-  if (shape === 'bpmn-script-task') return svgTask(iScript, '#1890ff')
-  if (shape === 'bpmn-business-rule-task') return svgTask(iBusinessRule, '#1890ff')
-  if (shape === 'bpmn-send-task') return svgTask(iSend, '#1890ff')
-  if (shape === 'bpmn-receive-task') return svgTask(iReceive, '#1890ff')
-  if (shape === 'bpmn-manual-task') return svgTask(iManual, '#1890ff')
+  if (shape === 'bpmn-task') return svgTask('')
+  if (shape === 'bpmn-user-task') return svgTask(iUser)
+  if (shape === 'bpmn-service-task') return svgTask(iService)
+  if (shape === 'bpmn-script-task') return svgTask(iScript)
+  if (shape === 'bpmn-business-rule-task') return svgTask(iBusinessRule)
+  if (shape === 'bpmn-send-task') return svgTask(iSend)
+  if (shape === 'bpmn-receive-task') return svgTask(iReceive)
+  if (shape === 'bpmn-manual-task') return svgTask(iManual)
 
   // ---- Sub-processes ----
   if (shape === 'bpmn-sub-process') return svgSubProcess(iSubProcessBase)

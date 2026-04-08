@@ -1,10 +1,9 @@
 import { Graph, type Cell, type Edge, type Node } from '@antv/x6'
-import { Selection } from '@antv/x6/es/plugin/selection/index.js'
-import { Transform } from '@antv/x6/es/plugin/transform/index.js'
+import { Selection } from '@antv/x6/lib/plugin/selection'
+import { Transform } from '@antv/x6/lib/plugin/transform'
 import {
   registerBpmnShapes,
-  setupPoolContainment,
-  setupBoundaryAttach,
+  setupBpmnInteractionBehaviors,
   attachBoundaryToHost,
   exportBpmnXml,
   importBpmnXml,
@@ -35,6 +34,15 @@ type ScenarioIds = {
   boundaryId?: string
 }
 
+type StandaloneTaskScenarioIds = {
+  taskId: string
+}
+
+type FirstPoolWrapScenarioIds = {
+  poolId: string
+  taskId: string
+}
+
 type MessageScenarioIds = {
   leftPoolId: string
   rightPoolId: string
@@ -55,6 +63,8 @@ declare global {
   interface Window {
     __x6PluginBrowserHarness?: {
       clear: () => void
+      createStandaloneTaskScenario: () => StandaloneTaskScenarioIds
+      addFirstPoolScenario: () => FirstPoolWrapScenarioIds
       createPoolLaneTaskScenario: () => ScenarioIds
       createPoolLaneTaskBoundaryScenario: () => ScenarioIds
       createTwoPoolMessageScenario: () => MessageScenarioIds
@@ -108,8 +118,7 @@ graph.use(
   }),
 )
 
-setupBoundaryAttach(graph)
-setupPoolContainment(graph)
+setupBpmnInteractionBehaviors(graph)
 
 const edgeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-edge-shape]'))
 
@@ -206,22 +215,6 @@ function getEdgeCountByShape(shape: string): number {
   return graph.getEdges().filter((candidate) => candidate.shape === shape).length
 }
 
-function getNodeLayerPriority(node: Node): number {
-  if (node.shape === BPMN_POOL) return 0
-  if (node.shape === BPMN_LANE) return 1
-  if (node.shape.startsWith('bpmn-boundary-event')) return 3
-  return 2
-}
-
-function normalizeNodeLayers(): void {
-  graph.getNodes()
-    .slice()
-    .sort((left, right) => getNodeLayerPriority(left) - getNodeLayerPriority(right))
-    .forEach((node) => {
-      node.toFront()
-    })
-}
-
 function createPoolLaneTaskScenario(): ScenarioIds {
   clear()
 
@@ -247,6 +240,8 @@ function createPoolLaneTaskScenario(): ScenarioIds {
     data: { bpmn: { isHorizontal: true } },
   })
   pool.embed(lane)
+  emitGraphEvent('node:added', { node: pool })
+  emitGraphEvent('node:added', { node: lane })
 
   const task = graph.addNode({
     id: 'task-1',
@@ -260,12 +255,54 @@ function createPoolLaneTaskScenario(): ScenarioIds {
   })
   lane.embed(task)
   emitGraphEvent('node:added', { node: task })
-  normalizeNodeLayers()
 
   return {
     poolId: pool.id,
     laneId: lane.id,
     taskId: task.id,
+  }
+}
+
+function createStandaloneTaskScenario(): StandaloneTaskScenarioIds {
+  clear()
+
+  const task = graph.addNode({
+    id: 'standalone-task',
+    shape: BPMN_USER_TASK,
+    x: 180,
+    y: 120,
+    width: 110,
+    height: 60,
+    attrs: { label: { text: 'StandaloneTask' } },
+  })
+
+  return {
+    taskId: task.id,
+  }
+}
+
+function addFirstPoolScenario(): FirstPoolWrapScenarioIds {
+  const existingTask = graph.getCellById('standalone-task')
+  if (!existingTask?.isNode?.()) {
+    throw new Error('未找到首个 Pool 包裹场景所需的独立任务')
+  }
+
+  const pool = graph.addNode({
+    id: 'first-pool',
+    shape: BPMN_POOL,
+    x: 420,
+    y: 220,
+    width: 180,
+    height: 120,
+    attrs: { headerLabel: { text: 'Pool' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+
+  emitGraphEvent('node:added', { node: pool })
+
+  return {
+    poolId: pool.id,
+    taskId: existingTask.id,
   }
 }
 
@@ -288,7 +325,6 @@ function createPoolLaneTaskBoundaryScenario(): ScenarioIds {
   }
 
   attachBoundaryToHost(graph, boundary, task as Node)
-  normalizeNodeLayers()
 
   return {
     ...scenario,
@@ -321,6 +357,8 @@ function createTwoPoolMessageScenario(): MessageScenarioIds {
     data: { bpmn: { isHorizontal: true } },
   })
   leftPool.embed(leftLane)
+  emitGraphEvent('node:added', { node: leftPool })
+  emitGraphEvent('node:added', { node: leftLane })
 
   const rightPool = graph.addNode({
     id: 'pool-right',
@@ -344,6 +382,8 @@ function createTwoPoolMessageScenario(): MessageScenarioIds {
     data: { bpmn: { isHorizontal: true } },
   })
   rightPool.embed(rightLane)
+  emitGraphEvent('node:added', { node: rightPool })
+  emitGraphEvent('node:added', { node: rightLane })
 
   const sourceTask = graph.addNode({
     id: 'task-left',
@@ -370,7 +410,6 @@ function createTwoPoolMessageScenario(): MessageScenarioIds {
   })
   rightLane.embed(targetTask)
   emitGraphEvent('node:added', { node: targetTask })
-  normalizeNodeLayers()
 
   return {
     leftPoolId: leftPool.id,
@@ -385,12 +424,13 @@ function createTwoPoolMessageScenario(): MessageScenarioIds {
 async function roundtripXml(): Promise<string> {
   const xml = await exportBpmnXml(graph, { processName: '浏览器测试流程' })
   await importBpmnXml(graph, xml, { zoomToFit: false })
-  normalizeNodeLayers()
   return xml
 }
 
 window.__x6PluginBrowserHarness = {
   clear,
+  createStandaloneTaskScenario,
+  addFirstPoolScenario,
   createPoolLaneTaskScenario,
   createPoolLaneTaskBoundaryScenario,
   createTwoPoolMessageScenario,

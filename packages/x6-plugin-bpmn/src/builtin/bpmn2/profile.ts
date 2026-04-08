@@ -10,9 +10,12 @@ import type {
   NodeDefinition,
   EdgeDefinition,
   FieldCapability,
+  FieldEditorHint,
+  FieldEditorOption,
 } from '../../core/dialect/types'
 
 import { BPMN_COLORS, BPMN_ICONS } from '../../utils/constants'
+import { DEFAULT_BPMN_XML_NAME_SETTINGS } from '../../utils/bpmn-xml-names'
 import { NODE_MAPPING, EDGE_MAPPING } from '../../export/bpmn-mapping'
 import { DEFAULT_CONNECTION_RULES, getNodeCategory as getNodeCategoryFromRules } from '../../rules/connection-rules'
 import type { BpmnNodeCategory } from '../../rules/connection-rules'
@@ -107,6 +110,38 @@ function buildNodeCategories(): Record<string, BpmnNodeCategory> {
 // 字段能力定义
 // ============================================================================
 
+const IMPLEMENTATION_TYPE_OPTIONS: FieldEditorOption[] = [
+  { value: 'class', label: 'Java 类' },
+  { value: 'expression', label: '表达式' },
+  { value: 'delegateExpression', label: '委托表达式' },
+]
+
+const SCRIPT_FORMAT_OPTIONS: FieldEditorOption[] = [
+  { value: 'groovy', label: 'Groovy' },
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'python', label: 'Python' },
+]
+
+const TIMER_TYPE_OPTIONS: FieldEditorOption[] = [
+  { value: 'timeDuration', label: '持续时间' },
+  { value: 'timeDate', label: '固定时间' },
+  { value: 'timeCycle', label: '循环' },
+]
+
+function createEditor(
+  label: string,
+  input: FieldEditorHint['input'] = 'text',
+  placeholder?: string,
+  options?: FieldEditorOption[],
+): FieldEditorHint {
+  return {
+    label,
+    input,
+    ...(placeholder ? { placeholder } : {}),
+    ...(options ? { options } : {}),
+  }
+}
+
 function buildFieldCapabilities(): Record<string, FieldCapability> {
   return {
     // 用户任务
@@ -115,36 +150,42 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '任务处理人',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('处理人', undefined, '如: admin'),
     },
     candidateUsers: {
       scope: 'node',
       defaultValue: '',
       description: '候选用户（逗号分隔）',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('候选用户', undefined, '逗号分隔'),
     },
     candidateGroups: {
       scope: 'node',
       defaultValue: '',
       description: '候选用户组（逗号分隔）',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('候选组', undefined, '逗号分隔'),
     },
     formKey: {
       scope: 'node',
       defaultValue: '',
       description: '表单 key',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('表单 Key', undefined, '表单标识'),
     },
     dueDate: {
       scope: 'node',
       defaultValue: '',
       description: '截止日期表达式',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('到期日', 'text', '如: 2025-12-31'),
     },
     priority: {
       scope: 'node',
       defaultValue: '',
       description: '优先级',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('优先级', 'text', '如: 50'),
     },
 
     // 服务 / 业务规则 / 发送 / 接收任务
@@ -153,18 +194,21 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '实现类型',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('实现类型', 'select', undefined, IMPLEMENTATION_TYPE_OPTIONS),
     },
     implementation: {
       scope: 'node',
       defaultValue: '',
       description: '实现（类名 / 表达式 / 委托表达式）',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('实现', 'text', '类名/表达式'),
     },
     resultVariable: {
       scope: 'node',
       defaultValue: '',
       description: '结果变量名',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('结果变量', 'text', '变量名'),
     },
     isAsync: {
       scope: 'node',
@@ -173,6 +217,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       normalize: (v) => Boolean(v),
       serialize: (v) => v ? 'true' : 'false',
       deserialize: (v) => v === 'true' || v === true,
+      editor: createEditor('异步', 'boolean'),
     },
 
     // 脚本任务
@@ -181,12 +226,14 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '脚本语言',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('脚本格式', 'select', undefined, SCRIPT_FORMAT_OPTIONS),
     },
     script: {
       scope: 'node',
       defaultValue: '',
       description: '脚本内容',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('脚本内容', 'textarea', '输入脚本...'),
     },
 
     // 调用活动
@@ -195,6 +242,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '被调用的流程定义 key',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('被调流程', 'text', '流程 ID'),
     },
 
     // 子流程
@@ -203,6 +251,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: false,
       description: '是否由事件触发',
       normalize: (v) => Boolean(v),
+      editor: createEditor('事件触发', 'boolean'),
     },
 
     // 网关
@@ -211,12 +260,14 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '默认出线 ID',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('默认流', 'text', '目标边 ID'),
     },
     activationCondition: {
       scope: 'node',
       defaultValue: '',
       description: '激活条件',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('激活条件', 'text', '条件表达式'),
     },
 
     // 定时事件
@@ -225,12 +276,14 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: 'timeDuration',
       description: '定时器类型',
       normalize: (v) => String(v ?? 'timeDuration'),
+      editor: createEditor('定时类型', 'select', undefined, TIMER_TYPE_OPTIONS),
     },
     timerValue: {
       scope: 'node',
       defaultValue: '',
       description: '定时器值',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('定时值', 'text', '如: PT5M'),
     },
 
     // 消息事件
@@ -239,12 +292,14 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '消息引用',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('消息引用', 'text', '消息定义 ID'),
     },
     messageName: {
       scope: 'node',
       defaultValue: '',
       description: '消息名称',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('消息名称', 'text', '消息名'),
     },
 
     // 信号事件
@@ -253,12 +308,14 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '信号引用',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('信号引用', 'text', '信号定义 ID'),
     },
     signalName: {
       scope: 'node',
       defaultValue: '',
       description: '信号名称',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('信号名称', 'text', '信号名'),
     },
 
     // 错误事件
@@ -267,12 +324,14 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '错误引用',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('错误引用', 'text', '错误定义 ID'),
     },
     errorCode: {
       scope: 'node',
       defaultValue: '',
       description: '错误代码',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('错误代码', 'text', '错误码'),
     },
 
     // 升级事件
@@ -281,12 +340,14 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '升级引用',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('升级引用', 'text', '升级定义 ID'),
     },
     escalationCode: {
       scope: 'node',
       defaultValue: '',
       description: '升级代码',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('升级代码', 'text', '升级码'),
     },
 
     // 条件事件
@@ -295,6 +356,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '条件表达式',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('条件表达式', 'text', '如: ${amount > 1000}'),
     },
 
     // 链接事件
@@ -303,6 +365,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '链接名称',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('链接名称', 'text', '链接名'),
     },
 
     // 补偿事件
@@ -311,6 +374,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '活动引用',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('活动引用', 'text', '被补偿活动 ID'),
     },
 
     // 边界事件
@@ -319,6 +383,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: true,
       description: '是否取消活动',
       normalize: (v) => v !== false,
+      editor: createEditor('中断活动', 'boolean'),
     },
 
     // 数据对象
@@ -327,6 +392,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: false,
       description: '是否集合',
       normalize: (v) => Boolean(v),
+      editor: createEditor('集合', 'boolean'),
     },
 
     // 池
@@ -335,6 +401,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '流程引用',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('流程引用', 'text', '流程 ID'),
     },
 
     // 文本注释
@@ -343,6 +410,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '注释文本',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('注释文本', 'textarea', '输入注释...'),
     },
 
     // 组
@@ -351,6 +419,7 @@ function buildFieldCapabilities(): Record<string, FieldCapability> {
       defaultValue: '',
       description: '类别值引用',
       normalize: (v) => String(v ?? ''),
+      editor: createEditor('分类值', 'text', '分类标识'),
     },
   }
 }
@@ -459,6 +528,7 @@ export const bpmn2Profile: Profile = {
       di: 'http://www.omg.org/spec/DD/20100524/DI',
       x6bpmn: 'http://x6-bpmn2.io/schema',
     },
+    xmlNames: DEFAULT_BPMN_XML_NAME_SETTINGS,
     nodeMapping: { ...NODE_MAPPING },
     edgeMapping: { ...EDGE_MAPPING },
   },

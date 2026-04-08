@@ -9,6 +9,15 @@ type ScenarioIds = {
   boundaryId?: string
 }
 
+type StandaloneTaskScenarioIds = {
+  taskId: string
+}
+
+type FirstPoolWrapScenarioIds = {
+  poolId: string
+  taskId: string
+}
+
 type MessageScenarioIds = {
   leftPoolId: string
   rightPoolId: string
@@ -55,6 +64,26 @@ async function createPoolLaneTaskScenario(page: Page): Promise<ScenarioIds> {
       throw new Error('浏览器测试 harness 尚未就绪')
     }
     return harness.createPoolLaneTaskScenario()
+  })
+}
+
+async function createStandaloneTaskScenario(page: Page): Promise<StandaloneTaskScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.createStandaloneTaskScenario()
+  })
+}
+
+async function addFirstPoolScenario(page: Page): Promise<FirstPoolWrapScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.addFirstPoolScenario()
   })
 }
 
@@ -131,6 +160,11 @@ async function getEdgeCountByShape(page: Page, shape: string): Promise<number> {
 function expectMovedBy(before: NodeSnapshot, after: NodeSnapshot, delta: { x: number; y: number }): void {
   expect(after.x - before.x).toBeCloseTo(delta.x, 0)
   expect(after.y - before.y).toBeCloseTo(delta.y, 0)
+}
+
+function expectMovedNear(before: NodeSnapshot, after: NodeSnapshot, delta: { x: number; y: number }, tolerance = 12): void {
+  expect(Math.abs(after.x - before.x - delta.x)).toBeLessThanOrEqual(tolerance)
+  expect(Math.abs(after.y - before.y - delta.y)).toBeLessThanOrEqual(tolerance)
 }
 
 function expectPositionNear(actual: NodeSnapshot, expected: DragPoint, tolerance = 10): void {
@@ -321,11 +355,34 @@ async function dragConnection(
 }
 
 test.describe('主库浏览器行为回归', () => {
+  test('先放任务再放第一个 Pool 时，应自动包裹现有节点并保持任务位于 Pool 上层', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const standalone = await createStandaloneTaskScenario(page)
+    const taskBefore = await getNodeSnapshot(page, standalone.taskId)
+    await takeScreenshot(page, '首个泳池创建前的独立任务')
+
+    const scenario = await addFirstPoolScenario(page)
+    await takeScreenshot(page, '新增首个泳池后自动包裹现有任务')
+
+    const poolAfter = await getNodeSnapshot(page, scenario.poolId)
+    const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+
+    expect(taskAfter.parentId).toBe(poolAfter.id)
+    expect(poolAfter.x).toBeLessThan(taskBefore.x)
+    expect(poolAfter.y).toBeLessThan(taskBefore.y)
+    expect(poolAfter.x + poolAfter.width).toBeGreaterThan(taskAfter.x + taskAfter.width)
+    expect(poolAfter.y + poolAfter.height).toBeGreaterThan(taskAfter.y + taskAfter.height)
+    expectPositionNear(taskAfter, taskBefore)
+  })
+
   test('节点越出 Pool 后，应恢复嵌套并继续随 Pool 联动', async ({ page }, testInfo) => {
     await waitForHarness(page)
     const takeScreenshot = createBrowserScreenshotTaker(testInfo)
 
     const scenario = await createPoolLaneTaskScenario(page)
+    const poolBefore = await getNodeSnapshot(page, scenario.poolId)
     const taskBefore = await getNodeSnapshot(page, scenario.taskId)
     const laneBefore = await getNodeSnapshot(page, scenario.laneId)
     await takeScreenshot(page, '初始泳池布局')
@@ -345,11 +402,18 @@ test.describe('主库浏览器行为回归', () => {
     await dragNodeBy(page, scenario.poolId, delta, { startOffset: { x: 12, y: 40 } })
     await takeScreenshot(page, '泳池拖动后任务继续联动')
 
+    const poolAfter = await getNodeSnapshot(page, scenario.poolId)
     const laneAfter = await getNodeSnapshot(page, scenario.laneId)
     const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+    const actualPoolDelta = {
+      x: poolAfter.x - poolBefore.x,
+      y: poolAfter.y - poolBefore.y,
+    }
 
-    expectMovedBy(laneBefore, laneAfter, delta)
-    expectMovedBy(taskRestored, taskAfter, delta)
+    expect(poolAfter.width).toBeCloseTo(poolBefore.width, 0)
+    expect(poolAfter.height).toBeCloseTo(poolBefore.height, 0)
+    expectMovedNear(laneBefore, laneAfter, actualPoolDelta)
+    expectMovedNear(taskRestored, taskAfter, actualPoolDelta)
     expect(taskAfter.parentId).toBe(laneAfter.id)
   })
 
@@ -386,7 +450,7 @@ test.describe('主库浏览器行为回归', () => {
       y: poolAfter.y - poolBefore.y,
     }
 
-    expectMovedBy(taskInPool, taskAfter, actualPoolDelta)
+    expectMovedNear(taskInPool, taskAfter, actualPoolDelta)
     expect(taskAfter.parentId).toBe(poolAfter.id)
   })
 
@@ -462,8 +526,8 @@ test.describe('主库浏览器行为回归', () => {
       y: poolAfter.y - poolBefore.y,
     }
 
-    expectMovedBy(taskRestored, taskAfter, actualPoolDelta)
-    expectMovedBy(boundaryRestored, boundaryAfter, actualPoolDelta)
+    expectMovedNear(taskRestored, taskAfter, actualPoolDelta)
+    expectMovedNear(boundaryRestored, boundaryAfter, actualPoolDelta)
     expect(boundaryAfter.parentId).toBe(taskAfter.id)
   })
 
@@ -569,6 +633,32 @@ test.describe('主库浏览器行为回归', () => {
     expect(taskAfter.parentId).toBe(laneAfter.id)
   })
 
+  test('Pool 缩小时不应小于内部内容边界', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolLaneTaskScenario(page)
+    const poolBefore = await getNodeSnapshot(page, scenario.poolId)
+    const taskBefore = await getNodeSnapshot(page, scenario.taskId)
+    await takeScreenshot(page, '泳池缩小前的初始布局')
+
+    await resizeNodeBy(page, scenario.poolId, { x: -320, y: -180 }, { x: 12, y: 40 })
+    await takeScreenshot(page, '泳池缩小被内容边界钳制')
+
+    const poolAfter = await getNodeSnapshot(page, scenario.poolId)
+    const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+
+    expect(poolAfter.width).toBeGreaterThan(80)
+    expect(poolAfter.height).toBeGreaterThan(40)
+    expect(poolAfter.x).toBeLessThanOrEqual(taskAfter.x)
+    expect(poolAfter.y).toBeLessThanOrEqual(taskAfter.y)
+    expect(poolAfter.x + poolAfter.width).toBeGreaterThanOrEqual(taskAfter.x + taskAfter.width)
+    expect(poolAfter.y + poolAfter.height).toBeGreaterThanOrEqual(taskAfter.y + taskAfter.height)
+    expect(taskAfter.parentId).toBe(scenario.laneId)
+    expectPositionNear(taskAfter, taskBefore)
+    expect(poolAfter.width).toBeLessThanOrEqual(poolBefore.width + 0.001)
+  })
+
   test('Lane 拖入另一 Pool 时，应回到原 Pool 并保持原父链', async ({ page }, testInfo) => {
     await waitForHarness(page)
     const takeScreenshot = createBrowserScreenshotTaker(testInfo)
@@ -586,6 +676,26 @@ test.describe('主库浏览器行为回归', () => {
 
     expect(laneAfter.parentId).toBe(scenario.leftPoolId)
     expectPositionNear(laneAfter, laneBefore)
+    expect(taskAfter.parentId).toBe(laneAfter.id)
+    expectPositionNear(taskAfter, taskBefore)
+  })
+
+  test('Lane 在 Pool 内拖拽时，不应带动内部任务', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolLaneTaskScenario(page)
+    const laneBefore = await getNodeSnapshot(page, scenario.laneId)
+    const taskBefore = await getNodeSnapshot(page, scenario.taskId)
+    await takeScreenshot(page, 'Lane 平移前内部任务保持初始位置')
+
+    await dragNodeBy(page, scenario.laneId, { x: -20, y: 0 }, { startOffset: { x: 250, y: 80 } })
+    await takeScreenshot(page, 'Lane 平移后内部任务保持原位')
+
+    const laneAfter = await getNodeSnapshot(page, scenario.laneId)
+    const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+
+    expectMovedNear(laneBefore, laneAfter, { x: -20, y: 0 })
     expect(taskAfter.parentId).toBe(laneAfter.id)
     expectPositionNear(taskAfter, taskBefore)
   })

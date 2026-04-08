@@ -148,7 +148,7 @@ const simpleApprovalProfile: Profile = {
 export const AVAILABLE_DIALECTS = [
   { id: 'bpmn2', name: 'BPMN 2.0 标准', desc: '完整 BPMN 2.0 元素支持' },
   { id: 'smartengine-base', name: 'SmartEngine 基础', desc: '完整 BPMN 2.0 + SmartEngine 扩展字段' },
-  { id: 'smartengine-custom', name: 'SmartEngine 服务编排', desc: '强化 ServiceTask，禁用 UserTask/ManualTask' },
+  { id: 'smartengine-custom', name: 'SmartEngine 服务编排', desc: '保留 BPMN 2.0 默认能力，并禁用 DataBase 专属的 UserTask/InclusiveGateway' },
   { id: 'smartengine-database', name: 'SmartEngine 审批/工单', desc: '增强审批能力，多实例、审批策略' },
   { id: 'simple-approval', name: '精简审批流（自定义）', desc: '自定义 Profile，仅保留审批常用元素' },
 ]
