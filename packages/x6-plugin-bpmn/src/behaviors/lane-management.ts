@@ -24,6 +24,15 @@ const MIN_LANE_SIZE = 60
 // 工具函数
 // ============================================================================
 
+/**
+ * 校验 Lane 尺寸：非正数 / NaN / Infinity 回退默认值，最终 clamp 到 MIN_LANE_SIZE。
+ */
+function validateLaneSize(size?: number): number {
+  const raw = size ?? DEFAULT_LANE_SIZE
+  const safe = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_LANE_SIZE
+  return Math.max(safe, MIN_LANE_SIZE)
+}
+
 interface Rect {
   x: number
   y: number
@@ -176,11 +185,7 @@ export function addLaneToPool(
   const content = poolContentRect(pool)
   const lanes = sortLanesByAxis(getChildLanes(graph, pool), hz)
   // 校验 size：至少为 MIN_LANE_SIZE，非正数 / NaN 时回退默认值
-  const rawSize = options.size ?? DEFAULT_LANE_SIZE
-  const laneSize = Math.max(
-    Number.isFinite(rawSize) && rawSize > 0 ? rawSize : DEFAULT_LANE_SIZE,
-    MIN_LANE_SIZE,
-  )
+  const laneSize = validateLaneSize(options.size)
   const label = options.label ?? 'Lane'
 
   let x: number, y: number, w: number, h: number
@@ -266,11 +271,7 @@ export function addLaneAbove(
   if (!pool) return null
 
   const hz = isHorizontal(pool)
-  const rawSize = options.size ?? DEFAULT_LANE_SIZE
-  const laneSize = Math.max(
-    Number.isFinite(rawSize) && rawSize > 0 ? rawSize : DEFAULT_LANE_SIZE,
-    MIN_LANE_SIZE,
-  )
+  const laneSize = validateLaneSize(options.size)
   const label = options.label ?? 'Lane'
   const refRect = nodeRect(referenceLane)
 
@@ -312,11 +313,7 @@ export function addLaneBelow(
   if (!pool) return null
 
   const hz = isHorizontal(pool)
-  const rawSize = options.size ?? DEFAULT_LANE_SIZE
-  const laneSize = Math.max(
-    Number.isFinite(rawSize) && rawSize > 0 ? rawSize : DEFAULT_LANE_SIZE,
-    MIN_LANE_SIZE,
-  )
+  const laneSize = validateLaneSize(options.size)
   const label = options.label ?? 'Lane'
   const refRect = nodeRect(referenceLane)
 

@@ -464,7 +464,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
   // 通过 addLaneToPool 添加第二条 Lane，验证无空隙
   const lane2 = addLaneToPool(graph, pool, { label: 'Lane 2' })
   if (!lane2) {
-    throw new Error('addLaneToPool 返回 null')
+    throw new Error('addLaneToPool 返回 null，无法在 createMultiLaneScenario 中创建第二条 Lane')
   }
 
   // 在 lane1 中放置一个任务
