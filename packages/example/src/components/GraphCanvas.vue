@@ -136,7 +136,11 @@ function hidePoolMenu() {
 
 function onAddLane() {
   if (!graph || !selectedPoolNode) return;
-  addLaneToPool(graph, selectedPoolNode, { label: '泳道' });
+  const lane = addLaneToPool(graph, selectedPoolNode, { label: '泳道' });
+  if (!lane) {
+    Message.warning('无法添加泳道');
+    return;
+  }
   updatePoolMenu();
 }
 
