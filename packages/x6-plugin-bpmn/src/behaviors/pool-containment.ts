@@ -80,7 +80,7 @@ interface NodeChangeOptions {
 // ============================================================================
 
 /**
- * CellViewInteracting 类型的本地镜像，用于避免对 X6 内部类型的直接依赖。
+ * CellViewInteracting 类型的本地简化镜像，仅用于内部逻辑，不代表 X6 完整类型定义。
  * X6 的 interacting 选项支持 boolean / 对象 / 函数三种形式。
  */
 type Interactable = boolean | ((cellView: unknown) => boolean)

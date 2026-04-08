@@ -158,6 +158,17 @@ describe('patchLaneInteracting / restoreLaneInteracting', () => {
     expect(resultNull).toBe(true)
   })
 
+  it('cellView.cell.shape 为 undefined 时应回退到原始行为', () => {
+    const graph = createMockGraph(true)
+    patchLaneInteracting(graph, true)
+
+    const result = (graph.options.interacting as Function)({ cell: {} })
+    expect(result).toBe(true)
+
+    const resultWithUndefined = (graph.options.interacting as Function)({ cell: { shape: undefined } })
+    expect(resultWithUndefined).toBe(true)
+  })
+
   it('原始 interacting 为 null 时 Lane 应被禁止、非 Lane 应返回 true', () => {
     const graph = createMockGraph(null)
     patchLaneInteracting(graph, null)
