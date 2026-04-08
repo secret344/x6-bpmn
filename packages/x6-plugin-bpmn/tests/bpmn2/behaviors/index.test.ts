@@ -17,6 +17,8 @@ vi.mock('../../../src/behaviors/pool-containment', () => ({
   findContainingSwimlane: vi.fn(),
   getSwimlaneAncestor: vi.fn(),
   isContainedFlowNode: vi.fn(),
+  patchLaneInteracting: vi.fn(),
+  restoreLaneInteracting: vi.fn(),
 }))
 
 vi.mock('../../../src/behaviors/lane-management', () => ({

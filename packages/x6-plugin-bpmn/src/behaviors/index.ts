@@ -22,6 +22,8 @@ export {
   findContainingSwimlane,
   getSwimlaneAncestor,
   isContainedFlowNode,
+  patchLaneInteracting,
+  restoreLaneInteracting,
 } from './pool-containment'
 export type {
   PoolContainmentResult,

@@ -75,6 +75,69 @@ interface NodeChangeOptions {
   swimlaneCascade?: string
 }
 
+// ============================================================================
+// Lane interacting 补丁：在 X6 框架层面禁止 Lane 拖拽
+// ============================================================================
+
+/**
+ * CellViewInteracting 类型的本地简化镜像，仅用于内部逻辑，不代表 X6 完整类型定义。
+ * X6 的 interacting 选项支持 boolean / 对象 / 函数三种形式。
+ */
+type Interactable = boolean | ((cellView: unknown) => boolean)
+interface InteractionMap {
+  nodeMovable?: Interactable
+  [key: string]: unknown
+}
+type CellViewInteracting = boolean | InteractionMap | ((cellView: unknown) => InteractionMap | boolean)
+
+/**
+ * 将 graph.options.interacting 替换为包含 Lane 不可拖拽限制的包装器。
+ *
+ * 保留原有 interacting 逻辑，仅对 Lane 节点追加 nodeMovable: false。
+ */
+export function patchLaneInteracting(graph: Graph, original: unknown): void {
+  const opts = (graph as Graph & { options: Record<string, unknown> }).options
+  if (!opts) return
+
+  const prev = original as CellViewInteracting | undefined
+
+  opts.interacting = function laneAwareInteracting(cellView: unknown): InteractionMap | boolean {
+    const cell = cellView && typeof cellView === 'object'
+      ? (cellView as { cell?: { shape?: string } }).cell
+      : undefined
+
+    // 对 Lane 节点禁止拖拽，仅允许调整大小
+    if (cell?.shape === BPMN_LANE) {
+      const base = resolveOriginalInteracting(prev, cellView)
+      if (typeof base === 'boolean') {
+        return base ? { nodeMovable: false } : false
+      }
+      return { ...base, nodeMovable: false }
+    }
+
+    // 非 Lane 节点，委托给原始 interacting
+    return resolveOriginalInteracting(prev, cellView)
+  }
+}
+
+/**
+ * 恢复 graph.options.interacting 为安装前的原始值。
+ */
+export function restoreLaneInteracting(graph: Graph, original: unknown): void {
+  const opts = (graph as Graph & { options: Record<string, unknown> }).options
+  if (!opts) return
+  opts.interacting = original
+}
+
+function resolveOriginalInteracting(
+  prev: CellViewInteracting | undefined,
+  cellView: unknown,
+): InteractionMap | boolean {
+  if (prev === undefined || prev === null) return true
+  if (typeof prev === 'function') return prev(cellView)
+  return prev
+}
+
 function nodeRect(node: Pick<Node, 'getPosition' | 'getSize'>): Rect {
   const position = node.getPosition()
   const size = node.getSize()
@@ -336,6 +399,11 @@ export function setupPoolContainment(
   const ownerDocument = (
     graph as Graph & { container?: { ownerDocument?: Document | null } }
   ).container?.ownerDocument
+
+  // ---------- Lane 节点禁止拖拽（参照 bpmn.js 行为） ----------
+  // 通过 X6 的 interacting 选项在框架层面阻止 Lane 拖拽，避免位置复位引发的视觉抖动。
+  const originalInteracting = (graph as Graph & { options: Record<string, unknown> }).options?.interacting
+  patchLaneInteracting(graph, originalInteracting)
 
   function hasTrackedNode(nodeSet: WeakSet<Node>, nodeIds: Set<string>, node: Node): boolean {
     return nodeSet.has(node) || nodeIds.has(node.id)
@@ -1040,5 +1108,6 @@ export function setupPoolContainment(
     graph.model?.off?.('batch:stop', onBatchStop)
     ownerDocument?.removeEventListener?.('mouseup', onPointerRelease, true)
     ownerDocument?.removeEventListener?.('touchend', onPointerRelease, true)
+    restoreLaneInteracting(graph, originalInteracting)
   }
 }
