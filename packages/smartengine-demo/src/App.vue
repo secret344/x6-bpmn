@@ -218,6 +218,8 @@ const shapeGroups = computed(() => {
   }
 
   for (const [shape, def] of Object.entries(defs)) {
+    // Lane 不再作为独立可拖拽元素，改由 Pool 右侧浮动菜单添加。
+    if (shape === 'bpmn-lane') continue
     const groupKey = categoryMap[def.category] || 'other'
     const cfg = groupConfig[groupKey] || { label: groupKey, color: '#333' }
     if (!groups[groupKey]) {

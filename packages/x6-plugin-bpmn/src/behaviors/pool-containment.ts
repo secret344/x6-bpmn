@@ -830,8 +830,22 @@ export function setupPoolContainment(
     if (hasTrackedNode(restoringNodes, restoringNodeIds, node)) return
     if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) return
     if (hasManagedSwimlaneAncestor(node) || hasOtherManagedSwimlaneDrag(node)) return
+
+    // Lane 节点不允许拖拽，仅允许调整大小（参照 bpmn.js 行为）。
+    if (node.shape === BPMN_LANE) {
+      const lastState = activeDragState.get(node) ?? lastValidState.get(node)
+      if (lastState) {
+        restoreNodePosition(node, { x: lastState.x, y: lastState.y })
+      }
+      return
+    }
+
     beginDragState(node)
     if (syncContainment(node)) {
+      // Pool 持续拖拽时，同步级联更新所有后代位置，避免内部节点抖动或滞后。
+      if (shouldCascadeTrackedSwimlaneChildren(node)) {
+        cascadeSwimlaneChildren(node)
+      }
       repairSwimlaneChildren(node, !isSwimlaneShape(node.shape))
       return
     }

@@ -3,6 +3,22 @@
     <div ref="graphContainerRef" class="graph-container" data-testid="graph-container"></div>
     <div ref="minimapRef" class="minimap-container"></div>
 
+    <!-- Pool 右侧悬浮菜单（参照 bpmn.js 交互：点选 Pool 后显示添加 Lane 按钮） -->
+    <div
+      v-if="poolMenuVisible"
+      class="pool-float-menu"
+      :style="{ top: poolMenuPos.y + 'px', left: poolMenuPos.x + 'px' }"
+    >
+      <button class="pool-menu-btn" title="添加泳道" @click="onAddLane">
+        <svg viewBox="0 0 20 20" width="18" height="18">
+          <rect x="1" y="1" width="18" height="18" rx="2" fill="#fff" stroke="#1890ff" stroke-width="1.5"/>
+          <line x1="10" y1="5" x2="10" y2="15" stroke="#1890ff" stroke-width="2"/>
+          <line x1="5" y1="10" x2="15" y2="10" stroke="#1890ff" stroke-width="2"/>
+        </svg>
+        <span>添加泳道</span>
+      </button>
+    </div>
+
     <!-- 连线类型浮动选择器 -->
     <div class="edge-type-panel">
       <div class="edge-type-title">连线类型</div>
@@ -30,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, reactive, onMounted, onUnmounted, nextTick } from "vue";
 import { Graph, type Node } from "@antv/x6";
 import { Message } from "@arco-design/web-vue";
 import { Selection } from "@antv/x6/lib/plugin/selection";
@@ -51,6 +67,7 @@ import {
   attachBoundaryToHost,
   isBoundaryShape,
   distanceToRectEdge,
+  addLaneToPool,
   BPMN_POOL,
   BPMN_LANE,
   BPMN_GROUP,
@@ -94,6 +111,34 @@ declare global {
 let graph: Graph | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let disposeBpmnBehaviors: (() => void) | null = null;
+
+// ==================== Pool 右侧悬浮菜单状态 ====================
+const poolMenuVisible = ref(false);
+const poolMenuPos = reactive({ x: 0, y: 0 });
+let selectedPoolNode: Node | null = null;
+
+function updatePoolMenu() {
+  if (!graph || !selectedPoolNode) {
+    poolMenuVisible.value = false;
+    return;
+  }
+  const bbox = selectedPoolNode.getBBox();
+  const graphRect = graph.localToClient({ x: bbox.x + bbox.width, y: bbox.y });
+  poolMenuPos.x = graphRect.x + 8;
+  poolMenuPos.y = graphRect.y;
+  poolMenuVisible.value = true;
+}
+
+function hidePoolMenu() {
+  poolMenuVisible.value = false;
+  selectedPoolNode = null;
+}
+
+function onAddLane() {
+  if (!graph || !selectedPoolNode) return;
+  addLaneToPool(graph, selectedPoolNode, { label: '泳道' });
+  updatePoolMenu();
+}
 
 /** 可作为边界事件宿主的 Activity 图形集合 */
 const ACTIVITY_SHAPES = new Set([
@@ -511,6 +556,33 @@ onMounted(async () => {
     edge.removeTools();
   });
 
+  // Pool 选中时显示右侧悬浮菜单（添加泳道按钮）
+  graph.on("node:selected", ({ node }) => {
+    if (node.shape === BPMN_POOL) {
+      selectedPoolNode = node;
+      updatePoolMenu();
+    }
+  });
+  graph.on("node:unselected", ({ node }) => {
+    if (node.shape === BPMN_POOL && selectedPoolNode?.id === node.id) {
+      hidePoolMenu();
+    }
+  });
+  // 拖拽或缩放画布时更新菜单位置
+  graph.on("translate", () => updatePoolMenu());
+  graph.on("scale", () => updatePoolMenu());
+  // Pool 大小变化时更新菜单位置
+  graph.on("node:change:size", ({ node }) => {
+    if (node.shape === BPMN_POOL && selectedPoolNode?.id === node.id) {
+      updatePoolMenu();
+    }
+  });
+  graph.on("node:change:position", ({ node }) => {
+    if (node.shape === BPMN_POOL && selectedPoolNode?.id === node.id) {
+      updatePoolMenu();
+    }
+  });
+
   // 安装边界事件吸附行为
   disposeBpmnBehaviors = setupBpmnInteractionBehaviors(graph, {
     poolContainment: {
@@ -640,5 +712,37 @@ onUnmounted(() => {
 
 .edge-type-label {
   white-space: nowrap;
+}
+
+/* Pool 右侧悬浮菜单 */
+.pool-float-menu {
+  position: fixed;
+  z-index: 100;
+  background: #fff;
+  border: 1px solid var(--color-border-2);
+  border-radius: 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  user-select: none;
+}
+
+.pool-menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-2);
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.pool-menu-btn:hover {
+  background: var(--color-primary-light-1);
+  color: rgb(var(--primary-6));
 }
 </style>

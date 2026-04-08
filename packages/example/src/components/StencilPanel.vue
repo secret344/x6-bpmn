@@ -108,7 +108,6 @@ import {
   BPMN_TEXT_ANNOTATION,
   BPMN_GROUP,
   BPMN_POOL,
-  BPMN_LANE,
 } from '@x6-bpmn2/plugin'
 
 defineProps<{
@@ -198,7 +197,6 @@ const svgArtifact = (inner: string) =>
 const iAnnotation = '<line x1="10" y1="2" x2="10" y2="22" stroke="#595959" stroke-width="1.5"/><line x1="10" y1="2" x2="30" y2="2" stroke="#595959" stroke-width="1"/><text x="14" y="15" font-size="8" fill="#595959">T</text>'
 const iGroup = '<rect x="2" y="2" width="36" height="20" rx="4" fill="none" stroke="#595959" stroke-width="1.5" stroke-dasharray="6 3"/>'
 const iPool = '<rect x="2" y="2" width="36" height="20" rx="1" fill="#e6f7ff" stroke="#1890ff" stroke-width="1.5"/><line x1="10" y1="2" x2="10" y2="22" stroke="#1890ff" stroke-width="1"/><text x="6" y="14" font-size="7" fill="#1890ff" transform="rotate(-90 6 14)">P</text>'
-const iLane = '<rect x="2" y="2" width="36" height="20" rx="1" fill="#f6ffed" stroke="#52c41a" stroke-width="1.2"/><line x1="10" y1="2" x2="10" y2="22" stroke="#52c41a" stroke-width="1"/>'
 
 // ============================================================================
 // Stencil group definitions with Chinese titles and icons
@@ -350,7 +348,6 @@ const stencilGroups: StencilGroup[] = [
       { shape: BPMN_TEXT_ANNOTATION, label: '文本注释', icon: svgArtifact(iAnnotation), width: 100, height: 40 },
       { shape: BPMN_GROUP, label: '分组', icon: svgArtifact(iGroup), width: 160, height: 100 },
       { shape: BPMN_POOL, label: '池', icon: svgArtifact(iPool), width: 400, height: 200 },
-      { shape: BPMN_LANE, label: '道', icon: svgArtifact(iLane), width: 370, height: 100 },
     ],
   },
 ]
