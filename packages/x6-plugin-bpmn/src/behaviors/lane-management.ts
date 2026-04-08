@@ -24,6 +24,15 @@ const MIN_LANE_SIZE = 60
 // 工具函数
 // ============================================================================
 
+/**
+ * 校验 Lane 尺寸：非正数 / NaN / Infinity 回退默认值，最终 clamp 到 MIN_LANE_SIZE。
+ */
+function validateLaneSize(size?: number): number {
+  const raw = size ?? DEFAULT_LANE_SIZE
+  const safe = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_LANE_SIZE
+  return Math.max(safe, MIN_LANE_SIZE)
+}
+
 interface Rect {
   x: number
   y: number
@@ -175,7 +184,8 @@ export function addLaneToPool(
   const hz = isHorizontal(pool)
   const content = poolContentRect(pool)
   const lanes = sortLanesByAxis(getChildLanes(graph, pool), hz)
-  const laneSize = options.size ?? DEFAULT_LANE_SIZE
+  // 校验 size：至少为 MIN_LANE_SIZE，非正数 / NaN 时回退默认值
+  const laneSize = validateLaneSize(options.size)
   const label = options.label ?? 'Lane'
 
   let x: number, y: number, w: number, h: number
@@ -243,6 +253,9 @@ export function addLaneToPool(
   pool.embed(lane)
   normalizeSwimlaneLayers(graph)
 
+  // 重新排列所有 Lane，确保最后一条 Lane 填满 Pool 内容区，不留空隙
+  compactLaneLayout(graph, pool)
+
   return lane
 }
 
@@ -258,7 +271,7 @@ export function addLaneAbove(
   if (!pool) return null
 
   const hz = isHorizontal(pool)
-  const laneSize = options.size ?? DEFAULT_LANE_SIZE
+  const laneSize = validateLaneSize(options.size)
   const label = options.label ?? 'Lane'
   const refRect = nodeRect(referenceLane)
 
@@ -300,7 +313,7 @@ export function addLaneBelow(
   if (!pool) return null
 
   const hz = isHorizontal(pool)
-  const laneSize = options.size ?? DEFAULT_LANE_SIZE
+  const laneSize = validateLaneSize(options.size)
   const label = options.label ?? 'Lane'
   const refRect = nodeRect(referenceLane)
 
@@ -364,22 +377,24 @@ export function setupLaneManagement(
   graph: Graph,
   options: LaneManagementOptions = {},
 ): () => void {
-  const adjustingLanes = new WeakSet<Node>()
+  // 全局重入保护：adjustAdjacentLanes 内部 resize 会触发相邻 Lane 的
+  // node:change:size 事件，若不拦截会导致级联递归调整。
+  let isAdjusting = false
 
   function onLaneSizeChanged({ node, options: changeOpts }: { node: Node; options?: Record<string, unknown> }) {
     if (node.shape !== BPMN_LANE) return
-    if (adjustingLanes.has(node)) return
+    if (isAdjusting) return
     if (changeOpts?.silent) return
 
     const pool = getParentPool(node)
     if (!pool) return
 
-    adjustingLanes.add(node)
+    isAdjusting = true
     try {
       adjustAdjacentLanes(graph, pool, node)
       options.onLaneResize?.(node, pool)
     } finally {
-      adjustingLanes.delete(node)
+      isAdjusting = false
     }
   }
 

@@ -27,6 +27,13 @@ type MessageScenarioIds = {
   targetTaskId: string
 }
 
+type MultiLaneScenarioIds = {
+  poolId: string
+  lane1Id: string
+  lane2Id: string
+  taskId: string
+}
+
 type NodeSnapshot = {
   id: string
   x: number
@@ -105,6 +112,26 @@ async function createTwoPoolMessageScenario(page: Page): Promise<MessageScenario
     }
     return harness.createTwoPoolMessageScenario()
   })
+}
+
+async function createMultiLaneScenario(page: Page): Promise<MultiLaneScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.createMultiLaneScenario()
+  })
+}
+
+async function addLaneToPoolInBrowser(page: Page, poolId: string): Promise<string | null> {
+  return page.evaluate((id) => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.addLaneToPoolScenario(id)
+  }, poolId)
 }
 
 async function getNodeSnapshot(page: Page, id: string): Promise<NodeSnapshot> {
@@ -739,5 +766,140 @@ test.describe('主库浏览器行为回归', () => {
     expect(edgeAfter.shape).toBe('bpmn-message-flow')
     expect(edgeAfter.sourceId).toBe(sourceAfter.id)
     expect(edgeAfter.targetId).toBe(targetAfter.id)
+  })
+
+  test('addLaneToPool 添加多 Lane 后，Lane 应紧密覆盖 Pool 内容区无空隙', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createMultiLaneScenario(page)
+    await takeScreenshot(page, '多 Lane 初始布局')
+
+    const pool = await getNodeSnapshot(page, scenario.poolId)
+    const lane1 = await getNodeSnapshot(page, scenario.lane1Id)
+    const lane2 = await getNodeSnapshot(page, scenario.lane2Id)
+
+    // Pool 内容区起始 x = pool.x + 30（HEADER_SIZE），高度 = pool.height
+    const contentTop = pool.y
+    const contentBottom = pool.y + pool.height
+
+    // lane1 应从内容区顶部开始
+    expect(lane1.y).toBeCloseTo(contentTop, 0)
+
+    // lane2 应紧接 lane1 底部，无间隙
+    expect(lane2.y).toBeCloseTo(lane1.y + lane1.height, 0)
+
+    // lane2 底部应与 Pool 内容区底部对齐（无空隙）
+    expect(lane2.y + lane2.height).toBeCloseTo(contentBottom, 0)
+
+    // 任务应在 lane1 内
+    const task = await getNodeSnapshot(page, scenario.taskId)
+    expect(task.parentId).toBe(scenario.lane1Id)
+  })
+
+  test('多 Lane Pool 拖拽时，所有 Lane 和内部任务应随 Pool 联动', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createMultiLaneScenario(page)
+    const poolBefore = await getNodeSnapshot(page, scenario.poolId)
+    const lane1Before = await getNodeSnapshot(page, scenario.lane1Id)
+    const lane2Before = await getNodeSnapshot(page, scenario.lane2Id)
+    const taskBefore = await getNodeSnapshot(page, scenario.taskId)
+    await takeScreenshot(page, '多 Lane 拖拽前的初始布局')
+
+    const delta = { x: 80, y: 50 }
+    await dragNodeBy(page, scenario.poolId, delta, { startOffset: { x: 12, y: 40 } })
+    await takeScreenshot(page, '多 Lane Pool 拖拽后的联动结果')
+
+    const poolAfter = await getNodeSnapshot(page, scenario.poolId)
+    const lane1After = await getNodeSnapshot(page, scenario.lane1Id)
+    const lane2After = await getNodeSnapshot(page, scenario.lane2Id)
+    const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+
+    const actualPoolDelta = {
+      x: poolAfter.x - poolBefore.x,
+      y: poolAfter.y - poolBefore.y,
+    }
+
+    // 所有子节点应跟随 Pool 移动
+    expectMovedNear(lane1Before, lane1After, actualPoolDelta)
+    expectMovedNear(lane2Before, lane2After, actualPoolDelta)
+    expectMovedNear(taskBefore, taskAfter, actualPoolDelta)
+
+    // 父链不变
+    expect(lane1After.parentId).toBe(poolAfter.id)
+    expect(lane2After.parentId).toBe(poolAfter.id)
+    expect(taskAfter.parentId).toBe(lane1After.id)
+
+    // Lane 之间仍无间隙
+    expect(lane2After.y).toBeCloseTo(lane1After.y + lane1After.height, 0)
+  })
+
+  test('Lane resize 后相邻 Lane 应自动伸缩保持无间隙', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createMultiLaneScenario(page)
+    const poolBefore = await getNodeSnapshot(page, scenario.poolId)
+    const lane1Before = await getNodeSnapshot(page, scenario.lane1Id)
+    const lane2Before = await getNodeSnapshot(page, scenario.lane2Id)
+    await takeScreenshot(page, 'Lane resize 前的多 Lane 布局')
+
+    // 选中 lane1 并向下 resize（增大 lane1 高度）
+    await resizeNodeBy(page, scenario.lane1Id, { x: 0, y: 40 }, { x: 250, y: 80 })
+    await takeScreenshot(page, 'Lane 1 下拉 resize 后的布局')
+
+    const poolAfter = await getNodeSnapshot(page, scenario.poolId)
+    const lane1After = await getNodeSnapshot(page, scenario.lane1Id)
+    const lane2After = await getNodeSnapshot(page, scenario.lane2Id)
+
+    // lane1 应变大
+    expect(lane1After.height).toBeGreaterThan(lane1Before.height)
+
+    // lane2 应紧接 lane1 底部
+    expect(lane2After.y).toBeCloseTo(lane1After.y + lane1After.height, 0)
+
+    // lane2 底部应对齐 Pool 内容区底部（或 Pool 自动扩展）
+    const contentBottom = poolAfter.y + poolAfter.height
+    expect(lane2After.y + lane2After.height).toBeCloseTo(contentBottom, 0)
+
+    // 父链不变
+    expect(lane1After.parentId).toBe(poolAfter.id)
+    expect(lane2After.parentId).toBe(poolAfter.id)
+  })
+
+  test('动态添加第三条 Lane 后仍应无间隙覆盖 Pool 内容区', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createMultiLaneScenario(page)
+    await takeScreenshot(page, '动态添加 Lane 前的双 Lane 布局')
+
+    // 通过 harness 再添加一条 Lane
+    const lane3Id = await addLaneToPoolInBrowser(page, scenario.poolId)
+    expect(lane3Id).not.toBeNull()
+    await takeScreenshot(page, '添加第三条 Lane 后的布局')
+
+    const pool = await getNodeSnapshot(page, scenario.poolId)
+    const lane1 = await getNodeSnapshot(page, scenario.lane1Id)
+    const lane2 = await getNodeSnapshot(page, scenario.lane2Id)
+    const lane3 = await getNodeSnapshot(page, lane3Id!)
+
+    const contentTop = pool.y
+    const contentBottom = pool.y + pool.height
+
+    // 三条 Lane 紧密排列
+    expect(lane1.y).toBeCloseTo(contentTop, 0)
+    expect(lane2.y).toBeCloseTo(lane1.y + lane1.height, 0)
+    expect(lane3.y).toBeCloseTo(lane2.y + lane2.height, 0)
+
+    // 最后一条 Lane 底部对齐 Pool 内容区底部
+    expect(lane3.y + lane3.height).toBeCloseTo(contentBottom, 0)
+
+    // 父链正确
+    expect(lane1.parentId).toBe(pool.id)
+    expect(lane2.parentId).toBe(pool.id)
+    expect(lane3.parentId).toBe(pool.id)
   })
 })
