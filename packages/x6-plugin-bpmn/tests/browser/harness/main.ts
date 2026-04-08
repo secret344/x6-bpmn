@@ -9,6 +9,7 @@ import {
   importBpmnXml,
   createBpmnValidateConnection,
   createBpmnValidateEdge,
+  addLaneToPool,
   BPMN_BOUNDARY_EVENT_TIMER,
   BPMN_LANE,
   BPMN_MESSAGE_FLOW,
@@ -52,6 +53,13 @@ type MessageScenarioIds = {
   targetTaskId: string
 }
 
+type MultiLaneScenarioIds = {
+  poolId: string
+  lane1Id: string
+  lane2Id: string
+  taskId: string
+}
+
 type EdgeSnapshot = {
   id: string
   shape: string
@@ -68,6 +76,8 @@ declare global {
       createPoolLaneTaskScenario: () => ScenarioIds
       createPoolLaneTaskBoundaryScenario: () => ScenarioIds
       createTwoPoolMessageScenario: () => MessageScenarioIds
+      createMultiLaneScenario: () => MultiLaneScenarioIds
+      addLaneToPoolScenario: (poolId: string) => string | null
       getNodeSnapshot: (id: string) => NodeSnapshot
       getSelectedCellIds: () => string[]
       getEdgeSnapshotByShape: (shape: string) => EdgeSnapshot
@@ -421,6 +431,72 @@ function createTwoPoolMessageScenario(): MessageScenarioIds {
   }
 }
 
+function createMultiLaneScenario(): MultiLaneScenarioIds {
+  clear()
+
+  const pool = graph.addNode({
+    id: 'pool-multi',
+    shape: BPMN_POOL,
+    x: 40,
+    y: 40,
+    width: 500,
+    height: 400,
+    attrs: { headerLabel: { text: 'Pool' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+
+  // 第一条 Lane：覆盖上半部分
+  const lane1 = graph.addNode({
+    id: 'lane-multi-1',
+    shape: BPMN_LANE,
+    x: 70,
+    y: 40,
+    width: 470,
+    height: 200,
+    parent: pool.id,
+    attrs: { headerLabel: { text: 'Lane 1' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+  pool.embed(lane1)
+  emitGraphEvent('node:added', { node: pool })
+  emitGraphEvent('node:added', { node: lane1 })
+
+  // 通过 addLaneToPool 添加第二条 Lane，验证无空隙
+  const lane2 = addLaneToPool(graph, pool, { label: 'Lane 2' })
+  if (!lane2) {
+    throw new Error('addLaneToPool 返回 null')
+  }
+
+  // 在 lane1 中放置一个任务
+  const task = graph.addNode({
+    id: 'task-multi',
+    shape: BPMN_USER_TASK,
+    x: 140,
+    y: 70,
+    width: 100,
+    height: 60,
+    parent: lane1.id,
+    attrs: { label: { text: 'Task' } },
+  })
+  lane1.embed(task)
+  emitGraphEvent('node:added', { node: task })
+
+  return {
+    poolId: pool.id,
+    lane1Id: lane1.id,
+    lane2Id: lane2.id,
+    taskId: task.id,
+  }
+}
+
+function addLaneToPoolScenario(poolId: string): string | null {
+  const cell = graph.getCellById(poolId)
+  if (!cell?.isNode?.()) return null
+  const pool = cell as Node
+  const lane = addLaneToPool(graph, pool, { label: '新泳道' })
+  return lane?.id ?? null
+}
+
 async function roundtripXml(): Promise<string> {
   const xml = await exportBpmnXml(graph, { processName: '浏览器测试流程' })
   await importBpmnXml(graph, xml, { zoomToFit: false })
@@ -434,6 +510,8 @@ window.__x6PluginBrowserHarness = {
   createPoolLaneTaskScenario,
   createPoolLaneTaskBoundaryScenario,
   createTwoPoolMessageScenario,
+  createMultiLaneScenario,
+  addLaneToPoolScenario,
   getNodeSnapshot,
   getSelectedCellIds,
   getEdgeSnapshotByShape,
