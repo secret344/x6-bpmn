@@ -7,3 +7,6 @@
 [submodule "packages/bpmn-js"]
 	path = packages/bpmn-js
 	url = https://github.com/secret344/bpmn-js.git
+[submodule "packages/LogicFlow"]
+	path = packages/LogicFlow
+	url = https://github.com/didi/LogicFlow.git

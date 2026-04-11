@@ -1,20 +1,31 @@
 /**
  * Pool / Participant 容器约束行为
  *
- * 在存在 Pool 的协作图场景下，约束流程节点必须位于某个 Pool 内部。
- * 若命中更小的 Lane，则优先保持流程节点的 Lane 嵌套；但对流程节点而言，Lane 不是硬性边界。
- * 对 Lane 本身，则要求保持在所属 Pool 内，避免普通拖拽跨 Pool 改变 Process 分区归属。
- * 主库只负责限制与结果回调，不直接承担 UI 提示。
+ * 拖拽主链路优先复用 X6 原生能力：
+ * 1. interacting：控制 Lane 不可直接拖拽；
+ * 2. translating.restrict：在移动前裁剪 Pool / 选区位移；
+ * 3. embedding：在候选父节点阶段约束 Lane / Flow Node / Boundary 的归属；
+ * 4. node:moved 与 node:change:*：仅做 BPMN 归一化和非 UI 兜底恢复。
  */
 
-import type { Graph, Node, Cell } from '@antv/x6'
+import type { Cell, Graph, Node } from '@antv/x6'
 import { isBoundaryShape, isSwimlaneShape } from '../export/bpmn-mapping'
+import { resolveSwimlaneIsHorizontal } from '../shapes/swimlane-presentation'
 import { BPMN_LANE, BPMN_POOL } from '../utils/constants'
 import {
   autoWrapFirstPool,
   clampSwimlaneToContent,
+  nodeRect,
   normalizeSwimlaneLayers,
 } from './swimlane-layout'
+import { compactLaneLayout } from './lane-management'
+import { isContainedFlowNode, setupSwimlanePolicy } from './swimlane-policy'
+import { setupSwimlaneResize } from './swimlane-resize'
+import {
+  findContainingSwimlane,
+  getAncestorPool,
+  getAncestorSwimlane,
+} from '../core/swimlane-membership'
 
 interface Rect {
   x: number
@@ -33,7 +44,7 @@ export interface PoolContainmentResult {
 }
 
 export interface PoolContainmentOptions {
-  /** 拖拽越界时是否自动回退到最后一个合法位置，默认 true */
+  /** 越界或非法归属时是否恢复到最后一个合法状态，默认 true */
   constrainToContainer?: boolean
   /** 新增节点不合法时是否直接移除，默认 true */
   removeInvalidOnAdd?: boolean
@@ -48,6 +59,7 @@ export interface PoolContainmentOptions {
 const DEFAULT_REASON = '当前实现中，流程节点需保留在池/参与者内部'
 const LANE_REASON = '当前实现中，泳道需保留在所属池/参与者内部'
 const POOL_REASON = '当前实现中，Pool 之间不支持重叠或嵌套'
+const SWIMLANE_HEADER_SIZE = 30
 
 type TranslatableNode = Node & {
   translate?: (tx: number, ty: number, options?: unknown) => void
@@ -64,7 +76,6 @@ interface NodeState {
   width: number
   height: number
   container: Node | null
-  childIds?: string[]
 }
 
 interface NodeChangeOptions {
@@ -72,126 +83,204 @@ interface NodeChangeOptions {
   silent?: boolean
   selection?: string
   translateBy?: string
-  swimlaneCascade?: string
+  /** X6 Transform resize 方向标记 */
+  direction?: string
+  bpmnLayout?: boolean
 }
 
-// ============================================================================
-// Lane interacting 补丁：在 X6 框架层面禁止 Lane 拖拽
-// ============================================================================
-
-/**
- * CellViewInteracting 类型的本地简化镜像，仅用于内部逻辑，不代表 X6 完整类型定义。
- * X6 的 interacting 选项支持 boolean / 对象 / 函数三种形式。
- */
 type Interactable = boolean | ((cellView: unknown) => boolean)
+
 interface InteractionMap {
   nodeMovable?: Interactable
   [key: string]: unknown
 }
-type CellViewInteracting = boolean | InteractionMap | ((cellView: unknown) => InteractionMap | boolean)
 
-/**
- * 将 graph.options.interacting 替换为包含 Lane 不可拖拽限制的包装器。
- *
- * 保留原有 interacting 逻辑，仅对 Lane 节点追加 nodeMovable: false。
- */
-export function patchLaneInteracting(graph: Graph, original: unknown): void {
-  const opts = (graph as Graph & { options: Record<string, unknown> }).options
-  if (!opts) return
+type CellViewInteracting =
+  | boolean
+  | InteractionMap
+  | ((cellView: unknown) => InteractionMap | boolean)
 
-  const prev = original as CellViewInteracting | undefined
+type RestrictResolver = (this: Graph, cellView: unknown) => Rect | number | null
 
-  opts.interacting = function laneAwareInteracting(cellView: unknown): InteractionMap | boolean {
-    const cell = cellView && typeof cellView === 'object'
-      ? (cellView as { cell?: { shape?: string } }).cell
-      : undefined
-
-    // 对 Lane 节点禁止拖拽，仅允许调整大小
-    if (cell?.shape === BPMN_LANE) {
-      const base = resolveOriginalInteracting(prev, cellView)
-      if (typeof base === 'boolean') {
-        return base ? { nodeMovable: false } : false
-      }
-      return { ...base, nodeMovable: false }
-    }
-
-    // 非 Lane 节点，委托给原始 interacting
-    return resolveOriginalInteracting(prev, cellView)
-  }
+interface TranslatingMap {
+  restrict?: boolean | number | Rect | RestrictResolver | null
+  [key: string]: unknown
 }
 
-/**
- * 恢复 graph.options.interacting 为安装前的原始值。
- */
-export function restoreLaneInteracting(graph: Graph, original: unknown): void {
-  const opts = (graph as Graph & { options: Record<string, unknown> }).options
-  if (!opts) return
-  opts.interacting = original
+type EmbeddingFindParentArgs = {
+  node: Node
+  view?: unknown
 }
 
-function resolveOriginalInteracting(
-  prev: CellViewInteracting | undefined,
-  cellView: unknown,
-): InteractionMap | boolean {
-  if (prev === undefined || prev === null) return true
-  if (typeof prev === 'function') return prev(cellView)
-  return prev
+type EmbeddingFindParent =
+  | 'bbox'
+  | 'center'
+  | 'topLeft'
+  | 'topRight'
+  | 'bottomLeft'
+  | 'bottomRight'
+  | ((this: Graph, args: EmbeddingFindParentArgs) => Cell[])
+
+type EmbeddingValidateArgs = {
+  child: Node
+  parent: Node
+  childView?: unknown
+  parentView?: unknown
 }
 
-function nodeRect(node: Pick<Node, 'getPosition' | 'getSize'>): Rect {
-  const position = node.getPosition()
-  const size = node.getSize()
-  return {
-    x: position.x,
-    y: position.y,
-    width: size.width,
-    height: size.height,
-  }
+type EmbeddingValidate = (this: Graph, args: EmbeddingValidateArgs) => boolean
+
+interface EmbeddingMap {
+  enabled?: boolean
+  findParent?: EmbeddingFindParent
+  validate?: EmbeddingValidate
+  [key: string]: unknown
 }
 
-function area(rect: Rect): number {
-  return rect.width * rect.height
+type GraphWithOptions = Graph & {
+  options?: Record<string, unknown>
+  container?: HTMLElement | null
+  getSelectedCells?: () => Cell[]
+  resetSelection?: (cells?: Cell | string | Array<Cell | string>, options?: { ui?: boolean }) => Graph
+  getNodesUnderNode?: (node: Node, options?: { by?: string }) => Node[]
+}
+
+interface Point {
+  x: number
+  y: number
+}
+
+function rectRight(rect: Rect): number {
+  return rect.x + rect.width
+}
+
+function rectBottom(rect: Rect): number {
+  return rect.y + rect.height
 }
 
 function containsRect(outer: Rect, inner: Rect): boolean {
   return (
     inner.x >= outer.x &&
     inner.y >= outer.y &&
-    inner.x + inner.width <= outer.x + outer.width &&
-    inner.y + inner.height <= outer.y + outer.height
+    rectRight(inner) <= rectRight(outer) &&
+    rectBottom(inner) <= rectBottom(outer)
   )
 }
 
 function overlapsRect(left: Rect, right: Rect): boolean {
   return (
-    left.x < right.x + right.width &&
-    left.x + left.width > right.x &&
-    left.y < right.y + right.height &&
-    left.y + left.height > right.y
+    left.x < rectRight(right) &&
+    rectRight(left) > right.x &&
+    left.y < rectBottom(right) &&
+    rectBottom(left) > right.y
   )
 }
 
-function hasPoolNodes(graph: Graph): boolean {
+function containsPoint(rect: Rect, point: Point): boolean {
+  return (
+    point.x >= rect.x &&
+    point.y >= rect.y &&
+    point.x <= rectRight(rect) &&
+    point.y <= rectBottom(rect)
+  )
+}
+
+function getNodeDepth(node: Node): number {
+  let depth = 0
+  let current = node.getParent?.() as Cell | null | undefined
+
+  while (current) {
+    depth += 1
+    current = current.getParent?.() as Cell | null | undefined
+  }
+
+  return depth
+}
+
+function isHorizontalSwimlane(node: Node): boolean {
   try {
-    return graph.getNodes().some((node) => node.shape === BPMN_POOL)
+    return resolveSwimlaneIsHorizontal(node.getData?.(), node.getSize())
   } catch {
-    return false
+    return true
   }
 }
 
-function hasEmbeddedChild(parent: Node | null | undefined, child: Node): boolean {
-  /* istanbul ignore next -- 当前调用方只会在存在候选容器时传入 parent，此分支保留为防御性兜底 */
-  if (!parent) return false
+function getSwimlaneContentRect(node: Node): Rect {
+  const rect = nodeRect(node)
+  if (isHorizontalSwimlane(node)) {
+    return {
+      x: rect.x + SWIMLANE_HEADER_SIZE,
+      y: rect.y,
+      width: Math.max(0, rect.width - SWIMLANE_HEADER_SIZE),
+      height: rect.height,
+    }
+  }
+
+  return {
+    x: rect.x,
+    y: rect.y + SWIMLANE_HEADER_SIZE,
+    width: rect.width,
+    height: Math.max(0, rect.height - SWIMLANE_HEADER_SIZE),
+  }
+}
+
+function getGraphNodes(graph: Graph): Node[] {
+  try {
+    return graph.getNodes()
+  } catch {
+    return []
+  }
+}
+
+function getSelectedNodes(graph: Graph): Node[] {
+  const graphWithOptions = graph as GraphWithOptions
+  if (typeof graphWithOptions.getSelectedCells !== 'function') {
+    return []
+  }
 
   try {
-    if (typeof parent.getChildren !== 'function') {
-      return child.getParent?.()?.id === parent.id
-    }
+    return graphWithOptions
+      .getSelectedCells()
+      .filter((cell) => cell.isNode?.()) as Node[]
+  } catch {
+    return []
+  }
+}
 
+function getGraphChildren(graph: Graph, parent: Node): Node[] {
+  return getGraphNodes(graph)
+    .filter((candidate) => candidate.id !== parent.id)
+    .filter((candidate) => candidate.getParent?.()?.id === parent.id)
+}
+
+function hasPoolNodes(graph: Graph): boolean {
+  return getGraphNodes(graph).some((node) => node.shape === BPMN_POOL)
+}
+
+function hasEmbeddedChild(parent: Node, child: Node): boolean {
+  try {
     const children = parent.getChildren?.() as Cell[] | null | undefined
     return Array.isArray(children) && children.some((candidate) => candidate.id === child.id)
   } catch {
-    return false
+    return child.getParent?.()?.id === parent.id
+  }
+}
+
+function detachNodeFromOtherSwimlanes(graph: Graph, node: Node, keepParentId?: string): void {
+  for (const candidate of getGraphNodes(graph)) {
+    if (!isSwimlaneShape(candidate.shape)) {
+      continue
+    }
+
+    if (candidate.id === keepParentId) {
+      continue
+    }
+
+    if (!hasEmbeddedChild(candidate, node)) {
+      continue
+    }
+
+    candidate.unembed?.(node)
   }
 }
 
@@ -204,16 +293,11 @@ function restoreNodePosition(node: Node, position: { x: number; y: number }): vo
 
   const translatableNode = node as TranslatableNode
   if (typeof translatableNode.translate === 'function') {
-    try {
-      // 保持视图同步，避免浏览器拖拽回退时只更新模型而不刷新渲染。
-      translatableNode.translate(deltaX, deltaY, { silent: false })
-      return
-    } catch {
-      // translate 失败时退回绝对定位，避免主链路中断。
-    }
+    translatableNode.translate(deltaX, deltaY, { bpmnLayout: true })
+    return
   }
 
-  node.setPosition(position.x, position.y, { silent: false })
+  node.setPosition(position.x, position.y, { bpmnLayout: true })
 }
 
 function restoreNodeSize(node: Node, size: { width: number; height: number }): void {
@@ -221,45 +305,38 @@ function restoreNodeSize(node: Node, size: { width: number; height: number }): v
   if (current.width === size.width && current.height === size.height) return
 
   const sizableNode = node as SizableNode
-
   if (typeof sizableNode.resize === 'function') {
-    sizableNode.resize(size.width, size.height, { silent: false })
+    sizableNode.resize(size.width, size.height, { bpmnLayout: true })
     return
   }
 
   if (typeof sizableNode.setSize === 'function') {
-    sizableNode.setSize(size.width, size.height, { silent: false })
+    sizableNode.setSize(size.width, size.height, { bpmnLayout: true })
   }
 }
 
-export function isContainedFlowNode(shape: string): boolean {
-  return !isSwimlaneShape(shape) && !isBoundaryShape(shape)
-}
-
-function isContainedNodeByDefault(shape: string): boolean {
-  return !isBoundaryShape(shape)
-}
-
-function findCollidingPool(graph: Graph, node: Node, rect: Rect): Node | null {
+function getGraphNodeById(graph: Graph, nodeId: string): Node | null {
   try {
-    return graph.getNodes()
-      .filter((candidate) => candidate.shape === BPMN_POOL)
-      .filter((candidate) => candidate.id !== node.id)
-      .find((candidate) => overlapsRect(nodeRect(candidate), rect)) ?? null
+    const cell = graph.getCellById?.(nodeId)
+    if (cell?.isNode?.()) {
+      return cell as Node
+    }
   } catch {
-    return null
+    // getCellById 缺失时退回节点遍历。
   }
+
+  return getGraphNodes(graph).find((candidate) => candidate.id === nodeId) ?? null
 }
 
-function getPoolAncestor(node: Node | null | undefined): Node | null {
-  let current = node as Cell | null | undefined
+function isDescendantOfNode(node: Node, ancestorId: string): boolean {
+  let current = node.getParent?.() as Cell | null | undefined
   while (current) {
-    if (current.isNode?.() && current.shape === BPMN_POOL) {
-      return current as Node
+    if (current.id === ancestorId) {
+      return true
     }
     current = current.getParent?.() as Cell | null | undefined
   }
-  return null
+  return false
 }
 
 function resolveContainmentReason(shape: string, customReason?: string): string {
@@ -267,38 +344,31 @@ function resolveContainmentReason(shape: string, customReason?: string): string 
   return shape === BPMN_LANE ? LANE_REASON : DEFAULT_REASON
 }
 
-export function getSwimlaneAncestor(node: Node | null | undefined): Node | null {
-  let current = node?.getParent?.() as Cell | null | undefined
-  while (current) {
-    if (current.isNode?.() && isSwimlaneShape(current.shape)) {
-      return current as Node
-    }
-    current = current.getParent?.() as Cell | null | undefined
-  }
-  return null
+function isContainedNodeByDefault(shape: string): boolean {
+  return !isBoundaryShape(shape)
 }
 
-export function findContainingSwimlane(
-  graph: Graph,
-  target: Rect | Pick<Node, 'getPosition' | 'getSize'>,
-  excludeNodeId?: string,
-): Node | null {
-  const rect = 'x' in target ? target : nodeRect(target)
+function findCollidingPool(graph: Graph, node: Node, rect: Rect): Node | null {
+  return (
+    getGraphNodes(graph)
+      .filter((candidate) => candidate.shape === BPMN_POOL)
+      .filter((candidate) => candidate.id !== node.id)
+      .find((candidate) => overlapsRect(nodeRect(candidate), rect)) ?? null
+  )
+}
 
-  try {
-    const candidates = graph.getNodes()
-      .filter((node) => isSwimlaneShape(node.shape))
-      .filter((node) => node.id !== excludeNodeId)
-      .filter((node) => containsRect(nodeRect(node), rect))
-      .sort((left, right) => area(nodeRect(left)) - area(nodeRect(right)))
+function getOwningPool(graph: Graph, node: Node): Node | null {
+  const ancestorPool = getAncestorPool(node)
+  if (ancestorPool) {
+    return ancestorPool
+  }
 
-    const laneCandidate = candidates.find((node) => node.shape !== BPMN_POOL)
-    if (laneCandidate) return laneCandidate
-
-    return candidates[0] ?? null
-  } catch {
+  const container = findContainingSwimlane(graph, nodeRect(node), node.id)
+  if (!container) {
     return null
   }
+
+  return container.shape === BPMN_POOL ? container : getAncestorPool(container)
 }
 
 export function validatePoolContainment(
@@ -316,52 +386,215 @@ export function validatePoolContainment(
   const rect = nodeRect(node)
 
   if (node.shape === BPMN_POOL) {
-    const collidingPool = findCollidingPool(graph, node, rect)
-    if (collidingPool) {
+    if (findCollidingPool(graph, node, rect)) {
       return { valid: false, reason: POOL_REASON }
     }
-
     return { valid: true }
   }
 
-  const ancestor = getSwimlaneAncestor(node)
+  const ancestor = getAncestorSwimlane(node)
   const container = findContainingSwimlane(graph, rect, node.id)
 
   if (node.shape === BPMN_LANE) {
-    const owningPool = getPoolAncestor(node)
+    const owningPool = getAncestorPool(node)
+    const expectedPool = container?.shape === BPMN_POOL ? container : getAncestorPool(container)
 
     if (owningPool) {
-      if (!containsRect(nodeRect(owningPool), rect)) {
+      if (!containsRect(getSwimlaneContentRect(owningPool), rect)) {
         return { valid: false, reason }
       }
 
-      if (!container) {
-        return { valid: true, container: owningPool }
-      }
-
-      const containerPool = container.shape === BPMN_POOL ? container : getPoolAncestor(container)
       return {
         valid: true,
-        container: containerPool?.id === owningPool.id ? container : owningPool,
+          container: expectedPool?.id === owningPool.id ? (container as Node) : owningPool,
       }
     }
 
-    if (container) {
-      return { valid: true, container }
+    if (!container || container.shape !== BPMN_POOL) {
+      return { valid: false, reason }
     }
 
+    return { valid: true, container }
+  }
+
+  const owningPool =
+    getAncestorPool(node) ??
+    (container?.shape === BPMN_POOL ? container : getAncestorPool(container))
+  if (!owningPool) {
+    return { valid: false, reason }
+  }
+
+  if (!containsRect(getSwimlaneContentRect(owningPool), rect)) {
     return { valid: false, reason }
   }
 
   if (ancestor && containsRect(nodeRect(ancestor), rect)) {
-    return { valid: true, container: container ?? ancestor }
+    return { valid: true, container: container as Node }
   }
 
-  if (container) {
-    return { valid: true, container }
+  return { valid: true, container: container as Node }
+}
+
+function rememberValidState(
+  graph: Graph,
+  node: Node,
+  targetStore: WeakMap<Node, NodeState>,
+  container?: Node | null,
+): void {
+  const position = node.getPosition()
+  const size = node.getSize()
+  targetStore.set(node, {
+    x: position.x,
+    y: position.y,
+    width: size.width,
+    height: size.height,
+    container: container ?? getAncestorSwimlane(node) ?? getOwningPool(graph, node),
+  })
+}
+
+function restoreLastValidState(
+  graph: Graph,
+  node: Node,
+  lastValidState: WeakMap<Node, NodeState>,
+): void {
+  const snapshot = lastValidState.get(node)
+  if (!snapshot) return
+
+  restoreNodeSize(node, { width: snapshot.width, height: snapshot.height })
+  restoreNodePosition(node, { x: snapshot.x, y: snapshot.y })
+
+  const currentContainer = getAncestorSwimlane(node)
+  const expectedContainer = snapshot.container
+  if (expectedContainer && currentContainer?.id !== expectedContainer.id) {
+    currentContainer?.unembed?.(node)
+    detachNodeFromOtherSwimlanes(graph, node, expectedContainer.id)
+    expectedContainer.embed(node)
+    normalizeSwimlaneLayers(graph)
+  }
+}
+
+function normalizeSwimlaneGeometry(graph: Graph, node: Node): void {
+  if (!isSwimlaneShape(node.shape)) return
+  if (clampSwimlaneToContent(node)) {
+    normalizeSwimlaneLayers(graph)
+  }
+}
+
+function shouldSkipDescendantTranslation(graph: Graph, node: Node, options?: NodeChangeOptions): boolean {
+  const translateBy = options?.translateBy
+  if (!translateBy || translateBy === node.id) {
+    return false
   }
 
-  return { valid: false, reason }
+  const source = getGraphNodeById(graph, translateBy)
+  if (!source || !isSwimlaneShape(source.shape)) {
+    return false
+  }
+
+  return isDescendantOfNode(node, source.id)
+}
+
+function collectSwimlaneDescendants(graph: Graph, node: Node): Node[] {
+  const descendants: Node[] = []
+  const queue = [...getGraphChildren(graph, node)]
+
+  while (queue.length > 0) {
+    const current = queue.shift() as Node
+    descendants.push(current)
+    queue.push(...getGraphChildren(graph, current))
+  }
+
+  return descendants
+}
+
+function findDescendantAtPoint(graph: Graph, node: Node, point: Point): Node | null {
+  const candidates = collectSwimlaneDescendants(graph, node)
+    .filter((candidate) => containsPoint(nodeRect(candidate), point))
+    .sort((left, right) => {
+      const depthDelta = getNodeDepth(right) - getNodeDepth(left)
+      if (depthDelta !== 0) {
+        return depthDelta
+      }
+
+      const leftRect = nodeRect(left)
+      const rightRect = nodeRect(right)
+      const leftArea = leftRect.width * leftRect.height
+      const rightArea = rightRect.width * rightRect.height
+      return leftArea - rightArea
+    })
+
+  return candidates[0] ?? null
+}
+
+function shouldRoutePoolOverlayClick(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false
+  }
+
+  if (target.closest('.x6-widget-transform')) {
+    return false
+  }
+
+  return Boolean(
+    target.closest('.x6-widget-selection-box') ||
+      target.closest('.x6-widget-selection-inner') ||
+      target.closest('.x6-widget-selection-content'),
+  )
+}
+
+function repairMovedSwimlaneDescendants(
+  graph: Graph,
+  node: Node,
+  lastValidState: WeakMap<Node, NodeState>,
+  isContainedNode: (shape: string) => boolean,
+  delta: { x: number; y: number },
+): void {
+  if (delta.x === 0 && delta.y === 0) {
+    return
+  }
+
+  for (const descendant of collectSwimlaneDescendants(graph, node)) {
+    const snapshot = lastValidState.get(descendant)
+    if (!snapshot) {
+      continue
+    }
+
+    if (!isContainedNode(descendant.shape)) {
+      rememberValidState(graph, descendant, lastValidState)
+      continue
+    }
+
+    const expectedPosition = {
+      x: snapshot.x + delta.x,
+      y: snapshot.y + delta.y,
+    }
+    const currentPosition = descendant.getPosition()
+
+    if (currentPosition.x !== expectedPosition.x || currentPosition.y !== expectedPosition.y) {
+      restoreNodePosition(descendant, expectedPosition)
+    }
+
+    rememberValidState(graph, descendant, lastValidState)
+  }
+}
+
+function handleFirstPool(
+  graph: Graph,
+  node: Node,
+  lastValidState: WeakMap<Node, NodeState>,
+): void {
+  const wrappedNodes = autoWrapFirstPool(graph, node)
+  for (const wrappedNode of wrappedNodes) {
+    const currentAncestor = getAncestorSwimlane(wrappedNode)
+    currentAncestor?.unembed?.(wrappedNode)
+    detachNodeFromOtherSwimlanes(graph, wrappedNode, node.id)
+    node.embed(wrappedNode)
+    rememberValidState(graph, wrappedNode, lastValidState, node)
+  }
+
+  normalizeSwimlaneGeometry(graph, node)
+  normalizeSwimlaneLayers(graph)
+  rememberValidState(graph, node, lastValidState)
 }
 
 export function setupPoolContainment(
@@ -377,323 +610,38 @@ export function setupPoolContainment(
   } = options
 
   const lastValidState = new WeakMap<Node, NodeState>()
-  const activeDragState = new WeakMap<Node, NodeState>()
-  const activeDragNodes = new WeakSet<Node>()
-  const activeDragNodeIds = new Set<string>()
-  const activeDragNodeRefs = new Set<Node>()
-  const activeDragViolationReason = new WeakMap<Node, string>()
   const lastViolationReason = new WeakMap<Node, string>()
-  const restoringNodes = new WeakSet<Node>()
-  const restoringNodeIds = new Set<string>()
-  const adjustingSwimlanes = new WeakSet<Node>()
-  const adjustingSwimlaneIds = new Set<string>()
-  const pendingSwimlaneChildRepairs = new Set<Node>()
-  const selectionDragNodes = new WeakSet<Node>()
-  const selectionDragNodeIds = new Set<string>()
-  const selectionDragNodeRefs = new Set<Node>()
-  const lockedSelectionDragNodes = new WeakSet<Node>()
-  const lockedSelectionDragNodeIds = new Set<string>()
-  const lockedSelectionDragNodeRefs = new Set<Node>()
-  const swimlaneDescendantBaselines = new WeakMap<Node, Map<string, { x: number; y: number }>>()
+  // 重入保护：防止 onNodeSizeChanged → finalizeNode('size') → compactLaneLayout →
+  // 偫发 node:change:size → 再次进入 onNodeSizeChanged 的无限循环。
+  let isFinalizingSize = false
+  const disposeSwimlanePolicy = setupSwimlanePolicy(graph, { isContainedNode })
 
-  const ownerDocument = (
-    graph as Graph & { container?: { ownerDocument?: Document | null } }
-  ).container?.ownerDocument
+  function rememberPoolSubtreeState(pool: Node): void {
+    rememberValidState(graph, pool, lastValidState)
 
-  // ---------- Lane 节点禁止拖拽（参照 bpmn.js 行为） ----------
-  // 通过 X6 的 interacting 选项在框架层面阻止 Lane 拖拽，避免位置复位引发的视觉抖动。
-  const originalInteracting = (graph as Graph & { options: Record<string, unknown> }).options?.interacting
-  patchLaneInteracting(graph, originalInteracting)
-
-  function hasTrackedNode(nodeSet: WeakSet<Node>, nodeIds: Set<string>, node: Node): boolean {
-    return nodeSet.has(node) || nodeIds.has(node.id)
-  }
-
-  function addTrackedNode(nodeSet: WeakSet<Node>, nodeIds: Set<string>, node: Node): void {
-    nodeSet.add(node)
-    nodeIds.add(node.id)
-  }
-
-  function deleteTrackedNode(nodeSet: WeakSet<Node>, nodeIds: Set<string>, node: Node): void {
-    nodeSet.delete(node)
-    nodeIds.delete(node.id)
-  }
-
-  function deleteTrackedNodeRefs(nodeRefs: Set<Node>, node: Node): void {
-    for (const trackedNode of Array.from(nodeRefs)) {
-      if (trackedNode.id === node.id) {
-        nodeRefs.delete(trackedNode)
-      }
+    for (const descendant of collectSwimlaneDescendants(graph, pool)) {
+      rememberValidState(graph, descendant, lastValidState)
     }
   }
 
-  function rememberValidState(node: Node, container?: Node | null): void {
-    const position = node.getPosition()
-    const size = node.getSize()
-    lastValidState.set(node, {
-      x: position.x,
-      y: position.y,
-      width: size.width,
-      height: size.height,
-      container: container ?? getSwimlaneAncestor(node),
-      childIds: isSwimlaneShape(node.shape) ? getGraphChildren(node).map((child) => child.id) : undefined,
-    })
-  }
-
-  function captureCurrentValidState(node: Node): NodeState | null {
-    const result = validatePoolContainment(graph, node, { reason, isContainedNode })
-    if (!result.valid) {
-      return null
-    }
-
-    const position = node.getPosition()
-    const size = node.getSize()
-    return {
-      x: position.x,
-      y: position.y,
-      width: size.width,
-      height: size.height,
-      container: result.container as Node | null,
-      childIds: isSwimlaneShape(node.shape) ? getGraphChildren(node).map((child) => child.id) : undefined,
-    }
-  }
+  const disposeSwimlaneResize = setupSwimlaneResize(graph, {
+    onSwimlaneResized: (_node, pool) => {
+      rememberPoolSubtreeState(pool)
+    },
+  })
 
   function clearViolation(node: Node): void {
     lastViolationReason.delete(node)
   }
 
-  function getGraphChildren(parent: Node): Node[] {
-    try {
-      return graph
-        .getNodes()
-        .filter((candidate) => candidate.id !== parent.id)
-        .filter((candidate) => candidate.getParent?.()?.id === parent.id)
-    } catch {
-      return []
-    }
-  }
-
-  function repairEmbeddedChild(parent: Node, child: Node): boolean {
-    if (hasEmbeddedChild(parent, child)) {
-      return false
-    }
-
-    addTrackedNode(restoringNodes, restoringNodeIds, child)
-    try {
-      child.getParent?.()?.unembed?.(child)
-      parent.embed(child)
-      return true
-    } finally {
-      deleteTrackedNode(restoringNodes, restoringNodeIds, child)
-    }
-  }
-
-  function findGraphNodeById(nodeId: string | null | undefined): Node | null {
-    /* istanbul ignore next -- 调用方已先过滤空 translateBy，空 id 保护仅作为内部兜底。 */
-    if (!nodeId) return null
-
-    try {
-      const cell = graph.getCellById?.(nodeId)
-      if (cell?.isNode?.()) {
-        return cell as Node
-      }
-    } catch {
-      // getCellById 缺失时退回到节点扫描。
-    }
-
-    try {
-      return graph.getNodes().find((candidate) => candidate.id === nodeId) ?? null
-    } catch {
-      return null
-    }
-  }
-
-  function collectSwimlaneDescendants(node: Node): Node[] {
-    const descendants: Node[] = []
-    const queue = [...getGraphChildren(node)]
-
-    while (queue.length > 0) {
-      const current = queue.shift() as Node
-      descendants.push(current)
-      queue.push(...getGraphChildren(current))
-    }
-
-    return descendants
-  }
-
-  function isDescendantOfNode(node: Node, ancestorId: string): boolean {
-    let current = node.getParent?.() as Cell | null | undefined
-
-    while (current) {
-      if (current.id === ancestorId) {
-        return true
-      }
-
-      current = current.getParent?.() as Cell | null | undefined
-    }
-
-    return false
-  }
-
-  function belongsToTrackedSwimlane(node: Node, ancestorId: string): boolean {
-    let current = (activeDragState.get(node)?.container ?? lastValidState.get(node)?.container) as Node | null
-
-    while (current) {
-      if (current.id === ancestorId) {
-        return true
-      }
-
-      current = getSwimlaneAncestor(current)
-    }
-
-    return false
-  }
-
-  function getSwimlaneCascadeSource(
-    node: Node,
-    changeType: 'position' | 'size' | 'parent',
-    options?: NodeChangeOptions,
-  ): Node | null {
-    if (changeType !== 'position') return null
-
-    const translateById = options?.translateBy
-    if (!translateById || translateById === node.id) return null
-
-    const translateSource = findGraphNodeById(translateById)
-    return translateSource && isSwimlaneShape(translateSource.shape) ? translateSource : null
-  }
-
-  function getActiveAncestorSwimlaneDrag(node: Node): Node | null {
-    let current = getSwimlaneAncestor(node)
-
-    while (current) {
-      if (hasTrackedNode(activeDragNodes, activeDragNodeIds, current)) {
-        return current
-      }
-
-      current = getSwimlaneAncestor(current)
-    }
-
-    return null
-  }
-
-  function shouldCascadeTrackedSwimlaneChildren(node: Node): boolean {
-    return node.shape === BPMN_POOL
-  }
-
-  function hasManagedSwimlaneAncestor(node: Node): boolean {
-    let current = node.getParent?.() as Cell | null | undefined
-
-    while (current) {
-      if (
-        current.isNode?.() &&
-        isSwimlaneShape(current.shape) &&
-        (hasTrackedNode(activeDragNodes, activeDragNodeIds, current as Node) ||
-          hasTrackedNode(restoringNodes, restoringNodeIds, current as Node) ||
-          hasTrackedNode(adjustingSwimlanes, adjustingSwimlaneIds, current as Node))
-      ) {
-        return true
-      }
-
-      current = current.getParent?.() as Cell | null | undefined
-    }
-
-    return false
-  }
-
-  function hasOtherManagedSwimlaneDrag(node: Node): boolean {
-    for (const dragNode of Array.from(activeDragNodeRefs)) {
-      if (dragNode.id !== node.id && isSwimlaneShape(dragNode.shape)) {
-        return true
-      }
-    }
-
-    return false
-  }
-
-  function beginDragState(node: Node): void {
-    if (hasTrackedNode(activeDragNodes, activeDragNodeIds, node)) return
-
-    addTrackedNode(activeDragNodes, activeDragNodeIds, node)
-    activeDragNodeRefs.add(node)
-    activeDragViolationReason.delete(node)
-
-    const baselineState = lastValidState.get(node) ?? captureCurrentValidState(node)
-    if (!baselineState) return
-
-    lastValidState.set(node, { ...baselineState })
-    activeDragState.set(node, { ...baselineState })
-    if (shouldCascadeTrackedSwimlaneChildren(node)) {
-      swimlaneDescendantBaselines.set(
-        node,
-        new Map(
-          collectSwimlaneDescendants(node).map((descendant) => {
-            const position = descendant.getPosition()
-            return [descendant.id, { x: position.x, y: position.y }]
-          }),
-        ),
-      )
-    }
-  }
-
-  function endDragState(node: Node): void {
-    deleteTrackedNode(activeDragNodes, activeDragNodeIds, node)
-    deleteTrackedNodeRefs(activeDragNodeRefs, node)
-    activeDragState.delete(node)
-    swimlaneDescendantBaselines.delete(node)
-    activeDragViolationReason.delete(node)
-    deleteTrackedNode(selectionDragNodes, selectionDragNodeIds, node)
-    deleteTrackedNodeRefs(selectionDragNodeRefs, node)
-    deleteTrackedNode(lockedSelectionDragNodes, lockedSelectionDragNodeIds, node)
-    deleteTrackedNodeRefs(lockedSelectionDragNodeRefs, node)
-  }
-
-  function onBatchStop({ name }: { name?: string }): void {
-    if (name !== 'move-selection') return
-
-    flushPendingSwimlaneChildRepairs()
-
-    for (const node of Array.from(activeDragNodeRefs)) {
-      if (isSwimlaneShape(node.shape)) {
-        repairSwimlaneChildren(node)
-        rememberValidState(node)
-      }
-      endDragState(node)
-    }
-  }
-
-  function onPointerRelease(): void {
-    flushPendingSwimlaneChildRepairs()
-
-    for (const node of Array.from(activeDragNodeRefs)) {
-      if (!activeDragViolationReason.has(node) && !selectionDragNodeIds.has(node.id)) {
-        continue
-      }
-
-      if (isSwimlaneShape(node.shape)) {
-        repairSwimlaneChildren(node)
-        rememberValidState(node)
-      }
-      endDragState(node)
-    }
-  }
-
   function notifyViolation(result: PoolContainmentResult, node: Node): void {
-    const key = result.reason as string
-    if (hasTrackedNode(activeDragNodes, activeDragNodeIds, node)) {
-      if (activeDragViolationReason.get(node) === key) return
-      activeDragViolationReason.set(node, key)
-    } else {
-      if (lastViolationReason.get(node) === key) return
-      lastViolationReason.set(node, key)
+    const violationReason = result.reason as string
+    if (lastViolationReason.get(node) === violationReason) {
+      return
     }
 
-    lastViolationReason.set(node, key)
-    try {
-      onViolation?.(result, node)
-    } catch {
-      // 宿主提示逻辑不应打断主链路。
-    }
+    lastViolationReason.set(node, violationReason)
+    onViolation?.(result, node)
   }
 
   function syncContainment(node: Node): boolean {
@@ -703,174 +651,78 @@ export function setupPoolContainment(
       return false
     }
 
-    const currentAncestor = getSwimlaneAncestor(node)
-    const nextContainer = result.container
-    if (nextContainer && (currentAncestor?.id !== nextContainer.id || !hasEmbeddedChild(nextContainer, node))) {
-      currentAncestor?.unembed?.(node)
+    const currentContainer = getAncestorSwimlane(node)
+    const nextContainer = result.container ?? null
+    if (nextContainer && (currentContainer?.id !== nextContainer.id || !hasEmbeddedChild(nextContainer, node))) {
+      currentContainer?.unembed?.(node)
+      detachNodeFromOtherSwimlanes(graph, node, nextContainer.id)
       nextContainer.embed(node)
       normalizeSwimlaneLayers(graph)
     }
 
-    rememberValidState(node, nextContainer)
+    rememberValidState(graph, node, lastValidState, nextContainer)
     clearViolation(node)
     return true
   }
 
-  function restoreLastValidState(node: Node): void {
-    const lastState = activeDragState.get(node) ?? lastValidState.get(node)
-    if (!lastState) return
+  function finalizeNode(node: Node, changeType: 'move' | 'size' | 'parent', direction?: string): void {
+    if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) {
+      rememberValidState(graph, node, lastValidState)
+      return
+    }
 
-    addTrackedNode(restoringNodes, restoringNodeIds, node)
-
-    try {
-      restoreNodeSize(node, { width: lastState.width, height: lastState.height })
-      restoreNodePosition(node, { x: lastState.x, y: lastState.y })
-
-      const currentAncestor = getSwimlaneAncestor(node)
-      const expectedContainer = lastState.container ?? findContainingSwimlane(graph, node, node.id)
-      if (!expectedContainer) return
-      const containerSatisfied =
-        currentAncestor?.id === expectedContainer.id && hasEmbeddedChild(expectedContainer, node)
-
-      if (!containerSatisfied) {
-        currentAncestor?.unembed?.(node)
-        expectedContainer.embed(node)
-        normalizeSwimlaneLayers(graph)
-      }
-
-      if (isSwimlaneShape(node.shape)) {
-        pendingSwimlaneChildRepairs.add(node)
-        for (const child of getTrackedSwimlaneChildren(lastState, node)) {
-          restoreLastValidState(child)
-          rememberValidState(child)
+    if (changeType === 'size') {
+      if (node.shape === BPMN_POOL) {
+        compactLaneLayout(graph, node, direction)
+        // compactLaneLayout 使用 bpmnLayout: true 标记避免级联，但事件仍正常传播；
+        // 需要主动对子 Lane 做 clamp：子 Lane 的内容（Task 等）可能超出缩小后的 Lane 边界。
+        // 同时更新子 Lane 的 lastValidState，避免后续 Lane resize 校验失败时
+        // 恢复到 compactLaneLayout 之前的过时尺寸。
+        for (const child of getGraphChildren(graph, node)) {
+          if (isSwimlaneShape(child.shape)) {
+            normalizeSwimlaneGeometry(graph, child)
+            rememberValidState(graph, child, lastValidState)
+          }
         }
       }
-    } finally {
-      deleteTrackedNode(restoringNodes, restoringNodeIds, node)
-    }
-  }
-
-  function cascadeSwimlaneChildren(node: Node, fallbackOnly = false): void {
-    /* istanbul ignore next -- 该内部方法只在 Pool 拖拽路径调用，非 Pool 保护分支仅保留为防御性兜底。 */
-    if (!shouldCascadeTrackedSwimlaneChildren(node)) return
-
-    const baselineState = activeDragState.get(node) ?? lastValidState.get(node)
-    const descendantBaselines = swimlaneDescendantBaselines.get(node) ?? new Map<string, { x: number; y: number }>()
-    swimlaneDescendantBaselines.set(node, descendantBaselines)
-    if (!baselineState) return
-
-    const currentPosition = node.getPosition()
-    const deltaX = currentPosition.x - baselineState.x
-    const deltaY = currentPosition.y - baselineState.y
-    if (deltaX === 0 && deltaY === 0) return
-
-    let descendants: Node[] = []
-    try {
-      descendants = graph
-        .getNodes()
-        .filter((candidate) => candidate.id !== node.id)
-        .filter((candidate) => {
-          const currentDescendant = isDescendantOfNode(candidate, node.id)
-          const trackedDescendant = belongsToTrackedSwimlane(candidate, node.id)
-
-          if (fallbackOnly) {
-            return !currentDescendant && trackedDescendant
-          }
-
-          return currentDescendant || trackedDescendant
-        })
-    } catch {
-      descendants = []
+      normalizeSwimlaneGeometry(graph, node)
     }
 
-    for (const descendant of descendants) {
-      const descendantBaseline = descendantBaselines.get(descendant.id) ?? descendant.getPosition()
-      descendantBaselines.set(descendant.id, descendantBaseline)
-
-      descendant.setPosition(descendantBaseline.x + deltaX, descendantBaseline.y + deltaY, {
-        silent: false,
-        swimlaneCascade: node.id,
-      })
-    }
-  }
-
-  function normalizeSwimlaneGeometry(node: Node): void {
-    /* istanbul ignore next -- 调整过程中的重入保护依赖真实事件递归，单测下无法稳定制造。 */
-    if (!isSwimlaneShape(node.shape) || hasTrackedNode(adjustingSwimlanes, adjustingSwimlaneIds, node)) return
-
-    addTrackedNode(adjustingSwimlanes, adjustingSwimlaneIds, node)
-    try {
-      if (clampSwimlaneToContent(node)) {
+    if (syncContainment(node)) {
+      if (isSwimlaneShape(node.shape)) {
         normalizeSwimlaneLayers(graph)
+        // resize 收敛会以 bpmnLayout 标记更新兄弟泳道几何。
+        // 这里同步刷新同一 Pool 下兄弟 Lane 的 lastValidState，
+        // 避免后续校验回滚到收敛前的过时尺寸。
+        if (changeType === 'size') {
+          const ownerPool = getAncestorPool(node)
+          /* istanbul ignore next -- 防御性守卫：syncContainment 成功后泳道一定已嵌入 Pool，getPoolAncestor 不可能为 null */
+          if (ownerPool) {
+            for (const sibling of getGraphChildren(graph, ownerPool)) {
+              if (sibling.id !== node.id && isSwimlaneShape(sibling.shape)) {
+                rememberValidState(graph, sibling, lastValidState)
+              }
+            }
+          }
+        }
       }
-    } finally {
-      deleteTrackedNode(adjustingSwimlanes, adjustingSwimlaneIds, node)
-    }
-  }
-
-  function repairSwimlaneChildren(node: Node, rememberChildren = true): void {
-    if (!isSwimlaneShape(node.shape)) return
-
-    let repairedChildEmbedding = false
-
-    for (const child of getGraphChildren(node)) {
-      repairedChildEmbedding = repairEmbeddedChild(node, child) || repairedChildEmbedding
-
-      if (!containsRect(nodeRect(node), nodeRect(child))) {
-        restoreLastValidState(child)
-        continue
-      }
-
-      if (rememberChildren || !lastValidState.has(child)) {
-        rememberValidState(child)
-      }
+      return
     }
 
-    if (repairedChildEmbedding) {
+    if (!constrainToContainer) {
+      return
+    }
+
+    restoreLastValidState(graph, node, lastValidState)
+    if (changeType === 'size') {
+      normalizeSwimlaneGeometry(graph, node)
+    }
+    if (isSwimlaneShape(node.shape)) {
       normalizeSwimlaneLayers(graph)
     }
   }
 
-  function getTrackedSwimlaneChildren(state: NodeState, node: Node): Node[] {
-    /* istanbul ignore next -- getCellById 的宿主差异仅影响兜底路径，业务回归已覆盖后续父链扫描恢复。 */
-    const trackedChildren = (state.childIds ?? [])
-      .map((childId) => graph.getCellById?.(childId))
-      .filter((cell): cell is Node => Boolean(cell?.isNode?.()))
-
-    if (trackedChildren.length > 0) {
-      return trackedChildren
-    }
-
-    return getGraphChildren(node)
-  }
-
-  function flushPendingSwimlaneChildRepairs(): void {
-    for (const swimlane of Array.from(pendingSwimlaneChildRepairs)) {
-      pendingSwimlaneChildRepairs.delete(swimlane)
-      repairSwimlaneChildren(swimlane)
-
-      for (const child of getGraphChildren(swimlane)) {
-        restoreLastValidState(child)
-        rememberValidState(child)
-      }
-    }
-  }
-
-  function handleFirstPool(node: Node): void {
-    const wrappedNodes = autoWrapFirstPool(graph, node)
-    for (const wrappedNode of wrappedNodes) {
-      const currentAncestor = getSwimlaneAncestor(wrappedNode)
-      currentAncestor?.unembed?.(wrappedNode)
-      node.embed(wrappedNode)
-      rememberValidState(wrappedNode, node)
-    }
-
-    normalizeSwimlaneGeometry(node)
-    rememberValidState(node)
-    normalizeSwimlaneLayers(graph)
-  }
-
-  function onNodeAdded({ node }: { node: Node }) {
+  function onNodeAdded({ node }: { node: Node }): void {
     if (node.shape === BPMN_POOL) {
       if (!syncContainment(node)) {
         if (removeInvalidOnAdd) {
@@ -879,7 +731,7 @@ export function setupPoolContainment(
         return
       }
 
-      handleFirstPool(node)
+      handleFirstPool(graph, node, lastValidState)
       return
     }
 
@@ -887,227 +739,132 @@ export function setupPoolContainment(
       normalizeSwimlaneLayers(graph)
     }
 
-    if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) return
-    if (syncContainment(node)) return
+    if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) {
+      rememberValidState(graph, node, lastValidState)
+      return
+    }
+
+    if (syncContainment(node)) {
+      return
+    }
+
     if (removeInvalidOnAdd) {
       node.remove()
     }
   }
 
-  function onNodeMoving({ node }: { node: Node }) {
-    if (hasTrackedNode(restoringNodes, restoringNodeIds, node)) return
-    if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) return
-    if (hasManagedSwimlaneAncestor(node) || hasOtherManagedSwimlaneDrag(node)) return
+  function onNodeMoved({ node }: { node: Node; options?: NodeChangeOptions }): void {
+    const previousState = lastValidState.get(node)
+    finalizeNode(node, 'move')
 
-    // Lane 节点不允许拖拽，仅允许调整大小（参照 bpmn.js 行为）。
-    if (node.shape === BPMN_LANE) {
-      const lastState = activeDragState.get(node) ?? lastValidState.get(node)
-      if (lastState) {
-        restoreNodePosition(node, { x: lastState.x, y: lastState.y })
-      }
-      return
-    }
-
-    beginDragState(node)
-    if (syncContainment(node)) {
-      // Pool 持续拖拽时，同步级联更新所有后代位置，避免内部节点抖动或滞后。
-      if (shouldCascadeTrackedSwimlaneChildren(node)) {
-        cascadeSwimlaneChildren(node)
-      }
-      repairSwimlaneChildren(node, !isSwimlaneShape(node.shape))
-      return
-    }
-    if (!constrainToContainer) return
-
-    restoreLastValidState(node)
-    if (isSwimlaneShape(node.shape)) {
-      flushPendingSwimlaneChildRepairs()
+    if (previousState && isSwimlaneShape(node.shape)) {
+      const currentPosition = node.getPosition()
+      repairMovedSwimlaneDescendants(graph, node, lastValidState, isContainedNode, {
+        x: currentPosition.x - previousState.x,
+        y: currentPosition.y - previousState.y,
+      })
     }
   }
 
-  function onNodeMoved({ node }: { node: Node }) {
-    if (hasTrackedNode(restoringNodes, restoringNodeIds, node)) return
-    if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) {
-      endDragState(node)
+  function onNodePositionChanged({ node, options }: { node: Node; options?: NodeChangeOptions }): void {
+    if (options?.silent || options?.bpmnLayout) return
+    if (shouldSkipDescendantTranslation(graph, node, options)) return
+
+    if (options?.ui) {
       return
     }
-    if (hasManagedSwimlaneAncestor(node) || hasOtherManagedSwimlaneDrag(node)) return
 
+    finalizeNode(node, 'move')
+  }
+
+  // 选区拖拽结束时，Selection 插件不触发 node:moved，只触发 model batch:stop('move-selection')。
+  // 此处对选区内的节点执行延迟的碰撞校验和约束恢复。
+  function onBatchStop({ name }: { name: string }): void {
+    if (name !== 'move-selection') return
+
+    const selected = getSelectedNodes(graph)
+    for (const node of selected) {
+      const previousState = lastValidState.get(node)
+      finalizeNode(node, 'move')
+
+      if (previousState && isSwimlaneShape(node.shape)) {
+        const currentPosition = node.getPosition()
+        repairMovedSwimlaneDescendants(graph, node, lastValidState, isContainedNode, {
+          x: currentPosition.x - previousState.x,
+          y: currentPosition.y - previousState.y,
+        })
+      }
+    }
+  }
+
+  function onNodeSizeChanged({ node, options }: { node: Node; options?: NodeChangeOptions }): void {
+    if (options?.silent || options?.bpmnLayout) return
+    /* istanbul ignore next -- 防御性重入保护：内部 resize 均为 bpmnLayout，正常不会重入 */
+    if (isFinalizingSize) return
+
+    isFinalizingSize = true
     try {
-      if (syncContainment(node)) {
-        if (shouldCascadeTrackedSwimlaneChildren(node)) {
-          cascadeSwimlaneChildren(node)
-        }
-
-        if (isSwimlaneShape(node.shape) && activeDragViolationReason.has(node)) {
-          const dragState = activeDragState.get(node) ?? lastValidState.get(node)
-          /* istanbul ignore next -- syncContainment 成功后会立即记住合法状态，此处空状态仅保留为防御性兜底。 */
-          if (dragState) {
-            for (const child of getTrackedSwimlaneChildren(dragState, node)) {
-              restoreLastValidState(child)
-              rememberValidState(child)
-            }
-          }
-        }
-
-        repairSwimlaneChildren(node)
-        return
-      }
-      if (!constrainToContainer) return
-
-      restoreLastValidState(node)
-      if (isSwimlaneShape(node.shape)) {
-        flushPendingSwimlaneChildRepairs()
-      }
+      finalizeNode(node, 'size', options?.direction)
     } finally {
-      endDragState(node)
+      isFinalizingSize = false
     }
   }
 
-  function onNodeChanged(
-    changeType: 'position' | 'size' | 'parent',
-    { node, options }: { node: Node; options?: NodeChangeOptions },
-  ) {
-    if (
-      hasTrackedNode(restoringNodes, restoringNodeIds, node) ||
-      hasTrackedNode(adjustingSwimlanes, adjustingSwimlaneIds, node)
-    ) return
-
-    if (options?.silent) return
-    if (options?.swimlaneCascade) return
-
-    const swimlaneCascadeSource = getSwimlaneCascadeSource(node, changeType, options)
-    const activeAncestorSwimlaneDrag = swimlaneCascadeSource
-      ? getActiveAncestorSwimlaneDrag(swimlaneCascadeSource)
-      : null
-    if (swimlaneCascadeSource?.shape === BPMN_POOL) return
-    if (activeAncestorSwimlaneDrag?.shape === BPMN_POOL) return
-
-    if (swimlaneCascadeSource?.shape === BPMN_LANE) {
-      restoreLastValidState(node)
-      if (isSwimlaneShape(node.shape)) {
-        normalizeSwimlaneLayers(graph)
-      }
-      return
-    }
-
-    const swimlaneNode = isSwimlaneShape(node.shape)
-    const isSelectionDrag = Boolean(options?.selection)
-
-    if (options?.ui && !swimlaneNode && !isSelectionDrag) return
-    if (!hasPoolNodes(graph) || !isContainedNode(node.shape)) return
-    if (hasManagedSwimlaneAncestor(node) || hasOtherManagedSwimlaneDrag(node)) return
-
-    if (swimlaneNode) {
-      if (changeType === 'position' || isSelectionDrag || options?.ui) {
-        beginDragState(node)
-        if (isSelectionDrag) {
-          addTrackedNode(selectionDragNodes, selectionDragNodeIds, node)
-          selectionDragNodeRefs.add(node)
-        }
-      }
-
-      if (changeType === 'position' && shouldCascadeTrackedSwimlaneChildren(node)) {
-        cascadeSwimlaneChildren(node, true)
-      }
-
-      if (isSelectionDrag && hasTrackedNode(lockedSelectionDragNodes, lockedSelectionDragNodeIds, node)) {
-        restoreLastValidState(node)
-        normalizeSwimlaneLayers(graph)
-        return
-      }
-
-      if (changeType === 'size') {
-        normalizeSwimlaneGeometry(node)
-      }
-
-      if (syncContainment(node)) {
-        repairSwimlaneChildren(node)
-        normalizeSwimlaneLayers(graph)
-        return
-      }
-
-      if (!constrainToContainer) {
-        normalizeSwimlaneLayers(graph)
-        return
-      }
-
-      if (isSelectionDrag) {
-        addTrackedNode(lockedSelectionDragNodes, lockedSelectionDragNodeIds, node)
-        lockedSelectionDragNodeRefs.add(node)
-      }
-
-      restoreLastValidState(node)
-      normalizeSwimlaneLayers(graph)
-      return
-    }
-
-    if (isSelectionDrag) {
-      beginDragState(node)
-      addTrackedNode(selectionDragNodes, selectionDragNodeIds, node)
-      selectionDragNodeRefs.add(node)
-    }
-
-    if (isSelectionDrag && hasTrackedNode(lockedSelectionDragNodes, lockedSelectionDragNodeIds, node)) {
-      restoreLastValidState(node)
-      return
-    }
-
-    if (syncContainment(node)) {
-      repairSwimlaneChildren(node)
-      return
-    }
-    if (!constrainToContainer) return
-
-    if (isSelectionDrag) {
-      addTrackedNode(lockedSelectionDragNodes, lockedSelectionDragNodeIds, node)
-      lockedSelectionDragNodeRefs.add(node)
-    }
-
-    restoreLastValidState(node)
+  function onNodeParentChanged({ node, options }: { node: Node; options?: NodeChangeOptions }): void {
+    if (options?.silent || options?.bpmnLayout) return
+    finalizeNode(node, 'parent')
   }
 
-  try {
-    for (const node of graph.getNodes()) {
-      rememberValidState(node)
+  function onContainerClick(event: MouseEvent): void {
+    const graphWithOptions = graph as GraphWithOptions
+    const selected = getSelectedNodes(graph)
+    if (selected.length !== 1) {
+      return
     }
-    normalizeSwimlaneLayers(graph)
-  } catch {
-    // graph.getNodes() 防御性兜底。
+
+    const selectedNode = selected[0]
+    if (selectedNode.shape !== BPMN_POOL) {
+      return
+    }
+
+    if (!shouldRoutePoolOverlayClick(event.target)) {
+      return
+    }
+
+    const localPoint = graph.clientToLocal(event.clientX, event.clientY) as Point
+    const targetNode = findDescendantAtPoint(graph, selectedNode, localPoint)
+    if (!targetNode || targetNode.id === selectedNode.id) {
+      return
+    }
+
+    graphWithOptions.resetSelection?.(targetNode, { ui: true })
   }
+
+  for (const node of getGraphNodes(graph)) {
+    const result = validatePoolContainment(graph, node, { reason, isContainedNode })
+    if (result.valid) {
+      rememberValidState(graph, node, lastValidState, result.container ?? null)
+    }
+  }
+  normalizeSwimlaneLayers(graph)
 
   graph.on('node:added', onNodeAdded)
-  graph.on('node:moving', onNodeMoving)
   graph.on('node:moved', onNodeMoved)
-  const onNodePositionChanged = (payload: { node: Node; options?: NodeChangeOptions }) => {
-    onNodeChanged('position', payload)
-  }
-
-  const onNodeSizeChanged = (payload: { node: Node; options?: NodeChangeOptions }) => {
-    onNodeChanged('size', payload)
-  }
-
-  const onNodeParentChanged = (payload: { node: Node; options?: NodeChangeOptions }) => {
-    onNodeChanged('parent', payload)
-  }
-
   graph.on('node:change:position', onNodePositionChanged)
   graph.on('node:change:size', onNodeSizeChanged)
   graph.on('node:change:parent', onNodeParentChanged)
   graph.model?.on?.('batch:stop', onBatchStop)
-  ownerDocument?.addEventListener?.('mouseup', onPointerRelease, true)
-  ownerDocument?.addEventListener?.('touchend', onPointerRelease, true)
+  ;(graph as GraphWithOptions).container?.addEventListener('click', onContainerClick)
 
   return () => {
     graph.off('node:added', onNodeAdded)
-    graph.off('node:moving', onNodeMoving)
     graph.off('node:moved', onNodeMoved)
     graph.off('node:change:position', onNodePositionChanged)
     graph.off('node:change:size', onNodeSizeChanged)
     graph.off('node:change:parent', onNodeParentChanged)
     graph.model?.off?.('batch:stop', onBatchStop)
-    ownerDocument?.removeEventListener?.('mouseup', onPointerRelease, true)
-    ownerDocument?.removeEventListener?.('touchend', onPointerRelease, true)
-    restoreLaneInteracting(graph, originalInteracting)
+    ;(graph as GraphWithOptions).container?.removeEventListener('click', onContainerClick)
+    disposeSwimlaneResize()
+    disposeSwimlanePolicy()
   }
 }

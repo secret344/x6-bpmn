@@ -5,7 +5,8 @@
   "description": "SmartEngine 方言演示 — 服务编排/审批工单两种模式对比",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "build": "pnpm run typecheck && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

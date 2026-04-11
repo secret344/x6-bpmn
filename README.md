@@ -106,6 +106,9 @@ pnpm run dev:smartengine
 pnpm run build:plugin
 pnpm run build
 
+# 类型检查
+pnpm run typecheck
+
 # 主库测试
 pnpm run test
 pnpm run test:coverage
@@ -127,10 +130,17 @@ pnpm run dev:smartengine
 pnpm run build:plugin
 pnpm run build
 
+# Type-check the workspace
+pnpm run typecheck
+
 # Plugin tests
 pnpm run test
 pnpm run test:coverage
 ```
+
+`pnpm run typecheck` 会对纯 TypeScript 包执行 `tsc --noEmit`，对 Vue 示例包执行 `vue-tsc --noEmit`，用于在构建前尽早发现跨包类型问题。
+
+`pnpm run typecheck` runs `tsc --noEmit` for pure TypeScript packages and `vue-tsc --noEmit` for Vue demo packages, so cross-package type issues surface before build time.
 
 ## 6. 目录结构 / Directory Layout
 

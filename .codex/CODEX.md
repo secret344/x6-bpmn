@@ -28,6 +28,10 @@ In `packages/x6-plugin-bpmn`:
 - Runtime screenshot artifacts for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/artifacts/screenshots/`, grouped by the same test-case folders.
 - Runtime screenshot artifacts must be generated directly into that fixed artifact directory during test execution so they remain available for manual verification.
 - Do not create extra flat files, sibling snapshot folders, or alternate artifact directories for an existing browser spec, and do not rely on post-run moving or cleanup to normalize screenshot locations.
+- Browser spec files should be organized by business domain: containment/drag behavior in one spec, swimlane resize behavior in another, connection rules in another, etc. Do not force all browser tests into a single spec file.
+- Direct drag (`node:moved`) and selection drag (`batch:stop` `move-selection`) are distinct interaction paths; create separate test cases for each when the behavior differs.
+- Generated spec file names must not duplicate any existing spec file name in the browser test directory.
+- When an architectural issue is discovered that a patch cannot cleanly fix, thorough refactoring is permitted and encouraged over incremental workarounds.
 
 ## Submodule policy
 - Do not directly modify content inside git submodules under `packages/**`.

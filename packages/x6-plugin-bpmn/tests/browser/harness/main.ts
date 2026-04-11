@@ -11,11 +11,15 @@ import {
   createBpmnValidateEdge,
   addLaneToPool,
   BPMN_BOUNDARY_EVENT_TIMER,
+  BPMN_END_EVENT,
+  BPMN_EXCLUSIVE_GATEWAY,
   BPMN_LANE,
   BPMN_MESSAGE_FLOW,
   BPMN_POOL,
+  BPMN_SEND_TASK,
   BPMN_SEQUENCE_FLOW,
   BPMN_SERVICE_TASK,
+  BPMN_START_EVENT,
   BPMN_USER_TASK,
 } from '../../../src/index'
 
@@ -58,6 +62,12 @@ type MultiLaneScenarioIds = {
   lane1Id: string
   lane2Id: string
   taskId: string
+  startId: string
+  endId: string
+  gatewayId: string
+  task2Id: string
+  sendTaskId: string
+  serviceTaskId: string
 }
 
 type EdgeSnapshot = {
@@ -79,6 +89,7 @@ declare global {
       createMultiLaneScenario: () => MultiLaneScenarioIds
       addLaneToPoolScenario: (poolId: string) => string | null
       getNodeSnapshot: (id: string) => NodeSnapshot
+      getPoolLaneSnapshots: (poolId: string) => NodeSnapshot[]
       getSelectedCellIds: () => string[]
       getEdgeSnapshotByShape: (shape: string) => EdgeSnapshot
       getEdgeCountByShape: (shape: string) => number
@@ -196,6 +207,25 @@ function getNodeSnapshot(id: string): NodeSnapshot {
     height: size.height,
     parentId: node.getParent()?.id ?? null,
   }
+}
+
+function getPoolLaneSnapshots(poolId: string): NodeSnapshot[] {
+  return graph
+    .getNodes()
+    .filter((node) => node.shape === BPMN_LANE && node.getParent()?.id === poolId)
+    .map((node) => {
+      const position = node.getPosition()
+      const size = node.getSize()
+
+      return {
+        id: node.id,
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        parentId: node.getParent()?.id ?? null,
+      }
+    })
 }
 
 function getSelectedCellIds(): string[] {
@@ -434,58 +464,146 @@ function createTwoPoolMessageScenario(): MessageScenarioIds {
 function createMultiLaneScenario(): MultiLaneScenarioIds {
   clear()
 
+  // 与 example 示例保持一致的大尺寸 Pool + 双 Lane 布局
   const pool = graph.addNode({
     id: 'pool-multi',
     shape: BPMN_POOL,
     x: 40,
     y: 40,
-    width: 500,
+    width: 900,
     height: 400,
-    attrs: { headerLabel: { text: 'Pool' } },
+    attrs: { headerLabel: { text: '审批流程' } },
     data: { bpmn: { isHorizontal: true } },
   })
 
-  // 第一条 Lane：覆盖上半部分
+  // Lane 1：申请人泳道
   const lane1 = graph.addNode({
     id: 'lane-multi-1',
     shape: BPMN_LANE,
     x: 70,
     y: 40,
-    width: 470,
+    width: 870,
     height: 200,
     parent: pool.id,
-    attrs: { headerLabel: { text: 'Lane 1' } },
+    attrs: { headerLabel: { text: '申请人' } },
     data: { bpmn: { isHorizontal: true } },
   })
   pool.embed(lane1)
   emitGraphEvent('node:added', { node: pool })
   emitGraphEvent('node:added', { node: lane1 })
 
-  // 通过 addLaneToPool 添加第二条 Lane，验证无空隙
-  const lane2 = addLaneToPool(graph, pool, { label: 'Lane 2' })
+  // Lane 2：审批人泳道
+  const lane2 = addLaneToPool(graph, pool, { label: '审批人' })
   if (!lane2) {
     throw new Error('addLaneToPool 返回 null，无法在 createMultiLaneScenario 中创建第二条 Lane')
   }
 
-  // 在 lane1 中放置一个任务
+  // ---- Lane 1 内的节点 ----
+  const start = graph.addNode({
+    id: 'start-multi',
+    shape: BPMN_START_EVENT,
+    x: 110,
+    y: 115,
+    parent: lane1.id,
+    attrs: { label: { text: '发起' } },
+  })
+  lane1.embed(start)
+  emitGraphEvent('node:added', { node: start })
+
   const task = graph.addNode({
     id: 'task-multi',
     shape: BPMN_USER_TASK,
-    x: 140,
-    y: 70,
+    x: 200,
+    y: 100,
     width: 100,
     height: 60,
     parent: lane1.id,
-    attrs: { label: { text: 'Task' } },
+    attrs: { label: { text: '填写\n请假单' } },
   })
   lane1.embed(task)
   emitGraphEvent('node:added', { node: task })
+
+  const serviceTask = graph.addNode({
+    id: 'service-multi',
+    shape: BPMN_SERVICE_TASK,
+    x: 620,
+    y: 100,
+    width: 100,
+    height: 60,
+    parent: lane1.id,
+    attrs: { label: { text: '更新\n考勤' } },
+  })
+  lane1.embed(serviceTask)
+  emitGraphEvent('node:added', { node: serviceTask })
+
+  const end = graph.addNode({
+    id: 'end-multi',
+    shape: BPMN_END_EVENT,
+    x: 830,
+    y: 115,
+    parent: lane1.id,
+    attrs: { label: { text: '完成' } },
+  })
+  lane1.embed(end)
+  emitGraphEvent('node:added', { node: end })
+
+  // ---- Lane 2 内的节点 ----
+  const gateway = graph.addNode({
+    id: 'gw-multi',
+    shape: BPMN_EXCLUSIVE_GATEWAY,
+    x: 360,
+    y: 300,
+    parent: lane2.id,
+    attrs: { label: { text: '天数?' } },
+  })
+  lane2.embed(gateway)
+  emitGraphEvent('node:added', { node: gateway })
+
+  const task2 = graph.addNode({
+    id: 'task2-multi',
+    shape: BPMN_USER_TASK,
+    x: 460,
+    y: 260,
+    width: 100,
+    height: 60,
+    parent: lane2.id,
+    attrs: { label: { text: '主管\n审批' } },
+  })
+  lane2.embed(task2)
+  emitGraphEvent('node:added', { node: task2 })
+
+  const sendTask = graph.addNode({
+    id: 'send-multi',
+    shape: BPMN_SEND_TASK,
+    x: 620,
+    y: 280,
+    width: 100,
+    height: 60,
+    parent: lane2.id,
+    attrs: { label: { text: '发送\n通知' } },
+  })
+  lane2.embed(sendTask)
+  emitGraphEvent('node:added', { node: sendTask })
+
+  // ---- 连线 ----
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: start, target: task })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: task, target: gateway })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: gateway, target: task2 })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: task2, target: sendTask })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: sendTask, target: serviceTask })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: serviceTask, target: end })
 
   return {
     poolId: pool.id,
     lane1Id: lane1.id,
     lane2Id: lane2.id,
     taskId: task.id,
+    startId: start.id,
+    endId: end.id,
+    gatewayId: gateway.id,
+    task2Id: task2.id,
+    sendTaskId: sendTask.id,
+    serviceTaskId: serviceTask.id,
   }
 }
 
@@ -493,8 +611,36 @@ function addLaneToPoolScenario(poolId: string): string | null {
   const cell = graph.getCellById(poolId)
   if (!cell?.isNode?.()) return null
   const pool = cell as Node
+
+  const existingAllLaneIds = new Set(
+    graph
+      .getNodes()
+      .filter((node) => node.shape === BPMN_LANE)
+      .map((node) => node.id),
+  )
+  const existingLaneIds = new Set(
+    graph
+      .getNodes()
+      .filter((node) => node.shape === BPMN_LANE && node.getParent()?.id === pool.id)
+      .map((node) => node.id),
+  )
+
   const lane = addLaneToPool(graph, pool, { label: '新泳道' })
-  return lane?.id ?? null
+  if (lane && graph.getCellById(lane.id)?.isNode?.()) {
+    return lane.id
+  }
+
+  const embeddedLane = graph
+    .getNodes()
+    .find((node) => node.shape === BPMN_LANE && node.getParent()?.id === pool.id && !existingLaneIds.has(node.id))
+  if (embeddedLane) {
+    return embeddedLane.id
+  }
+
+  return graph
+    .getNodes()
+    .find((node) => node.shape === BPMN_LANE && !existingAllLaneIds.has(node.id))
+    ?.id ?? null
 }
 
 async function roundtripXml(): Promise<string> {
@@ -513,6 +659,7 @@ window.__x6PluginBrowserHarness = {
   createMultiLaneScenario,
   addLaneToPoolScenario,
   getNodeSnapshot,
+  getPoolLaneSnapshots,
   getSelectedCellIds,
   getEdgeSnapshotByShape,
   getEdgeCountByShape,

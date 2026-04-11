@@ -127,9 +127,14 @@ Plugin tests live under `packages/x6-plugin-bpmn/tests` and mostly mirror `src`.
 Recommended validation order:
 
 ```bash
+pnpm run typecheck
 pnpm --filter @x6-bpmn2/plugin test:browser
 pnpm --filter @x6-bpmn2/plugin test:coverage
 ```
+
+工作区里的纯 TypeScript 包使用 `tsc --noEmit`，Vue 示例包使用 `vue-tsc --noEmit`。不要再用 `tsc` 代替 Vue SFC 的类型检查，否则 `.vue` 文件中的问题会被漏掉。
+
+Pure TypeScript packages in this workspace use `tsc --noEmit`, while Vue demo packages use `vue-tsc --noEmit`. Do not use plain `tsc` as a substitute for Vue SFC type-checking, or issues inside `.vue` files will be missed.
 
 如果只改了局部逻辑，至少运行主库测试；涉及规则、导入导出或运行时行为时，按上面的顺序做完整验证。示例项目不再保留独立自动化测试入口。
 

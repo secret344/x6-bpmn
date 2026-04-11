@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const behaviorMocks = vi.hoisted(() => ({
   setupBoundaryAttach: vi.fn(),
   setupPoolContainment: vi.fn(),
-  setupLaneManagement: vi.fn(),
 }))
 
 vi.mock('../../../src/behaviors/boundary-attach', () => ({
@@ -21,32 +20,21 @@ vi.mock('../../../src/behaviors/pool-containment', () => ({
   restoreLaneInteracting: vi.fn(),
 }))
 
-vi.mock('../../../src/behaviors/lane-management', () => ({
-  setupLaneManagement: behaviorMocks.setupLaneManagement,
-  addLaneToPool: vi.fn(),
-  addLaneAbove: vi.fn(),
-  addLaneBelow: vi.fn(),
-  compactLaneLayout: vi.fn(),
-}))
-
 import { setupBpmnInteractionBehaviors } from '../../../src/behaviors'
 
 describe('setupBpmnInteractionBehaviors', () => {
   beforeEach(() => {
     behaviorMocks.setupBoundaryAttach.mockReset()
     behaviorMocks.setupPoolContainment.mockReset()
-    behaviorMocks.setupLaneManagement.mockReset()
   })
 
   it('应统一安装并按逆序释放 BPMN 交互行为', () => {
     const graph = { id: 'graph' } as any
     const disposeBoundaryAttach = vi.fn()
     const disposePoolContainment = vi.fn()
-    const disposeLaneManagement = vi.fn()
 
     behaviorMocks.setupBoundaryAttach.mockReturnValue(disposeBoundaryAttach)
     behaviorMocks.setupPoolContainment.mockReturnValue(disposePoolContainment)
-    behaviorMocks.setupLaneManagement.mockReturnValue(disposeLaneManagement)
 
     const dispose = setupBpmnInteractionBehaviors(graph, {
       boundaryAttach: { enabled: true } as any,
@@ -55,16 +43,12 @@ describe('setupBpmnInteractionBehaviors', () => {
 
     expect(behaviorMocks.setupBoundaryAttach).toHaveBeenCalledWith(graph, { enabled: true })
     expect(behaviorMocks.setupPoolContainment).toHaveBeenCalledWith(graph, { constrainToContainer: true })
-    expect(behaviorMocks.setupLaneManagement).toHaveBeenCalledWith(graph, undefined)
 
     dispose()
 
-    expect(disposeLaneManagement).toHaveBeenCalledOnce()
     expect(disposePoolContainment).toHaveBeenCalledOnce()
     expect(disposeBoundaryAttach).toHaveBeenCalledOnce()
-    expect(disposeLaneManagement.mock.invocationCallOrder[0]).toBeLessThan(
-      disposePoolContainment.mock.invocationCallOrder[0],
-    )
+    // 释放顺序：Pool 约束 → 边界吸附（注册的逆序）
     expect(disposePoolContainment.mock.invocationCallOrder[0]).toBeLessThan(
       disposeBoundaryAttach.mock.invocationCallOrder[0],
     )
@@ -74,20 +58,16 @@ describe('setupBpmnInteractionBehaviors', () => {
     const graph = { id: 'graph' } as any
     const disposeBoundaryAttach = vi.fn()
     const disposePoolContainment = vi.fn()
-    const disposeLaneManagement = vi.fn()
 
     behaviorMocks.setupBoundaryAttach.mockReturnValue(disposeBoundaryAttach)
     behaviorMocks.setupPoolContainment.mockReturnValue(disposePoolContainment)
-    behaviorMocks.setupLaneManagement.mockReturnValue(disposeLaneManagement)
 
     const dispose = setupBpmnInteractionBehaviors(graph)
 
     expect(behaviorMocks.setupBoundaryAttach).toHaveBeenCalledWith(graph, undefined)
     expect(behaviorMocks.setupPoolContainment).toHaveBeenCalledWith(graph, undefined)
-    expect(behaviorMocks.setupLaneManagement).toHaveBeenCalledWith(graph, undefined)
 
     dispose()
-    expect(disposeLaneManagement).toHaveBeenCalledOnce()
     expect(disposePoolContainment).toHaveBeenCalledOnce()
     expect(disposeBoundaryAttach).toHaveBeenCalledOnce()
   })

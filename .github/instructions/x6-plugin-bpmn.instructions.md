@@ -52,6 +52,14 @@ applyTo:
   Runtime screenshot artifacts must be written directly to that fixed directory during test execution so they remain available for manual verification; do not write them elsewhere first and normalize the structure later via moving or cleanup.
 - 不得为已有 browser spec 另建平铺 png、兄弟级 snapshot 目录或替代 artifact 目录；同一用例只允许在既有目录内更新文件，避免重复创建。
   Do not create flat png files, sibling snapshot folders, or alternate artifact directories for an existing browser spec; update files only within the existing directory structure to avoid duplicate creation.
+- 浏览器 spec 文件按业务域拆分：容器/拖拽行为一个 spec，泳道 resize 行为一个 spec，连线规则一个 spec 等。不要把所有测试强制塞进同一个 spec 文件。
+  Browser spec files should be organized by business domain: containment/drag behavior in one spec, swimlane resize behavior in another, connection rules in another, etc. Do not force all browser tests into a single spec file.
+- 直接拖拽（`node:moved`）与选区拖拽（`batch:stop` `move-selection`）是完全不同的交互路径，行为差异场景必须分别编写测试用例。
+  Direct drag (`node:moved`) and selection drag (`batch:stop` `move-selection`) are distinct interaction paths; create separate test cases for each when the behavior differs.
+- 生成的 spec 文件名不得与浏览器测试目录内已有 spec 文件名重复。
+  Generated spec file names must not duplicate any existing spec file name in the browser test directory.
+- 发现架构性问题且补丁无法清晰修复时，允许且鼓励全面重构，而非层叠变通。
+  When an architectural issue is discovered that a patch cannot cleanly fix, thorough refactoring is permitted and encouraged over incremental workarounds.
 
 ## 推荐回归流程 / Recommended regression flow
 1. 通过失败测试复现问题。Reproduce problem via failing test.

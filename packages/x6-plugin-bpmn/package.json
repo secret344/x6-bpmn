@@ -18,6 +18,7 @@
     "src"
   ],
   "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",

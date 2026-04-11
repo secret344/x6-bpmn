@@ -152,16 +152,17 @@ function mergeRectContaining(current: Rect, required: Rect): Rect {
   }
 }
 
-function setNodeRect(node: Node, rect: Rect): void {
+function setNodeRect(node: Node, rect: Rect, options?: { bpmnLayout?: boolean }): void {
   const movableNode = node as MovableNode
-  movableNode.setPosition?.(rect.x, rect.y, { silent: false })
+  const eventOptions = options?.bpmnLayout ? { bpmnLayout: true } : { silent: false }
+  movableNode.setPosition?.(rect.x, rect.y, eventOptions)
 
   if (typeof movableNode.resize === 'function') {
-    movableNode.resize(rect.width, rect.height, { silent: false })
+    movableNode.resize(rect.width, rect.height, eventOptions)
     return
   }
 
-  movableNode.setSize?.(rect.width, rect.height, { silent: false })
+  movableNode.setSize?.(rect.width, rect.height, eventOptions)
 }
 
 export function collectFirstPoolWrapTargets(graph: Graph, pool: Node): Node[] {
@@ -223,6 +224,99 @@ export function computeRequiredSwimlaneRect(node: Node): Rect | null {
   }
 }
 
+/**
+ * 计算 Pool 在当前子内容约束下允许的最小尺寸。
+ *
+ * 规则：
+ * - 宽度 = HEADER_SIZE + max(每个子节点右边界 - Pool.x - HEADER_SIZE, 0)
+ * - 高度 = max(子 Lane 数量 × MIN_LANE_SIZE, 每个子节点下边界 - Pool.y)
+ * - MIN_LANE_SIZE 来自 lane-management，此处保持数值一致（60）。
+ */
+export function computePoolMinSize(
+  pool: Node,
+): { width: number; height: number } {
+  const MIN_LANE_SIZE = 60
+  const pos = pool.getPosition()
+  const hz = isHorizontalSwimlane(pool)
+  const children = getNodeChildren(pool)
+
+  // 收集所有 Lane 和非 Lane 子节点
+  const lanes = children.filter((child) => child.shape === BPMN_LANE)
+  const allDescendants: Rect[] = []
+
+  for (const child of children) {
+    // 对 Lane：递归收集 Lane 内部子节点
+    if (child.shape === BPMN_LANE) {
+      for (const grandchild of getNodeChildren(child)) {
+        allDescendants.push(nodeRect(grandchild))
+      }
+    } else {
+      allDescendants.push(nodeRect(child))
+    }
+  }
+
+  const contentRect = unionRects(allDescendants)
+
+  if (hz) {
+    // 水平布局：header 在左侧
+    const laneMinHeight = Math.max(lanes.length, 1) * MIN_LANE_SIZE
+    const contentRight = contentRect ? rectRight(contentRect) - pos.x : SWIMLANE_HEADER_SIZE
+    const contentBottom = contentRect ? rectBottom(contentRect) - pos.y : MIN_LANE_SIZE
+    return {
+      width: Math.max(contentRight, SWIMLANE_HEADER_SIZE + MIN_LANE_SIZE),
+      height: Math.max(contentBottom, laneMinHeight),
+    }
+  }
+
+  // 垂直布局：header 在顶部
+  const laneMinWidth = Math.max(lanes.length, 1) * MIN_LANE_SIZE
+  const contentRight = contentRect ? rectRight(contentRect) - pos.x : MIN_LANE_SIZE
+  const contentBottom = contentRect ? rectBottom(contentRect) - pos.y : SWIMLANE_HEADER_SIZE
+  return {
+    width: Math.max(contentRight, laneMinWidth),
+    height: Math.max(contentBottom, SWIMLANE_HEADER_SIZE + MIN_LANE_SIZE),
+  }
+}
+
+/**
+ * 计算 Lane 允许的最小尺寸。
+ *
+ * Pool 边界方向（水平布局的宽度、垂直布局的高度）与 Pool 受到相同的内容约束；
+ * 非 Pool 边界方向（内侧边）仅使用 MIN_LANE_SIZE，允许自由拖拽。
+ */
+export function computeLaneMinSize(
+  lane: Node,
+): { width: number; height: number } {
+  const MIN_LANE_SIZE = 60
+  const hz = isHorizontalSwimlane(lane)
+
+  // 获取所属 Pool 的全局内容最小尺寸
+  const parent = lane.getParent?.()
+  const pool = parent?.isNode?.() && (parent as Node).shape === BPMN_POOL
+    ? parent as Node
+    : null
+
+  if (!pool) {
+    return { width: MIN_LANE_SIZE, height: MIN_LANE_SIZE }
+  }
+
+  const poolMin = computePoolMinSize(pool)
+
+  if (hz) {
+    // 水平布局：宽度与 Pool 边界一致（受 Pool 内容约束），高度仅 MIN_LANE_SIZE（内侧边自由）
+    return {
+      width: Math.max(poolMin.width - SWIMLANE_HEADER_SIZE, MIN_LANE_SIZE),
+      height: MIN_LANE_SIZE,
+    }
+  }
+
+  // 垂直布局：高度与 Pool 边界一致，宽度仅 MIN_LANE_SIZE
+  return {
+    width: MIN_LANE_SIZE,
+    height: Math.max(poolMin.height - SWIMLANE_HEADER_SIZE, MIN_LANE_SIZE),
+  }
+}
+
 export function clampSwimlaneToContent(node: Node): boolean {
   if (!isSwimlaneShape(node.shape)) return false
 
@@ -234,7 +328,8 @@ export function clampSwimlaneToContent(node: Node): boolean {
     return false
   }
 
-  setNodeRect(node, mergeRectContaining(currentRect, requiredRect))
+  // 使用 bpmnLayout 标记避免触发 pool-containment 的级联事件处理
+  setNodeRect(node, mergeRectContaining(currentRect, requiredRect), { bpmnLayout: true })
   return true
 }
 

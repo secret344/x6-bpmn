@@ -7,6 +7,23 @@
 
 export { setupBoundaryAttach, attachBoundaryToHost } from './boundary-attach'
 export type { BoundaryAttachOptions } from './boundary-attach'
+export {
+  setupSwimlanePolicy,
+  patchLaneInteracting,
+  restoreLaneInteracting,
+  patchTranslatingRestrict,
+  restoreTranslatingRestrict,
+  patchEmbeddingOptions,
+  restoreEmbeddingOptions,
+  isContainedFlowNode,
+} from './swimlane-policy'
+export type { SwimlanePolicyOptions } from './swimlane-policy'
+export {
+  setupSwimlaneResize,
+  patchTransformResizing,
+  restoreTransformResizing,
+} from './swimlane-resize'
+export type { SavedResizingMinBounds, SwimlaneResizeOptions } from './swimlane-resize'
 
 import type { Graph } from '@antv/x6'
 import type { BoundaryAttachOptions } from './boundary-attach'
@@ -14,20 +31,20 @@ import type { PoolContainmentOptions } from './pool-containment'
 import type { LaneManagementOptions } from './lane-management'
 import { setupBoundaryAttach } from './boundary-attach'
 import { setupPoolContainment } from './pool-containment'
-import { setupLaneManagement } from './lane-management'
 
 export {
   setupPoolContainment,
   validatePoolContainment,
-  findContainingSwimlane,
-  getSwimlaneAncestor,
-  isContainedFlowNode,
-  patchLaneInteracting,
-  restoreLaneInteracting,
 } from './pool-containment'
 export type {
   PoolContainmentResult,
 } from './pool-containment'
+export {
+  findContainingSwimlane,
+  getAncestorSwimlane as getSwimlaneAncestor,
+  getAncestorPool,
+  resolveLaneMemberNodes,
+} from '../core/swimlane-membership'
 export type { PoolContainmentOptions } from './pool-containment'
 
 export {
@@ -56,10 +73,8 @@ export function setupBpmnInteractionBehaviors(
 ): () => void {
   const disposeBoundaryAttach = setupBoundaryAttach(graph, options.boundaryAttach)
   const disposePoolContainment = setupPoolContainment(graph, options.poolContainment)
-  const disposeLaneManagement = setupLaneManagement(graph, options.laneManagement)
 
   return () => {
-    disposeLaneManagement()
     disposePoolContainment()
     disposeBoundaryAttach()
   }

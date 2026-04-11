@@ -49,6 +49,7 @@ import {
   resolveBpmnXmlNameSettings,
 } from '../utils/bpmn-xml-names'
 import { resolveSwimlaneIsHorizontal } from '../shapes/swimlane-presentation'
+import { resolveLaneMemberNodes } from '../core/swimlane-membership'
 
 // ============================================================================
 // 扩展命名空间（用于存储自定义属性）
@@ -186,19 +187,6 @@ function nodeCenter(node: Node): { x: number; y: number } {
   const pos = node.getPosition()
   const size = node.getSize()
   return { x: pos.x + size.width / 2, y: pos.y + size.height / 2 }
-}
-
-function getAncestorSwimlane(node: Node): Node | null {
-  let current = node.getParent()
-
-  while (current) {
-    if (current.isNode() && isSwimlaneShape(current.shape)) {
-      return current as Node
-    }
-    current = current.getParent()
-  }
-
-  return null
 }
 
 function getAncestorPool(node: Node): Node | null {
@@ -903,24 +891,10 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
     if (laneNodes.length > 0) {
       const laneElements: ModdleElement[] = laneNodes.map((lane) => {
-        const laneBBox = lane.getBBox()
-        const refs = flowNodes
-          .filter((node) => processContextByNodeId.get(node.id) === context)
-          .filter((node) => {
-            const ancestor = getAncestorSwimlane(node)
-            if (ancestor?.id === lane.id) return true
-
-            const pos = node.getPosition()
-            const size = node.getSize()
-            const cx = pos.x + size.width / 2
-            const cy = pos.y + size.height / 2
-            return (
-              cx >= laneBBox.x &&
-              cx <= laneBBox.x + laneBBox.width &&
-              cy >= laneBBox.y &&
-              cy <= laneBBox.y + laneBBox.height
-            )
-          })
+        const refs = resolveLaneMemberNodes(
+          lane,
+          flowNodes.filter((node) => processContextByNodeId.get(node.id) === context),
+        )
           .map((node) => nodeElements.get(node.id))
           .filter(Boolean) as ModdleElement[]
 

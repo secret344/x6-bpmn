@@ -10,7 +10,8 @@ import { describe, it, expect } from 'vitest'
 import {
   patchLaneInteracting,
   restoreLaneInteracting,
-} from '../../../src/behaviors/pool-containment'
+  setupSwimlanePolicy,
+} from '../../../src/behaviors/swimlane-policy'
 import { BPMN_LANE, BPMN_POOL, BPMN_USER_TASK } from '../../../src/utils/constants'
 
 // ============================================================================
@@ -178,5 +179,28 @@ describe('patchLaneInteracting / restoreLaneInteracting', () => {
 
     const taskResult = (graph.options.interacting as Function)(createMockCellView(BPMN_USER_TASK))
     expect(taskResult).toBe(true)
+  })
+
+  it('setupSwimlanePolicy 未传 isContainedNode 时应默认按流程节点约束 translating', () => {
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      getPosition: () => ({ x: 120, y: 80 }),
+      getSize: () => ({ width: 90, height: 50 }),
+      getParent: () => null,
+      isNode: () => true,
+    }
+    const graph = {
+      options: {},
+      getNodes: () => [task],
+    } as any
+
+    const dispose = setupSwimlanePolicy(graph)
+
+    expect(graph.options.translating.restrict({ cell: task })).toEqual({ x: 120, y: 80, width: 90, height: 50 })
+
+    dispose()
+    expect(graph.options.translating).toBeUndefined()
+    expect(graph.options.embedding).toBeUndefined()
   })
 })

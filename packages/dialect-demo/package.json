@@ -5,7 +5,8 @@
   "description": "方言系统 (Dialect System) 完整演示 — Profile 注册、编译、绑定、切换、约束、数据模型、适配器",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "build": "pnpm run typecheck && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
