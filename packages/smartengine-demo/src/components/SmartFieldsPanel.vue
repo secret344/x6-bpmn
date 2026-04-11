@@ -160,15 +160,22 @@ function syncFieldValues() {
   Object.keys(fieldValues).forEach((k) => delete fieldValues[k])
   if (!selectedNode.value) return
   const data = selectedNode.value.getData<Record<string, unknown>>() || {}
+  const bpmnData = (data.bpmn as Record<string, unknown> | undefined) || {}
   for (const fieldName of smartFields.value) {
-    fieldValues[fieldName] = data[fieldName] != null ? String(data[fieldName]) : ''
+    fieldValues[fieldName] = bpmnData[fieldName] != null ? String(bpmnData[fieldName]) : ''
   }
 }
 
 function onFieldChange(key: string, value: string | number | undefined) {
   if (!selectedNode.value) return
   const data = selectedNode.value.getData<Record<string, unknown>>() || {}
-  selectedNode.value.setData({ ...data, [key]: value })
+  const bpmnData = { ...((data.bpmn as Record<string, unknown> | undefined) || {}) }
+  if (value === undefined || value === null || value === '') {
+    delete bpmnData[key]
+  } else {
+    bpmnData[key] = value
+  }
+  selectedNode.value.setData({ ...data, bpmn: bpmnData })
 }
 
 const defaultDataJson = ref('{}')
@@ -192,12 +199,14 @@ function validateCurrentNode() {
   try { cat = getNodeCategory(shape) } catch { nodeErrors.value = []; return }
   const fields = getFieldsForShape(shape, cat, resolvedProfile.value.dataModel)
   const data = selectedNode.value.getData<Record<string, unknown>>() || {}
+  const bpmnData = (data.bpmn as Record<string, unknown> | undefined) || {}
   const ctx: FieldValidateContext = {
     shape,
     category: cat,
     profileId: resolvedProfile.value.meta.id,
+    nodeData: bpmnData,
   }
-  nodeErrors.value = validateFields(data, fields, ctx, resolvedProfile.value.dataModel)
+  nodeErrors.value = validateFields(bpmnData, fields, ctx, resolvedProfile.value.dataModel)
 }
 
 // ---- 字段分类概览 ----

@@ -9,6 +9,18 @@ import type { BpmnConnectionRule, BpmnNodeCategory } from '../../rules/connectio
 import type { BpmnNodeMapping, BpmnEdgeMapping } from '../../export/bpmn-mapping'
 import type { BpmnXmlNameSettings } from '../../utils/bpmn-xml-names'
 
+/** 通用扩展属性的 XML 序列化配置。 */
+export interface ExtensionPropertySerialization {
+  /** 扩展命名空间使用的前缀。 */
+  prefix?: string
+  /** 扩展命名空间 URI。 */
+  namespaceUri?: string
+  /** 扩展属性容器的本地标签名。 */
+  containerLocalName?: string
+  /** 单个扩展属性项的本地标签名。 */
+  propertyLocalName?: string
+}
+
 // ============================================================================
 // 1. definitions — 元素定义
 // ============================================================================
@@ -272,6 +284,8 @@ export interface EdgeSerializationHandler {
 export interface SerializationSet {
   /** 命名空间映射，如 { bpmn: 'http://...', smart: 'http://...' } */
   namespaces: Record<string, string>
+  /** 通用扩展属性的命名空间与标签配置；传入 false 可显式关闭。 */
+  extensionProperties?: ExtensionPropertySerialization | false
   /** BPMN XML 名称规则，如前缀、本地名接受策略与特殊构造模式。 */
   xmlNames?: BpmnXmlNameSettings
   /** 节点 shape → BPMN 节点映射 */

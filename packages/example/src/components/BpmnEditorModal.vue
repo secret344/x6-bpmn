@@ -83,8 +83,8 @@ import {
   IconFullscreen,
 } from '@arco-design/web-vue/es/icon'
 import type { Graph } from '@antv/x6'
-import { importBpmnXml, exportBpmnXml } from '@x6-bpmn2/plugin'
 import BpmnModeler from 'bpmn-js/lib/Modeler'
+import { exportStandardBpmnXml, importExampleBpmnXml } from '../bpmn-xml'
 import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-js.css'
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css'
@@ -192,7 +192,7 @@ async function onConfirm() {
       importing.value = false
       return
     }
-    await importBpmnXml(props.graph, xml)
+    await importExampleBpmnXml(props.graph, xml)
     visible.value = false
     const nodeCount = props.graph.getNodes().length
     const edgeCount = props.graph.getEdges().length
@@ -227,7 +227,7 @@ async function onNewDiagram() {
 async function onLoadFromX6() {
   if (!modeler || !props.graph) return
   try {
-    const xml = await exportBpmnXml(props.graph, { processName: 'BPMN流程' })
+    const xml = await exportStandardBpmnXml(props.graph, { processName: 'BPMN流程' })
     await modeler.importXML(xml)
     const canvas = modeler.get('canvas')
     canvas.zoom('fit-viewport')

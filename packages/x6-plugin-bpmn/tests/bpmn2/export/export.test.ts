@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { Graph } from '@antv/x6'
+import { Graph, Node as X6Node } from '@antv/x6'
 import { buildAndValidateBpmn, validateBpmnXml } from '../../helpers/bpmn-builder'
 import { bpmnRoundtrip } from '../../helpers/roundtrip'
 import { buildTestXml, matchXmlOrThrow, removeXmlOrThrow, replaceXmlOrThrow, truncateXml, withXmlDeclaration } from '../../helpers/xml-test-utils'
@@ -2366,20 +2366,232 @@ describe('exportBpmnXml — 特殊字符处理', () => {
 // ============================================================================
 
 describe('Extension property round-trip', () => {
-  it('节点的 bpmn 数据应通过 extensionElements 序列化并还原', async () => {
+  it('应保留节点与连线上的原始 XML 属性并在往返后写回', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_1',
+        isExecutable: true,
+        elements: [
+          { kind: 'userTask', id: 'task1', name: '审批' },
+          { kind: 'serviceTask', id: 'task2', name: '归档' },
+          { kind: 'sequenceFlow', id: 'flow1', sourceRef: 'task1', targetRef: 'task2' },
+        ],
+      }],
+      shapes: {
+        task1: { id: 'task1', x: 100, y: 120, width: 100, height: 60 },
+        task2: { id: 'task2', x: 280, y: 120, width: 100, height: 60 },
+      },
+      edges: {
+        flow1: {
+          id: 'flow1',
+          waypoints: [
+            { x: 200, y: 150 },
+            { x: 280, y: 150 },
+          ],
+        },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        withXmlDeclaration(baseXml),
+        /<bpmn:definitions([^>]*)>/,
+        '<bpmn:definitions$1 xmlns:modeler="http://example.com/modeler">',
+        '应能为 definitions 注入测试命名空间',
+      ),
+      /<bpmn:userTask id="task1" name="审批"\s*\/?>/,
+      '<bpmn:userTask id="task1" name="审批" modeler:code="approve" modeler:owner="ops" />',
+      '应能为 userTask 注入原始 XML 属性',
+    )
+    const xmlWithEdgeAttrs = replaceXmlOrThrow(
+      xml,
+      /<bpmn:sequenceFlow id="flow1" sourceRef="task1" targetRef="task2"\s*\/?>/,
+      '<bpmn:sequenceFlow id="flow1" sourceRef="task1" targetRef="task2" modeler:conditionKey="routeA" />',
+      '应能为 sequenceFlow 注入原始 XML 属性',
+    )
+
+    const parsed = await parseBpmnXml(xmlWithEdgeAttrs)
+    const task = parsed.nodes.find((node) => node.id === 'task1')
+    const flow = parsed.edges.find((edge) => edge.id === 'flow1')
+
+    expect(((task?.data as any)?.bpmn as any)?.$attrs).toEqual({
+      'modeler:code': 'approve',
+      'modeler:owner': 'ops',
+    })
+    expect(((flow?.data as any)?.bpmn as any)?.$attrs).toEqual({
+      'modeler:conditionKey': 'routeA',
+    })
+
+    const graph = createTestGraph()
+    loadBpmnGraph(graph, parsed, { zoomToFit: false })
+    const exportedXml = await exportBpmnXml(graph)
+
+    expect(exportedXml).toContain('modeler:code="approve"')
+    expect(exportedXml).toContain('modeler:owner="ops"')
+    expect(exportedXml).toContain('modeler:conditionKey="routeA"')
+    expect(exportedXml).not.toContain('name="$attrs"')
+
+    graph.dispose()
+  })
+
+  it('应保留 participant 与 messageFlow 上的原始 XML 属性', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      shape: BPMN_POOL,
+      id: 'pool-left',
+      x: 40,
+      y: 60,
+      width: 320,
+      height: 180,
+      attrs: { headerLabel: { text: '发起方' } },
+      data: {
+        bpmn: {
+          $attrs: {
+            'custom:participantCode': 'left',
+          },
+          $namespaces: {
+            custom: 'http://example.com/custom',
+          },
+        },
+      },
+    })
+    graph.addNode({
+      shape: BPMN_LANE,
+      id: 'lane-left',
+      x: 70,
+      y: 95,
+      width: 260,
+      height: 120,
+      attrs: { headerLabel: { text: '处理泳道' } },
+      data: {
+        bpmn: {
+          $attrs: {
+            'custom:laneCode': 'review',
+          },
+          $namespaces: {
+            custom: 'http://example.com/custom',
+          },
+        },
+      },
+    })
+    graph.addNode({
+      shape: BPMN_POOL,
+      id: 'pool-right',
+      x: 420,
+      y: 60,
+      width: 320,
+      height: 180,
+      attrs: { headerLabel: { text: '接收方' } },
+    })
+    graph.addNode({
+      shape: BPMN_USER_TASK,
+      id: 'task-left',
+      x: 120,
+      y: 120,
+      width: 100,
+      height: 60,
+      attrs: { label: { text: '发送' } },
+    })
+    graph.addNode({
+      shape: BPMN_USER_TASK,
+      id: 'task-right',
+      x: 500,
+      y: 120,
+      width: 100,
+      height: 60,
+      attrs: { label: { text: '接收' } },
+    })
+    graph.getCellById('pool-left')!.embed(graph.getCellById('task-left')!)
+    graph.getCellById('pool-left')!.embed(graph.getCellById('lane-left')!)
+    graph.getCellById('lane-left')!.embed(graph.getCellById('task-left')!)
+    graph.getCellById('pool-right')!.embed(graph.getCellById('task-right')!)
+    graph.addNode({
+      shape: BPMN_TEXT_ANNOTATION,
+      id: 'note-left',
+      x: 120,
+      y: 250,
+      width: 120,
+      height: 40,
+      attrs: { label: { text: '备注' } },
+    })
+    graph.addEdge({
+      shape: BPMN_MESSAGE_FLOW,
+      id: 'message-flow-attrs',
+      source: { cell: 'task-left' },
+      target: { cell: 'task-right' },
+      data: {
+        bpmn: {
+          $attrs: {
+            'custom:channel': 'mq',
+          },
+          $namespaces: {
+            custom: 'http://example.com/custom',
+          },
+        },
+      },
+    })
+    graph.addEdge({
+      shape: BPMN_ASSOCIATION,
+      id: 'association-attrs',
+      source: { cell: 'task-left' },
+      target: { cell: 'note-left' },
+      data: {
+        bpmn: {
+          $attrs: {
+            'custom:linkRole': 'annotation',
+          },
+          $namespaces: {
+            custom: 'http://example.com/custom',
+          },
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      serialization: {
+        extensionProperties: false,
+      },
+    })
+
+    expect(xml).toContain('participantCode="left"')
+    expect(xml).toContain('laneCode="review"')
+    expect(xml).toContain('channel="mq"')
+    expect(xml).toContain('linkRole="annotation"')
+
+    const parsed = await parseBpmnXml(xml)
+    const messageFlow = parsed.edges.find((edge) => edge.id === 'message-flow-attrs')
+
+    expect(((messageFlow?.data as any)?.bpmn as any)?.$attrs).toEqual({
+      'custom:channel': 'mq',
+    })
+    expect(((messageFlow?.data as any)?.bpmn as any)?.$namespaces).toEqual({
+      custom: 'http://example.com/custom',
+    })
+
+    graph.dispose()
+  })
+
+  it('节点的 bpmn 数据应按配置的扩展前缀通过 extensionElements 序列化并还原', async () => {
     const graph1 = createTestGraph()
     graph1.addNode({
       shape: BPMN_USER_TASK, id: 'ut1', x: 100, y: 100, width: 100, height: 60,
       attrs: { label: { text: '审批' } },
       data: { bpmn: { assignee: 'alice', priority: 'high', isAsync: 'true' } },
     })
-    const xml = await exportBpmnXml(graph1)
-    expect(xml).toContain('x6bpmn:properties')
+    const serialization = {
+      namespaces: { custom: 'http://example.com/modeler' },
+      extensionProperties: {
+        prefix: 'custom',
+        namespaceUri: 'http://example.com/modeler',
+      },
+    }
+
+    const xml = await exportBpmnXml(graph1, { serialization })
+    expect(xml).toContain('custom:properties')
     expect(xml).toContain('name="assignee"')
     expect(xml).toContain('value="alice"')
 
     const graph2 = createTestGraph()
-    loadBpmnGraph(graph2, await parseBpmnXml(xml), { zoomToFit: false })
+    loadBpmnGraph(graph2, await parseBpmnXml(xml, { serialization }), { zoomToFit: false })
     const node = graph2.getCellById('ut1')
     expect(node).toBeTruthy()
     const data = (node as any).getData()
@@ -2389,6 +2601,150 @@ describe('Extension property round-trip', () => {
 
     graph1.dispose()
     graph2.dispose()
+  })
+
+  it('关闭 extensionProperties 后不应导出或导入通用扩展属性', async () => {
+    const graph1 = createTestGraph()
+    graph1.addNode({
+      shape: BPMN_USER_TASK,
+      id: 'ut-disabled',
+      x: 100,
+      y: 100,
+      width: 100,
+      height: 60,
+      data: { bpmn: { assignee: 'alice' } },
+    })
+
+    const xmlWithoutExtensions = await exportBpmnXml(graph1, {
+      serialization: { extensionProperties: false },
+    })
+    expect(xmlWithoutExtensions).not.toContain('modeler:properties')
+    expect(xmlWithoutExtensions).not.toContain('name="assignee"')
+
+    const xmlWithExtensions = await exportBpmnXml(graph1)
+    const graph2 = createTestGraph()
+    loadBpmnGraph(graph2, await parseBpmnXml(xmlWithExtensions, {
+      serialization: { extensionProperties: false },
+    }), { zoomToFit: false })
+
+    const data = (graph2.getCellById('ut-disabled') as any).getData()
+    expect(data?.bpmn?.assignee).toBeUndefined()
+
+    graph1.dispose()
+    graph2.dispose()
+  })
+
+  it('example 示例导出应保持标准 BPMN 2.0 tag，并允许输出动态扩展属性', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      shape: BPMN_USER_TASK,
+      id: 'example-task',
+      x: 120,
+      y: 100,
+      width: 120,
+      height: 60,
+      attrs: { label: { text: '审批' } },
+      data: {
+        bpmn: {
+          assignee: 'alice',
+          priority: 'high',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      processName: 'BPMN流程',
+    })
+
+    expect(xml).toContain('<bpmn:definitions')
+    expect(xml).toContain('<bpmn:userTask')
+    expect(xml).toContain('xmlns:modeler=')
+    expect(xml).toContain('<modeler:properties>')
+    expect(xml).toContain('name="assignee" value="alice"')
+    expect(xml).toContain('name="priority" value="high"')
+
+    graph.dispose()
+  })
+
+  it('边界事件内部附着元数据不应污染标准 BPMN 导出', async () => {
+    const graph = createTestGraph()
+    const task = graph.addNode({
+      shape: BPMN_USER_TASK,
+      id: 'task-boundary-host',
+      x: 160,
+      y: 120,
+      width: 120,
+      height: 60,
+      attrs: { label: { text: '审批' } },
+    })
+
+    const boundary = graph.addNode({
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      id: 'boundary-standard',
+      x: 200,
+      y: 100,
+      width: 36,
+      height: 36,
+      attrs: { label: { text: '超时' } },
+      data: {
+        bpmn: {
+          attachedToRef: 'task-boundary-host',
+          boundaryPosition: { side: 'top', ratio: 0.5 },
+          customCode: 'notify-after-timeout',
+        },
+      },
+    })
+    task.embed(boundary)
+
+    const xml = await exportBpmnXml(graph, {
+      processName: 'BPMN流程',
+    })
+
+    expect(xml).toContain('<bpmn:boundaryEvent')
+    expect(xml).toContain('attachedToRef="task-boundary-host"')
+    expect(xml).toContain('<modeler:properties>')
+    expect(xml).toContain('name="customCode" value="notify-after-timeout"')
+    expect(xml).not.toContain('name="attachedToRef"')
+    expect(xml).not.toContain('name="boundaryPosition"')
+    expect(xml).not.toContain('value="[object Object]"')
+
+    graph.dispose()
+  })
+
+  it('应忽略空的原始 XML 属性和命名空间保留值', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      shape: BPMN_USER_TASK,
+      id: 'empty-raw-attrs',
+      x: 120,
+      y: 100,
+      width: 120,
+      height: 60,
+      attrs: { label: { text: '审批' } },
+      data: {
+        bpmn: {
+          $attrs: {
+            'custom:code': undefined,
+            'custom:owner': null,
+          },
+          $namespaces: {
+            custom: '',
+          },
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      serialization: {
+        extensionProperties: false,
+      },
+    })
+
+    expect(xml).not.toContain('xmlns:custom=')
+    expect(xml).not.toContain('custom:code=')
+    expect(xml).not.toContain('custom:owner=')
+
+    graph.dispose()
   })
 
   it('boolean false 值应正确往返', async () => {
@@ -2407,6 +2763,272 @@ describe('Extension property round-trip', () => {
 
     graph1.dispose()
     graph2.dispose()
+  })
+
+  it('显式传入 bpmn.$attrs 时应导出为元素原始 XML 属性而非扩展属性', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      shape: BPMN_USER_TASK,
+      id: 'task-attrs',
+      x: 100,
+      y: 100,
+      width: 120,
+      height: 60,
+      data: {
+        bpmn: {
+          $attrs: {
+            'modeler:code': 'approve',
+          },
+          $namespaces: {
+            modeler: 'http://example.com/modeler',
+          },
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      serialization: {
+        extensionProperties: false,
+      },
+    })
+    expect(xml).toContain('modeler:code="approve"')
+    expect(xml).not.toContain('name="$attrs"')
+    expect(xml).not.toContain('extensionElements')
+
+    graph.dispose()
+  })
+
+  it('应导出工件节点上的原始 XML 属性', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      shape: BPMN_TEXT_ANNOTATION,
+      id: 'annotation-attrs',
+      x: 100,
+      y: 100,
+      width: 120,
+      height: 40,
+      attrs: { label: { text: '注释' } },
+      data: {
+        bpmn: {
+          $attrs: {
+            'custom:annotationRole': 'note',
+          },
+          $namespaces: {
+            custom: 'http://example.com/custom',
+          },
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      serialization: {
+        extensionProperties: false,
+      },
+    })
+
+    expect(xml).toContain('annotationRole="note"')
+
+    graph.dispose()
+  })
+
+  it('应保留未声明命名空间的普通原始 XML 属性且不生成 $namespaces', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_1',
+        isExecutable: true,
+        elements: [
+          { kind: 'userTask', id: 'task1', name: '审批' },
+          { kind: 'serviceTask', id: 'task2', name: '归档' },
+          { kind: 'sequenceFlow', id: 'flow1', sourceRef: 'task1', targetRef: 'task2' },
+        ],
+      }],
+      shapes: {
+        task1: { id: 'task1', x: 100, y: 120, width: 100, height: 60 },
+        task2: { id: 'task2', x: 280, y: 120, width: 100, height: 60 },
+      },
+      edges: {
+        flow1: {
+          id: 'flow1',
+          waypoints: [
+            { x: 200, y: 150 },
+            { x: 280, y: 150 },
+          ],
+        },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        withXmlDeclaration(baseXml),
+        /<bpmn:userTask id="task1" name="审批"\s*\/?>/,
+        '<bpmn:userTask id="task1" name="审批" data-owner="ops" />',
+        '应能为 userTask 注入未声明命名空间的普通属性',
+      ),
+      /<bpmn:sequenceFlow id="flow1" sourceRef="task1" targetRef="task2"\s*\/?>/,
+      '<bpmn:sequenceFlow id="flow1" sourceRef="task1" targetRef="task2" data-route="A" />',
+      '应能为 sequenceFlow 注入未声明命名空间的普通属性',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    const task = parsed.nodes.find((node) => node.id === 'task1')
+    const flow = parsed.edges.find((edge) => edge.id === 'flow1')
+
+    expect(((task?.data as any)?.bpmn as any)?.$attrs).toEqual({
+      'data-owner': 'ops',
+    })
+    expect(((task?.data as any)?.bpmn as any)?.$namespaces).toBeUndefined()
+    expect(((flow?.data as any)?.bpmn as any)?.$attrs).toEqual({
+      'data-route': 'A',
+    })
+    expect(((flow?.data as any)?.bpmn as any)?.$namespaces).toBeUndefined()
+  })
+
+  it('应导入 association 与 data association 上的原始 XML 属性', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_1',
+        isExecutable: true,
+        elements: [
+          { kind: 'userTask', id: 'task1', name: '审批' },
+          { kind: 'dataObjectReference', id: 'data1', name: '表单' },
+          { kind: 'textAnnotation', id: 'note1', text: '说明' },
+          { kind: 'association', id: 'assoc1', sourceRef: 'task1', targetRef: 'note1' },
+          { kind: 'dataInputAssociation', id: 'dataAssoc1', taskId: 'task1', dataRef: 'data1' },
+        ],
+      }],
+      shapes: {
+        task1: { id: 'task1', x: 100, y: 100, width: 100, height: 60 },
+        data1: { id: 'data1', x: 80, y: 220, width: 40, height: 50 },
+        note1: { id: 'note1', x: 260, y: 100, width: 120, height: 40 },
+      },
+      edges: {
+        assoc1: {
+          id: 'assoc1',
+          waypoints: [
+            { x: 200, y: 130 },
+            { x: 260, y: 120 },
+          ],
+        },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        withXmlDeclaration(baseXml),
+        /<bpmn:definitions([^>]*)>/,
+        '<bpmn:definitions$1 xmlns:custom="http://example.com/custom">',
+        '应能为 definitions 注入 custom 命名空间',
+      ),
+      /<bpmn:association id="assoc1" sourceRef="task1" targetRef="note1"\s*\/?>/,
+      '<bpmn:association id="assoc1" sourceRef="task1" targetRef="note1" custom:linkType="note" />',
+      '应能为 association 注入原始 XML 属性',
+    )
+    const xmlWithDataAssocAttrs = replaceXmlOrThrow(
+      xml,
+      /<bpmn:dataInputAssociation id="dataAssoc1">/,
+      '<bpmn:dataInputAssociation id="dataAssoc1" custom:dataRole="input">',
+      '应能为 dataInputAssociation 注入原始 XML 属性',
+    )
+
+    const parsed = await parseBpmnXml(xmlWithDataAssocAttrs)
+    const association = parsed.edges.find((edge) => edge.id === 'assoc1')
+    const dataAssociation = parsed.edges.find((edge) => edge.id === 'dataAssoc1')
+
+    expect(((association?.data as any)?.bpmn as any)?.$attrs).toEqual({
+      'custom:linkType': 'note',
+    })
+    expect(((association?.data as any)?.bpmn as any)?.$namespaces).toEqual({
+      custom: 'http://example.com/custom',
+    })
+    expect(((dataAssociation?.data as any)?.bpmn as any)?.$attrs).toEqual({
+      'custom:dataRole': 'input',
+    })
+    expect(((dataAssociation?.data as any)?.bpmn as any)?.$namespaces).toEqual({
+      custom: 'http://example.com/custom',
+    })
+  })
+
+  it('应导出并导入 dataInputAssociation 与 dataOutputAssociation 的原始 XML 属性', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      shape: BPMN_USER_TASK,
+      id: 'task-data-attrs',
+      x: 220,
+      y: 120,
+      width: 120,
+      height: 60,
+      attrs: { label: { text: '处理' } },
+    })
+    graph.addNode({
+      shape: BPMN_DATA_OBJECT,
+      id: 'data-input-attrs',
+      x: 60,
+      y: 120,
+      width: 40,
+      height: 50,
+      attrs: { label: { text: '输入' } },
+    })
+    graph.addNode({
+      shape: BPMN_DATA_OBJECT,
+      id: 'data-output-attrs',
+      x: 420,
+      y: 120,
+      width: 40,
+      height: 50,
+      attrs: { label: { text: '输出' } },
+    })
+    graph.addEdge({
+      shape: BPMN_DATA_ASSOCIATION,
+      id: 'data-input-edge-attrs',
+      source: { cell: 'data-input-attrs' },
+      target: { cell: 'task-data-attrs' },
+      data: {
+        bpmn: {
+          $attrs: {
+            'custom:dataRole': 'input',
+          },
+          $namespaces: {
+            custom: 'http://example.com/custom',
+          },
+        },
+      },
+    })
+    graph.addEdge({
+      shape: BPMN_DATA_ASSOCIATION,
+      id: 'data-output-edge-attrs',
+      source: { cell: 'task-data-attrs' },
+      target: { cell: 'data-output-attrs' },
+      data: {
+        bpmn: {
+          $attrs: {
+            'custom:dataRole': 'output',
+          },
+          $namespaces: {
+            custom: 'http://example.com/custom',
+          },
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      serialization: {
+        extensionProperties: false,
+      },
+    })
+
+    expect(xml).toContain('dataRole="input"')
+    expect(xml).toContain('dataRole="output"')
+
+    const parsed = await parseBpmnXml(xml)
+    const inputEdge = parsed.edges.find((edge) => edge.id === 'data-input-edge-attrs')
+    const outputEdge = parsed.edges.find((edge) => edge.id === 'data-output-edge-attrs')
+
+    expect(((inputEdge?.data as any)?.bpmn as any)?.$attrs).toEqual({
+      'custom:dataRole': 'input',
+    })
+    expect(((outputEdge?.data as any)?.bpmn as any)?.$attrs).toEqual({
+      'custom:dataRole': 'output',
+    })
+
+    graph.dispose()
   })
 })
 
@@ -2438,6 +3060,46 @@ describe('exportBpmnXml — text annotation export', () => {
     })
     const xml = await exportBpmnXml(graph)
     expect(xml).toContain('bpmn:textAnnotation')
+    graph.dispose()
+  })
+
+  it('导入文本注释后再导出时不应回退默认文案', async () => {
+    const graph = createTestGraph()
+    const annotationText = '员工通过 OA系统发起'
+    const xml = await buildTestXml({
+      processes: [{
+        id: 'Process_1',
+        elements: [
+          { kind: 'startEvent', id: 'start1', name: '开始' },
+          { kind: 'textAnnotation', id: 'ann1', text: annotationText },
+          { kind: 'association', id: 'assoc1', sourceRef: 'start1', targetRef: 'ann1' },
+        ],
+      }],
+      shapes: {
+        start1: { id: 'start1', x: 80, y: 120, width: 36, height: 36 },
+        ann1: { id: 'ann1', x: 180, y: 105, width: 140, height: 60 },
+      },
+      edges: {
+        assoc1: {
+          id: 'assoc1',
+          waypoints: [
+            { x: 116, y: 138 },
+            { x: 180, y: 135 },
+          ],
+        },
+      },
+    })
+
+    loadBpmnGraph(graph, await parseBpmnXml(xml))
+
+    const annotation = graph.getCellById('ann1') as X6Node | null
+    expect(annotation?.getAttrByPath('label/text')).toBe(annotationText)
+    expect((annotation?.getData() as any)?.bpmn?.annotationText).toBe(annotationText)
+
+    const exportedXml = await exportBpmnXml(graph)
+    expect(exportedXml).toContain(`<bpmn:text>${annotationText}</bpmn:text>`)
+    expect(exportedXml).not.toContain('<bpmn:text>Text Annotation</bpmn:text>')
+
     graph.dispose()
   })
 })

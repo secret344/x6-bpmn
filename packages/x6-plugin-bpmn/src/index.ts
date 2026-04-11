@@ -18,6 +18,18 @@ import {
   registerSwimlaneShapes,
 } from './shapes'
 import { registerConnectionShapes } from './connections'
+import type { Graph } from '@antv/x6'
+import type { Edge } from '@antv/x6'
+import {
+  createBpmnValidateConnection,
+  createBpmnValidateEdge,
+  type BpmnValidateOptions,
+} from './rules'
+import {
+  setupBpmnInteractionBehaviors,
+  type BpmnInteractionBehaviorOptions,
+} from './behaviors'
+import { BPMN_SEQUENCE_FLOW } from './utils/constants'
 
 // ============================================================================
 // 传统接口 —— 重新导出所有子模块的公开能力
@@ -204,8 +216,29 @@ export interface BpmnPluginOptions {
   connections?: boolean
 }
 
+export interface SetupBpmnGraphOptions {
+  /** BPMN 图形注册配置；传入 false 时跳过注册。 */
+  registration?: BpmnPluginOptions | false
+  /** BPMN 交互行为配置；传入 false 时跳过安装。 */
+  behaviors?: BpmnInteractionBehaviorOptions | false
+  /** 默认连线类型，未传时使用顺序流。 */
+  edgeShape?: string | (() => string)
+  /** BPMN 连线校验配置；传入 false 时跳过安装默认校验器。 */
+  validate?: BpmnValidateOptions | false
+  /** 是否在缺省时安装默认 createEdge，默认 true。 */
+  installDefaultCreateEdge?: boolean
+}
+
 /** 防止重复注册的标志 */
 let registered = false
+
+function resolveEdgeShapeGetter(edgeShape?: SetupBpmnGraphOptions['edgeShape']): () => string {
+  if (typeof edgeShape === 'function') {
+    return edgeShape
+  }
+
+  return () => edgeShape || BPMN_SEQUENCE_FLOW
+}
 
 /**
  * 注册所有 BPMN 2.0 图形和连接线到 X6 全局注册表。
@@ -240,4 +273,59 @@ export function registerBpmnShapes(options: BpmnPluginOptions = {}) {
 export function forceRegisterBpmnShapes(options: BpmnPluginOptions = {}) {
   registered = false
   registerBpmnShapes(options)
+}
+
+/**
+ * 为图实例装载默认 BPMN 2.0 能力。
+ *
+ * 默认行为包括：
+ * 1. 注册 BPMN 图形
+ * 2. 给 graph.connecting 补齐 BPMN 默认 createEdge / validateConnection / validateEdge
+ * 3. 安装 BPMN 交互行为
+ *
+ * 宿主只在需要自定义时覆写对应配置即可。
+ */
+export function setupBpmnGraph(
+  graph: Graph,
+  options: SetupBpmnGraphOptions = {},
+): () => void {
+  if (options.registration !== false) {
+    registerBpmnShapes(options.registration ?? {})
+  }
+
+  const edgeShapeGetter = resolveEdgeShapeGetter(options.edgeShape)
+  type MutableConnectingOptions = Partial<NonNullable<Graph['options']['connecting']>> & {
+    createEdge?: (() => Edge) | undefined
+    validateConnection?: unknown
+    validateEdge?: unknown
+  }
+  const graphOptions = graph.options as Graph['options'] & {
+    connecting?: MutableConnectingOptions
+  }
+  const mutableGraphOptions = graph.options as unknown as {
+    connecting?: MutableConnectingOptions
+  }
+  if (!mutableGraphOptions.connecting) {
+    mutableGraphOptions.connecting = {}
+  }
+  const connecting: MutableConnectingOptions = mutableGraphOptions.connecting
+
+  if (options.installDefaultCreateEdge !== false && typeof connecting.createEdge !== 'function') {
+    connecting.createEdge = () => graph.createEdge({ shape: edgeShapeGetter() })
+  }
+
+  if (options.validate !== false) {
+    if (typeof connecting.validateConnection !== 'function') {
+      connecting.validateConnection = createBpmnValidateConnection(edgeShapeGetter, options.validate ?? {})
+    }
+    if (typeof connecting.validateEdge !== 'function') {
+      connecting.validateEdge = createBpmnValidateEdge(edgeShapeGetter, options.validate ?? {})
+    }
+  }
+
+  if (options.behaviors === false) {
+    return () => undefined
+  }
+
+  return setupBpmnInteractionBehaviors(graph, options.behaviors)
 }

@@ -57,13 +57,8 @@ import { Clipboard } from "@antv/x6/lib/plugin/clipboard";
 import { History } from "@antv/x6/lib/plugin/history";
 import { MiniMap } from "@antv/x6/lib/plugin/minimap";
 import {
-  registerBpmnShapes,
   getShapeLabel,
-  exportBpmnXml,
-  importBpmnXml,
-  createBpmnValidateConnection,
-  createBpmnValidateEdge,
-  setupBpmnInteractionBehaviors,
+  setupBpmnGraph,
   attachBoundaryToHost,
   isBoundaryShape,
   distanceToRectEdge,
@@ -87,6 +82,7 @@ import {
 } from "@x6-bpmn2/plugin";
 import { currentEdgeType, EDGE_TYPE_OPTIONS } from "../composables/useEdgeType";
 import { createSampleProcess } from "../sample-process";
+import { exportStandardBpmnXml, importExampleBpmnXml } from "../bpmn-xml";
 
 const emit = defineEmits<{
   graphReady: [graph: Graph];
@@ -161,24 +157,21 @@ const CONTAINER_SHAPES = new Set([
 
 function parseDroppedShape(event: DragEvent): { shape: string; label?: string; width?: number; height?: number } | null {
   const raw = event.dataTransfer?.getData("application/bpmn-shape");
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as { shape?: string; label?: string; width?: number; height?: number };
-      if (parsed.shape) {
-        return {
-          shape: parsed.shape,
-          label: parsed.label,
-          width: parsed.width,
-          height: parsed.height,
-        };
-      }
-    } catch {
-      // 兼容旧载荷格式，继续走简单 shape 回退。
-    }
-  }
+  if (!raw) return null;
 
-  const shape = event.dataTransfer?.getData("bpmn/shape");
-  return shape ? { shape } : null;
+  try {
+    const parsed = JSON.parse(raw) as { shape?: string; label?: string; width?: number; height?: number };
+    if (!parsed.shape) return null;
+
+    return {
+      shape: parsed.shape,
+      label: parsed.label,
+      width: parsed.width,
+      height: parsed.height,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function resolveDroppedNodeSize(shape: string, width?: number, height?: number) {
@@ -219,8 +212,6 @@ function findDroppedParent(node: Node): Node | null {
 
   return candidates[0] ?? null;
 }
-
-registerBpmnShapes();
 
 onMounted(async () => {
   await nextTick();
@@ -271,17 +262,6 @@ onMounted(async () => {
         name: "rounded",
         args: { radius: 8 },
       },
-      createEdge() {
-        return graph!.createEdge({ shape: currentEdgeType.value });
-      },
-      validateConnection: createBpmnValidateConnection(() => currentEdgeType.value),
-      validateEdge: createBpmnValidateEdge(() => currentEdgeType.value, {
-        onValidationError(result: { reason?: string }) {
-          if (result.reason) {
-            Message.warning(result.reason);
-          }
-        },
-      }),
     },
     highlighting: {
       magnetAdsorbed: {
@@ -588,13 +568,23 @@ onMounted(async () => {
   });
 
   // 安装边界事件吸附行为
-  disposeBpmnBehaviors = setupBpmnInteractionBehaviors(graph, {
-    poolContainment: {
-    onViolation(result: { reason?: string }) {
-      if (result.reason) {
-        Message.warning(result.reason);
-      }
+  disposeBpmnBehaviors = setupBpmnGraph(graph, {
+    edgeShape: () => currentEdgeType.value,
+    validate: {
+      onValidationError(result: { reason?: string }) {
+        if (result.reason) {
+          Message.warning(result.reason);
+        }
+      },
     },
+    behaviors: {
+      poolContainment: {
+        onViolation(result: { reason?: string }) {
+          if (result.reason) {
+            Message.warning(result.reason);
+          }
+        },
+      },
     },
   });
 
@@ -615,8 +605,8 @@ onMounted(async () => {
   if (typeof window !== "undefined") {
     window.__x6BpmnExampleGraph = graph;
     window.__x6BpmnExampleApi = {
-      exportXml: () => exportBpmnXml(graph!, { processName: "BPMN流程" }),
-      importXml: (xml: string) => importBpmnXml(graph!, xml),
+      exportXml: () => exportStandardBpmnXml(graph!, { processName: "BPMN流程" }),
+      importXml: (xml: string) => importExampleBpmnXml(graph!, xml),
       getSelectedCellIds: () => graph!.getSelectedCells().map((cell) => cell.id),
       isReady: () => Boolean(window.__x6BpmnExampleReady),
     };

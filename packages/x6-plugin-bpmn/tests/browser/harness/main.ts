@@ -2,13 +2,10 @@ import { Graph, type Cell, type Edge, type Node } from '@antv/x6'
 import { Selection } from '@antv/x6/lib/plugin/selection'
 import { Transform } from '@antv/x6/lib/plugin/transform'
 import {
-  registerBpmnShapes,
-  setupBpmnInteractionBehaviors,
+  setupBpmnGraph,
   attachBoundaryToHost,
   exportBpmnXml,
   importBpmnXml,
-  createBpmnValidateConnection,
-  createBpmnValidateEdge,
   addLaneToPool,
   BPMN_BOUNDARY_EVENT_TIMER,
   BPMN_END_EVENT,
@@ -88,6 +85,7 @@ declare global {
       createTwoPoolMessageScenario: () => MessageScenarioIds
       createMultiLaneScenario: () => MultiLaneScenarioIds
       addLaneToPoolScenario: (poolId: string) => string | null
+      removeNode: (id: string) => boolean
       getNodeSnapshot: (id: string) => NodeSnapshot
       getPoolLaneSnapshots: (poolId: string) => NodeSnapshot[]
       getSelectedCellIds: () => string[]
@@ -97,8 +95,6 @@ declare global {
     }
   }
 }
-
-registerBpmnShapes()
 
 let currentEdgeShape = BPMN_SEQUENCE_FLOW
 
@@ -114,13 +110,7 @@ graph = new Graph({
   width: 1200,
   height: 800,
   embedding: { enabled: true },
-  connecting: {
-    createEdge(): Edge {
-      return graph.createEdge({ shape: currentEdgeShape })
-    },
-    validateConnection: createBpmnValidateConnection(() => currentEdgeShape),
-    validateEdge: createBpmnValidateEdge(() => currentEdgeShape),
-  },
+  connecting: {},
 })
 
 graph.use(
@@ -139,7 +129,9 @@ graph.use(
   }),
 )
 
-setupBpmnInteractionBehaviors(graph)
+setupBpmnGraph(graph, {
+  edgeShape: () => currentEdgeShape,
+})
 
 const edgeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-edge-shape]'))
 
@@ -643,6 +635,16 @@ function addLaneToPoolScenario(poolId: string): string | null {
     ?.id ?? null
 }
 
+function removeNode(id: string): boolean {
+  const cell = graph.getCellById(id)
+  if (!cell?.isNode?.()) {
+    return false
+  }
+
+  cell.remove()
+  return !graph.getCellById(id)
+}
+
 async function roundtripXml(): Promise<string> {
   const xml = await exportBpmnXml(graph, { processName: '浏览器测试流程' })
   await importBpmnXml(graph, xml, { zoomToFit: false })
@@ -658,6 +660,7 @@ window.__x6PluginBrowserHarness = {
   createTwoPoolMessageScenario,
   createMultiLaneScenario,
   addLaneToPoolScenario,
+  removeNode,
   getNodeSnapshot,
   getPoolLaneSnapshots,
   getSelectedCellIds,

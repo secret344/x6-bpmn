@@ -1289,6 +1289,21 @@ describe('setupPoolContainment', () => {
     dispose()
   })
 
+  it('删除第一个 Lane 后应立即紧排剩余 Lane 并刷新布局', () => {
+    const { graph, pool, lane1, lane2 } = createMultiLaneGraph()
+    trackGraph(graph)
+
+    const dispose = setupPoolContainment(graph)
+
+    lane1.remove()
+
+    expect(pool.getChildren()?.map((child) => child.id)).toEqual([lane2.id])
+    expect(lane2.getPosition()).toEqual({ x: 70, y: 40 })
+    expect(lane2.getSize()).toEqual({ width: 370, height: 220 })
+
+    dispose()
+  })
+
   it('点击 Pool 选框覆盖层命中 Lane 时，应将选中切换到该 Lane', () => {
     const { graph, pool, lane } = createPoolLaneTaskGraph()
     trackGraph(graph)

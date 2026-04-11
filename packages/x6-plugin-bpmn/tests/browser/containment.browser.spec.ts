@@ -10,6 +10,7 @@ import {
   createTwoPoolMessageScenario,
   createMultiLaneScenario,
   addLaneToPoolInBrowser,
+  removeNodeInBrowser,
   getNodeSnapshot,
   getPoolLaneSnapshots,
   getEdgeSnapshotByShape,
@@ -459,6 +460,57 @@ test.describe('主库浏览器行为回归', () => {
 
     // Lane 之间仍无间隙
     expect(lane2After.y).toBeCloseTo(lane1After.y + lane1After.height, 0)
+  })
+
+  test('删除第一个 Lane 后拖拽 Pool 时，剩余 Lane 与其内部节点应继续联动', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createMultiLaneScenario(page)
+    await takeScreenshot(page, '删除第一条-Lane-前的多-Lane-布局')
+
+    expect(await removeNodeInBrowser(page, scenario.lane1Id)).toBe(true)
+
+    await expect.poll(async () => getPoolLaneSnapshots(page, scenario.poolId)).toHaveLength(1)
+
+    const poolAfterDelete = await getNodeSnapshot(page, scenario.poolId)
+    const remainingLaneAfterDelete = await getNodeSnapshot(page, scenario.lane2Id)
+    const gatewayAfterDelete = await getNodeSnapshot(page, scenario.gatewayId)
+    const task2AfterDelete = await getNodeSnapshot(page, scenario.task2Id)
+    const sendTaskAfterDelete = await getNodeSnapshot(page, scenario.sendTaskId)
+    await takeScreenshot(page, '删除第一条-Lane-后剩余-Lane-与节点状态')
+
+    expect(remainingLaneAfterDelete.parentId).toBe(poolAfterDelete.id)
+    expect(remainingLaneAfterDelete.y).toBeCloseTo(poolAfterDelete.y, 0)
+    expect(gatewayAfterDelete.parentId).toBe(remainingLaneAfterDelete.id)
+    expect(task2AfterDelete.parentId).toBe(remainingLaneAfterDelete.id)
+    expect(sendTaskAfterDelete.parentId).toBe(remainingLaneAfterDelete.id)
+
+    const delta = { x: 85, y: 55 }
+    await dragNodeBy(page, scenario.poolId, delta, { startOffset: { x: 12, y: 40 } })
+    await takeScreenshot(page, '删除第一条-Lane-后拖拽-Pool-仍保持联动')
+
+    const poolAfterDrag = await getNodeSnapshot(page, scenario.poolId)
+    const remainingLaneAfterDrag = await getNodeSnapshot(page, scenario.lane2Id)
+    const gatewayAfterDrag = await getNodeSnapshot(page, scenario.gatewayId)
+    const task2AfterDrag = await getNodeSnapshot(page, scenario.task2Id)
+    const sendTaskAfterDrag = await getNodeSnapshot(page, scenario.sendTaskId)
+
+    const actualPoolDelta = {
+      x: poolAfterDrag.x - poolAfterDelete.x,
+      y: poolAfterDrag.y - poolAfterDelete.y,
+    }
+
+    expectMovedNear(remainingLaneAfterDelete, remainingLaneAfterDrag, actualPoolDelta)
+    expectMovedNear(gatewayAfterDelete, gatewayAfterDrag, actualPoolDelta)
+    expectMovedNear(task2AfterDelete, task2AfterDrag, actualPoolDelta)
+    expectMovedNear(sendTaskAfterDelete, sendTaskAfterDrag, actualPoolDelta)
+
+    expect(remainingLaneAfterDrag.parentId).toBe(poolAfterDrag.id)
+    expect(gatewayAfterDrag.parentId).toBe(remainingLaneAfterDrag.id)
+    expect(task2AfterDrag.parentId).toBe(remainingLaneAfterDrag.id)
+    expect(sendTaskAfterDrag.parentId).toBe(remainingLaneAfterDrag.id)
+    expect(remainingLaneAfterDrag.y).toBeCloseTo(poolAfterDrag.y, 0)
   })
 
   test('选区拖拽 Pool 碰撞另一 Pool 时，不应重叠且最终位于合法位置', async ({ page }, testInfo) => {

@@ -624,6 +624,20 @@ export function setupPoolContainment(
     }
   }
 
+  function compactPoolAfterLaneRemoval(pool: Node): void {
+    compactLaneLayout(graph, pool)
+
+    for (const child of getGraphChildren(graph, pool)) {
+      if (isSwimlaneShape(child.shape)) {
+        normalizeSwimlaneGeometry(graph, child)
+      }
+    }
+
+    normalizeSwimlaneGeometry(graph, pool)
+    normalizeSwimlaneLayers(graph)
+    rememberPoolSubtreeState(pool)
+  }
+
   const disposeSwimlaneResize = setupSwimlaneResize(graph, {
     onSwimlaneResized: (_node, pool) => {
       rememberPoolSubtreeState(pool)
@@ -815,6 +829,26 @@ export function setupPoolContainment(
     finalizeNode(node, 'parent')
   }
 
+  function onNodeRemoved({ node }: { node: Node }): void {
+    if (node.shape !== BPMN_LANE) {
+      return
+    }
+
+    const snapshot = lastValidState.get(node)
+    const snapshotContainer = snapshot?.container
+    const pool = snapshotContainer?.shape === BPMN_POOL
+      ? snapshotContainer
+      : snapshotContainer
+        ? getAncestorPool(snapshotContainer)
+        : null
+
+    if (!pool) {
+      return
+    }
+
+    compactPoolAfterLaneRemoval(pool)
+  }
+
   function onContainerClick(event: MouseEvent): void {
     const graphWithOptions = graph as GraphWithOptions
     const selected = getSelectedNodes(graph)
@@ -853,6 +887,7 @@ export function setupPoolContainment(
   graph.on('node:change:position', onNodePositionChanged)
   graph.on('node:change:size', onNodeSizeChanged)
   graph.on('node:change:parent', onNodeParentChanged)
+  graph.on('node:removed', onNodeRemoved)
   graph.model?.on?.('batch:stop', onBatchStop)
   ;(graph as GraphWithOptions).container?.addEventListener('click', onContainerClick)
 
@@ -862,6 +897,7 @@ export function setupPoolContainment(
     graph.off('node:change:position', onNodePositionChanged)
     graph.off('node:change:size', onNodeSizeChanged)
     graph.off('node:change:parent', onNodeParentChanged)
+    graph.off('node:removed', onNodeRemoved)
     graph.model?.off?.('batch:stop', onBatchStop)
     ;(graph as GraphWithOptions).container?.removeEventListener('click', onContainerClick)
     disposeSwimlaneResize()

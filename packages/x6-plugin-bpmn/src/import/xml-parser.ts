@@ -49,6 +49,12 @@ import {
   getBpmnLocalName,
   resolveBpmnXmlNameSettings,
 } from '../utils/bpmn-xml-names'
+import {
+  isExtensionPropertyContainerElement,
+  isExtensionPropertyItemElement,
+  resolveExtensionPropertySerialization,
+  type ResolvedExtensionPropertySerialization,
+} from '../utils/extension-properties'
 
 // ============================================================================
 // 内部类型：BPMN DI 几何信息
@@ -440,30 +446,33 @@ function defaultNodeSize(shape: string): { w: number; h: number } {
  * 从 BPMN extensionElements 中提取自定义业务属性。
  * 支持布尔值自动转换（'true'/'false' 字符串 → boolean）。
  */
-function parseExtensionProps(element: ModdleElement): Record<string, unknown> | undefined {
+function parseExtensionProps(
+  element: ModdleElement,
+  extensionProperties: ResolvedExtensionPropertySerialization | null,
+  namespaces: Record<string, string>,
+): Record<string, unknown> | undefined {
+  if (!extensionProperties) return undefined
+
   const extElements = element.extensionElements as ModdleElement | undefined
   if (!extElements) return undefined
 
   /* istanbul ignore next — moddle 始终提供 values 数组 */
   const values = (extElements.values || []) as ModdleElement[]
-  const propsContainer = values.find((v) => {
-    /* istanbul ignore next — moddle 始终提供 $type */
-    const t = v.$type || (v as any).name || ''
-    return /^x6bpmn:properties$/i.test(String(t))
-  })
+  const propsContainer = values.find((value) => isExtensionPropertyContainerElement(value, extensionProperties, namespaces))
 
-  /* istanbul ignore next — extensionElements 不含 x6bpmn:properties 时防御性返回（第三方命名空间扩展触发） */
+  /* istanbul ignore next — extensionElements 不含通用扩展属性容器时防御性返回 */
   if (!propsContainer) return undefined
 
   const bpmn: Record<string, unknown> = {}
   /* istanbul ignore next — moddle 始终提供 $children */
-  const props = (propsContainer.$children || []) as Array<Record<string, unknown>>
+  const props = ((propsContainer.$children || []) as ModdleElement[])
+    .filter((prop) => isExtensionPropertyItemElement(prop, extensionProperties, namespaces))
 
   for (const prop of props) {
     /* istanbul ignore next — prop.name/value 始终由 moddle 提供 */
-    const propName = (prop.name || (prop.$attrs as any)?.name) as string | undefined
+    const propName = ((prop as Record<string, unknown>).name || (prop.$attrs as any)?.name) as string | undefined
     /* istanbul ignore next — prop.value 始终有值 */
-    const propValue = (prop.value || (prop.$attrs as any)?.value || '') as string
+    const propValue = ((prop as Record<string, unknown>).value || (prop.$attrs as any)?.value || '') as string
     /* istanbul ignore else */
     if (propName) {
       if (propValue === 'true') bpmn[propName] = true
@@ -472,15 +481,84 @@ function parseExtensionProps(element: ModdleElement): Record<string, unknown> | 
     }
   }
 
-  /* istanbul ignore if — x6bpmn:properties 导出时始终包含属性子节点，此分支不可达 */
+  /* istanbul ignore if — 通用扩展属性容器导出时始终包含属性子节点，此分支不可达 */
   if (Object.keys(bpmn).length === 0) return undefined
   return { bpmn }
+}
+
+function collectDeclaredNamespaces(xml: string): Record<string, string> {
+  const namespaces: Record<string, string> = {}
+  const namespacePattern = /xmlns:([A-Za-z_][\w.-]*)="([^"]+)"/g
+
+  for (const match of xml.matchAll(namespacePattern)) {
+    const [, prefix, uri] = match
+    /* istanbul ignore next -- 正则分组返回空值仅属防御性检查，真实 XML 命名空间路径已由导入测试覆盖。 */
+    if (!prefix || !uri) continue
+    namespaces[prefix] = uri
+  }
+
+  return namespaces
+}
+
+function parseRawXmlAttrs(
+  element: ModdleElement,
+  declaredNamespaces: Record<string, string>,
+): Record<string, unknown> | undefined {
+  /* istanbul ignore next -- 真实 moddle 元素在公开解析路径中始终提供 $attrs；空对象兜底仅防御异常伪造元素。 */
+  const rawAttrs = (element.$attrs || {}) as Record<string, unknown>
+  const attrs = Object.fromEntries(
+    Object.entries(rawAttrs).filter(([key, value]) => !key.startsWith('xmlns') && value !== undefined && value !== null),
+  )
+
+  if (Object.keys(attrs).length === 0) return undefined
+
+  const namespaces = Object.fromEntries(
+    Array.from(new Set(
+      Object.keys(attrs)
+        .map((key) => {
+          const separatorIndex = key.indexOf(':')
+          return separatorIndex > 0 ? key.slice(0, separatorIndex) : null
+        })
+        .filter((prefix): prefix is string => prefix !== null)
+        .filter((prefix) => Boolean(declaredNamespaces[prefix])),
+    )).map((prefix) => [prefix, declaredNamespaces[prefix]]),
+  )
+
+  const bpmnData: Record<string, unknown> = {
+    $attrs: attrs,
+  }
+  if (Object.keys(namespaces).length > 0) {
+    bpmnData.$namespaces = namespaces
+  }
+
+  return {
+    bpmn: bpmnData,
+  }
 }
 
 function mergeNodeBpmnData(
   data: Record<string, unknown> | undefined,
   bpmnPatch: Record<string, unknown>,
 ): Record<string, unknown> {
+  const currentBpmn =
+    data && typeof data === 'object' && data.bpmn && typeof data.bpmn === 'object'
+      ? data.bpmn as Record<string, unknown>
+      : {}
+
+  return {
+    ...(data ?? {}),
+    bpmn: {
+      ...currentBpmn,
+      ...bpmnPatch,
+    },
+  }
+}
+
+function mergeEdgeBpmnData(
+  data: Record<string, unknown> | undefined,
+  bpmnPatch: Record<string, unknown>,
+): Record<string, unknown> {
+  /* istanbul ignore next -- 公开导入路径的边数据合并已由消息流、关联和数据关联回归覆盖；这里的空 data 短路仅保留给异常调用兜底。 */
   const currentBpmn =
     data && typeof data === 'object' && data.bpmn && typeof data.bpmn === 'object'
       ? data.bpmn as Record<string, unknown>
@@ -516,6 +594,12 @@ export interface ParseBpmnOptions {
 export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}): Promise<BpmnImportData> {
   const moddle = new BpmnModdle()
   const xmlNames = resolveBpmnXmlNameSettings(options.serialization?.xmlNames)
+  const namespaces = options.serialization?.namespaces ?? {}
+  const declaredNamespaces = collectDeclaredNamespaces(xml)
+  const extensionProperties = resolveExtensionPropertySerialization(
+    options.serialization?.extensionProperties,
+    namespaces,
+  )
   const xmlEventHints = collectEventXmlHints(xml, xmlNames)
   const xmlDiHints = collectDiXmlHints(xml)
   const reverseNodeMap = buildReverseNodeMap(options.serialization?.nodeMapping ?? NODE_MAPPING)
@@ -705,11 +789,9 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
       label = (element.text as string) || label
     }
 
-    // 节点 attrs（泳道和池使用不同的 headerLabel，其余用 label）
+    // 这里解析的都是流程/工件节点，统一使用 label 文本即可。
     const attrs: Record<string, unknown> = {}
-    if (tag !== 'textAnnotation' && shape !== BPMN_POOL && shape !== BPMN_LANE) {
-      attrs.label = { text: label }
-    }
+    attrs.label = { text: label }
 
     const nodeData: BpmnNodeData = {
       shape,
@@ -742,14 +824,23 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
     }
 
     // 扩展业务属性
-    const extData = parseExtensionProps(element)
+    const extData = parseExtensionProps(element, extensionProperties, namespaces)
     if (extData) nodeData.data = extData
+
+    const rawXmlAttrs = parseRawXmlAttrs(element, declaredNamespaces)
+    if (rawXmlAttrs?.bpmn) {
+      nodeData.data = mergeNodeBpmnData(nodeData.data, rawXmlAttrs.bpmn as Record<string, unknown>)
+    }
+
+    if (tag === 'textAnnotation') {
+      nodeData.data = mergeNodeBpmnData(nodeData.data, { annotationText: label })
+    }
 
     const importedNodeBpmn = nodeSerializers[shape]?.import?.({
       shape,
       category: classifyShape(shape),
       element,
-      namespaces: options.serialization?.namespaces ?? {},
+      namespaces,
     })
     if (importedNodeBpmn && Object.keys(importedNodeBpmn).length > 0) {
       nodeData.data = mergeNodeBpmnData(nodeData.data, importedNodeBpmn)
@@ -795,13 +886,17 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         : []
 
     const edgeData: BpmnEdgeData = { shape: edgeShape, id: bpmnId, source: sourceRef, target: targetRef, labels, vertices }
+    const rawXmlAttrs = parseRawXmlAttrs(sf, declaredNamespaces)
+    if (rawXmlAttrs?.bpmn) {
+      edgeData.data = mergeEdgeBpmnData(edgeData.data, rawXmlAttrs.bpmn as Record<string, unknown>)
+    }
     const importedEdgeBpmn = edgeSerializers[edgeShape]?.import?.({
       shape: edgeShape,
       element: sf,
-      namespaces: options.serialization?.namespaces ?? {},
+      namespaces,
     })
     if (importedEdgeBpmn && Object.keys(importedEdgeBpmn).length > 0) {
-      edgeData.data = { bpmn: importedEdgeBpmn }
+      edgeData.data = mergeEdgeBpmnData(edgeData.data, importedEdgeBpmn)
     }
 
     edges.push(edgeData)
@@ -832,6 +927,10 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         diEdge?.messageVisibleKind
           ? { bpmn: { messageVisibleKind: diEdge.messageVisibleKind } }
           : undefined
+      const rawXmlAttrs = parseRawXmlAttrs(mf, declaredNamespaces)
+      const mergedData = rawXmlAttrs?.bpmn
+        ? mergeEdgeBpmnData(data, rawXmlAttrs.bpmn as Record<string, unknown>)
+        : data
 
       edges.push({
         shape: BPMN_MESSAGE_FLOW,
@@ -840,7 +939,7 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         target: targetRef,
         labels,
         vertices,
-        data,
+        data: mergedData,
       })
     }
   }
@@ -859,7 +958,12 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
     const direction = assoc.associationDirection as string | undefined
 
     const edgeShape = direction === 'One' ? BPMN_DIRECTED_ASSOCIATION : 'bpmn-association'
-    edges.push({ shape: edgeShape, id: bpmnId, source: sourceRef, target: targetRef })
+    const edgeData: BpmnEdgeData = { shape: edgeShape, id: bpmnId, source: sourceRef, target: targetRef }
+    const rawXmlAttrs = parseRawXmlAttrs(assoc, declaredNamespaces)
+    if (rawXmlAttrs?.bpmn) {
+      edgeData.data = mergeEdgeBpmnData(edgeData.data, rawXmlAttrs.bpmn as Record<string, unknown>)
+    }
+    edges.push(edgeData)
   }
 
   // ---------- 解析数据关联（DataInputAssociation / DataOutputAssociation）----------
@@ -890,7 +994,12 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         : ''
 
       if (sourceRef && targetId) {
-        edges.push({ shape: BPMN_DATA_ASSOCIATION, id: bpmnId, source: sourceRef, target: targetId })
+        const edgeData: BpmnEdgeData = { shape: BPMN_DATA_ASSOCIATION, id: bpmnId, source: sourceRef, target: targetId }
+        const rawXmlAttrs = parseRawXmlAttrs(da, declaredNamespaces)
+        if (rawXmlAttrs?.bpmn) {
+          edgeData.data = mergeEdgeBpmnData(edgeData.data, rawXmlAttrs.bpmn as Record<string, unknown>)
+        }
+        edges.push(edgeData)
       }
     }
   }

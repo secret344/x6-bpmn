@@ -94,6 +94,10 @@ function getNodeChildren(node: Node): Node[] {
   }
 }
 
+function collectNodeContentRect(node: Node): Rect | null {
+  return unionRects(getNodeChildren(node).map((child) => nodeRect(child)))
+}
+
 function getSwimlanePriority(node: Node): number {
   if (node.shape === BPMN_POOL) return 0
   if (node.shape === BPMN_LANE) return 1
@@ -289,6 +293,10 @@ export function computeLaneMinSize(
 ): { width: number; height: number } {
   const MIN_LANE_SIZE = 60
   const hz = isHorizontalSwimlane(lane)
+  const lanePos = lane.getPosition()
+  const laneContentRect = collectNodeContentRect(lane)
+  const laneContentWidth = laneContentRect ? rectRight(laneContentRect) - lanePos.x : 0
+  const laneContentHeight = laneContentRect ? rectBottom(laneContentRect) - lanePos.y : 0
 
   // 获取所属 Pool 的全局内容最小尺寸
   const parent = lane.getParent?.()
@@ -303,16 +311,16 @@ export function computeLaneMinSize(
   const poolMin = computePoolMinSize(pool)
 
   if (hz) {
-    // 水平布局：宽度与 Pool 边界一致（受 Pool 内容约束），高度仅 MIN_LANE_SIZE（内侧边自由）
+    // 水平布局：左右外边界仍由 Pool 内容决定；上下内边界改为只受当前 Lane 自身内容约束。
     return {
       width: Math.max(poolMin.width - SWIMLANE_HEADER_SIZE, MIN_LANE_SIZE),
-      height: MIN_LANE_SIZE,
+      height: Math.max(laneContentHeight, MIN_LANE_SIZE),
     }
   }
 
-  // 垂直布局：高度与 Pool 边界一致，宽度仅 MIN_LANE_SIZE
+  // 垂直布局：上下外边界仍由 Pool 内容决定；左右内边界改为只受当前 Lane 自身内容约束。
   return {
-    width: MIN_LANE_SIZE,
+    width: Math.max(laneContentWidth, MIN_LANE_SIZE),
     height: Math.max(poolMin.height - SWIMLANE_HEADER_SIZE, MIN_LANE_SIZE),
   }
 }

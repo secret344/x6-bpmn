@@ -4,6 +4,7 @@ import { buildTestXml, matchXmlOrThrow, replaceXmlOrThrow } from '../../helpers/
 import { parseBpmnXml, loadBpmnGraph } from '../../../src/import'
 import { exportBpmnXml } from '../../../src/export/exporter'
 import { registerActivityShapes } from '../../../src/shapes/activities'
+import { DEFAULT_EXTENSION_PROPERTY_NAMESPACE_URI } from '../../../src/utils/extension-properties'
 import {
   BPMN_SUB_PROCESS,
   BPMN_AD_HOC_SUB_PROCESS,
@@ -106,17 +107,22 @@ describe('BPMNDI 活动展开状态（isExpanded）', () => {
     const xmlWithNamespace = replaceXmlOrThrow(
       baseXml,
       /targetNamespace="http:\/\/bpmn.io\/schema\/bpmn"/,
-      'targetNamespace="http://bpmn.io/schema/bpmn" xmlns:x6bpmn="http://x6-bpmn2.io/schema"',
-      '应能为 definitions 注入 x6bpmn 命名空间',
+      `targetNamespace="http://bpmn.io/schema/bpmn" xmlns:modeler="${DEFAULT_EXTENSION_PROPERTY_NAMESPACE_URI}"`,
+      '应能为 definitions 注入可配置扩展命名空间',
     )
     const xml = replaceXmlOrThrow(
       xmlWithNamespace,
       /<bpmn:subProcess id="Sub_3" name="带扩展子流程"\s*\/>/,
-      '<bpmn:subProcess id="Sub_3" name="带扩展子流程">\n      <bpmn:extensionElements>\n        <x6bpmn:properties>\n          <x6bpmn:property name="foo" value="bar" />\n        </x6bpmn:properties>\n      </bpmn:extensionElements>\n    </bpmn:subProcess>',
+      '<bpmn:subProcess id="Sub_3" name="带扩展子流程">\n      <bpmn:extensionElements>\n        <modeler:properties>\n          <modeler:property name="foo" value="bar" />\n        </modeler:properties>\n      </bpmn:extensionElements>\n    </bpmn:subProcess>',
       '应能为子流程注入扩展属性',
     )
 
-    const importData = await parseBpmnXml(xml)
+    const importData = await parseBpmnXml(xml, {
+      serialization: {
+        namespaces: { modeler: DEFAULT_EXTENSION_PROPERTY_NAMESPACE_URI },
+        extensionProperties: { prefix: 'modeler', namespaceUri: DEFAULT_EXTENSION_PROPERTY_NAMESPACE_URI },
+      },
+    })
     expect(importData.nodes.find((node) => node.id === 'Sub_3')?.data).toEqual({
       bpmn: {
         foo: 'bar',

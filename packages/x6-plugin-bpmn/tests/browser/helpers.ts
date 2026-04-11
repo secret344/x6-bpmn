@@ -166,6 +166,16 @@ export async function addLaneToPoolInBrowser(page: Page, poolId: string): Promis
   }, poolId)
 }
 
+export async function removeNodeInBrowser(page: Page, id: string): Promise<boolean> {
+  return page.evaluate((nodeId) => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.removeNode(nodeId)
+  }, id)
+}
+
 // ============================================================================
 // 数据查询
 // ============================================================================

@@ -11,6 +11,7 @@ import {
   createBpmnOpeningTagRegex,
   mergeBpmnXmlNameSettings,
 } from '../utils/bpmn-xml-names'
+import { mergeExtensionPropertySerialization } from '../utils/extension-properties'
 import { exportBpmnXml } from './exporter'
 import type { ExportBpmnOptions } from './exporter'
 
@@ -99,6 +100,10 @@ export function createBpmn2ExporterAdapter(
                 }
               : undefined,
             targetNamespace: options?.serialization?.targetNamespace ?? profileSerialization?.targetNamespace,
+            extensionProperties: mergeExtensionPropertySerialization(
+              profileSerialization?.extensionProperties,
+              options?.serialization?.extensionProperties,
+            ),
             processAttributes: profileSerialization?.processAttributes || options?.serialization?.processAttributes
               ? {
                   ...(profileSerialization?.processAttributes ?? {}),

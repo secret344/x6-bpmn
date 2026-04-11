@@ -20,6 +20,7 @@ import {
   cloneBpmnXmlNameSettings,
   mergeBpmnXmlNameSettings,
 } from '../../utils/bpmn-xml-names'
+import { mergeExtensionPropertySerialization } from '../../utils/extension-properties'
 
 // ============================================================================
 // 通用深度合并
@@ -170,6 +171,10 @@ export function mergeSerialization(
     xmlNames: child.xmlNames
       ? mergeBpmnXmlNameSettings(parent.xmlNames, child.xmlNames)
       : cloneBpmnXmlNameSettings(parent.xmlNames),
+    extensionProperties: mergeExtensionPropertySerialization(
+      parent.extensionProperties,
+      child.extensionProperties,
+    ),
     nodeMapping: child.nodeMapping
       ? mergeRecords(parent.nodeMapping, child.nodeMapping as any)
       : { ...parent.nodeMapping },

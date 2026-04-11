@@ -926,6 +926,31 @@ describe('pool containment fallback branches', () => {
     expect(lateTask.getPosition()).toEqual({ x: 180, y: 90 })
   })
 
+  it('node:removed 应覆盖非 Lane、无所属 Pool Lane 与经由祖先泳道回溯 Pool 的分支', () => {
+    const task = createMockNode({ id: 'task-1', shape: BPMN_USER_TASK, x: 120, y: 80, width: 80, height: 40 })
+    const orphanLane = createMockNode({ id: 'lane-orphan', shape: BPMN_LANE, x: 70, y: 40, width: 260, height: 120 })
+    const pool = createMockNode({ id: 'pool-1', shape: BPMN_POOL, x: 40, y: 40, width: 320, height: 200 })
+    const outerLane = createMockNode({ id: 'lane-outer', shape: BPMN_LANE, x: 70, y: 40, width: 290, height: 200 })
+    const innerLane = createMockNode({ id: 'lane-inner', shape: BPMN_LANE, x: 100, y: 70, width: 200, height: 100 })
+    const directTask = createMockNode({ id: 'task-direct', shape: BPMN_USER_TASK, x: 160, y: 90, width: 80, height: 40 })
+    attachChild(pool, outerLane)
+    attachChild(pool, directTask)
+    attachChild(outerLane, innerLane)
+
+    const { graph } = createMockGraph({
+      nodes: [task, orphanLane, pool, outerLane, innerLane, directTask],
+      options: { width: 1200, height: 800 },
+    })
+
+    setupPoolContainment(graph)
+
+    expect(() => {
+      graph.emit('node:removed', { node: task })
+      graph.emit('node:removed', { node: orphanLane })
+      graph.emit('node:removed', { node: innerLane })
+    }).not.toThrow()
+  })
+
   it('新增节点分支应覆盖 Lane 合法新增与非法新增保留', () => {
     const poolA = createMockNode({ id: 'pool-a', shape: BPMN_POOL, x: 40, y: 40, width: 300, height: 180 })
     const poolB = createMockNode({ id: 'pool-b', shape: BPMN_POOL, x: 420, y: 40, width: 300, height: 180 })

@@ -16,7 +16,10 @@ import {
   clickNode,
   createMultiLaneScenario,
   getNodeLocator,
+  getNodeSnapshot,
+  getPoolLaneSnapshots,
   getSelectedCellIds,
+  removeNodeInBrowser,
   resizeNodeByEdgeOverTime,
   type MultiLaneScenarioIds,
   type ResizeEdge,
@@ -404,6 +407,79 @@ test.describe('泳道 resize 浏览器视觉回归', () => {
     expect(lane2AfterClickBox?.y).toBeCloseTo(lane2BeforeClickBox?.y ?? 0, 0)
     expect(lane2AfterClickBox?.width).toBeCloseTo(lane2BeforeClickBox?.width ?? 0, 0)
     expect(lane2AfterClickBox?.height).toBeCloseTo(lane2BeforeClickBox?.height ?? 0, 0)
+  })
+
+  test('删除第一个 Lane 后，剩余 Lane 顶到 Pool 顶部且 top-resize 仍受当前内容约束', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createMultiLaneScenario(page)
+    const poolBeforeDelete = await getNodeSnapshot(page, scenario.poolId)
+    await takeScreenshot(page, '删除第一条-Lane-前的双-Lane-布局')
+
+    expect(await removeNodeInBrowser(page, scenario.lane1Id)).toBe(true)
+
+    const lanesAfterDelete = await expect.poll(async () => getPoolLaneSnapshots(page, scenario.poolId))
+      .toHaveLength(1)
+    void lanesAfterDelete
+
+    const remainingLaneAfterDelete = (await getPoolLaneSnapshots(page, scenario.poolId))[0]
+    const poolAfterDelete = await getNodeSnapshot(page, scenario.poolId)
+    const task2AfterDelete = await getNodeSnapshot(page, scenario.task2Id)
+    const gatewayAfterDelete = await getNodeSnapshot(page, scenario.gatewayId)
+    const sendTaskAfterDelete = await getNodeSnapshot(page, scenario.sendTaskId)
+    await takeScreenshot(page, '删除第一条-Lane-后剩余-Lane-自动顶到顶部')
+
+    expect(remainingLaneAfterDelete.id).toBe(scenario.lane2Id)
+    expect(remainingLaneAfterDelete.parentId).toBe(poolAfterDelete.id)
+    expect(remainingLaneAfterDelete.x).toBeCloseTo(poolAfterDelete.x + 30, 0)
+    expect(remainingLaneAfterDelete.y).toBeCloseTo(poolAfterDelete.y, 0)
+    expect(remainingLaneAfterDelete.width).toBeCloseTo(poolAfterDelete.width - 30, 0)
+    expect(remainingLaneAfterDelete.height).toBeCloseTo(poolAfterDelete.height, 0)
+    expect(task2AfterDelete.parentId).toBe(remainingLaneAfterDelete.id)
+    expect(gatewayAfterDelete.parentId).toBe(remainingLaneAfterDelete.id)
+    expect(sendTaskAfterDelete.parentId).toBe(remainingLaneAfterDelete.id)
+    expect(task2AfterDelete.y).toBeGreaterThanOrEqual(remainingLaneAfterDelete.y)
+    expect(gatewayAfterDelete.y).toBeGreaterThanOrEqual(remainingLaneAfterDelete.y)
+    expect(sendTaskAfterDelete.y).toBeGreaterThanOrEqual(remainingLaneAfterDelete.y)
+
+    const bottommostRemainingContentBottom = Math.max(
+      task2AfterDelete.y + task2AfterDelete.height,
+      gatewayAfterDelete.y + gatewayAfterDelete.height,
+      sendTaskAfterDelete.y + sendTaskAfterDelete.height,
+    )
+    const expectedClampedTop =
+      poolAfterDelete.y + poolAfterDelete.height - (bottommostRemainingContentBottom - remainingLaneAfterDelete.y)
+
+    await resizeNodeByEdgeOverTime(
+      page,
+      scenario.lane2Id,
+      'top',
+      { x: 0, y: 220 },
+      {
+        selectOffset: { x: 450, y: 12 },
+        durationMs: 2000,
+        steps: 24,
+      },
+    )
+
+    const poolAfterResize = await getNodeSnapshot(page, scenario.poolId)
+    const remainingLaneAfterResize = await getNodeSnapshot(page, scenario.lane2Id)
+    const task2AfterResize = await getNodeSnapshot(page, scenario.task2Id)
+    const gatewayAfterResize = await getNodeSnapshot(page, scenario.gatewayId)
+    const sendTaskAfterResize = await getNodeSnapshot(page, scenario.sendTaskId)
+    await takeScreenshot(page, '删除第一条-Lane-后剩余-Lane-top-resize-仍受当前内容约束')
+
+    expect(remainingLaneAfterResize.parentId).toBe(poolAfterResize.id)
+    expect(remainingLaneAfterResize.x).toBeCloseTo(poolAfterResize.x + 30, 0)
+    expect(remainingLaneAfterResize.y).toBeCloseTo(poolAfterResize.y, 0)
+    expect(remainingLaneAfterResize.width).toBeCloseTo(poolAfterResize.width - 30, 0)
+    expect(remainingLaneAfterResize.height).toBeCloseTo(poolAfterResize.height, 0)
+    expect(poolAfterResize.y).toBeCloseTo(expectedClampedTop, 0)
+    expect(poolAfterResize.y).toBeGreaterThan(poolBeforeDelete.y)
+    expect(task2AfterResize.y).toBeGreaterThanOrEqual(poolAfterResize.y)
+    expect(gatewayAfterResize.y).toBeGreaterThanOrEqual(poolAfterResize.y)
+    expect(sendTaskAfterResize.y).toBeGreaterThanOrEqual(poolAfterResize.y)
   })
 
   for (const resizeCase of resizeCases) {

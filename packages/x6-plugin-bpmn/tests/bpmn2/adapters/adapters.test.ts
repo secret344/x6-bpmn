@@ -967,6 +967,7 @@ describe('createBpmn2ExporterAdapter', () => {
     const edgeSerializer = { export: vi.fn(() => ({ omitBpmnKeys: [] })) }
     const adapter = mod.createBpmn2ExporterAdapter({
       serialization: {
+        extensionProperties: { prefix: 'custom', namespaceUri: 'http://example.com/custom' },
         processAttributes: { version: '2.0.0' },
         nodeSerializers: { 'approval-node': nodeSerializer as any },
         edgeSerializers: { 'approval-edge': edgeSerializer as any },
@@ -977,9 +978,47 @@ describe('createBpmn2ExporterAdapter', () => {
 
     expect(exportBpmnXml).toHaveBeenCalledWith({} as any, expect.objectContaining({
       serialization: expect.objectContaining({
+        extensionProperties: { prefix: 'custom', namespaceUri: 'http://example.com/custom' },
         processAttributes: { version: '2.0.0' },
         nodeSerializers: { 'approval-node': nodeSerializer },
         edgeSerializers: { 'approval-edge': edgeSerializer },
+      }),
+    }))
+
+    vi.doUnmock('../../../src/export/exporter')
+    vi.resetModules()
+  })
+
+  it('exportXML 应合并 profile 与 options 的 extensionProperties 配置', async () => {
+    vi.resetModules()
+    const exportBpmnXml = vi.fn().mockResolvedValue('<bpmn:definitions />')
+    vi.doMock('../../../src/export/exporter', () => ({ exportBpmnXml }))
+
+    const mod = await import('../../../src/export/adapter')
+    const adapter = mod.createBpmn2ExporterAdapter({
+      serialization: {
+        extensionProperties: { containerLocalName: 'entries', propertyLocalName: 'entry' },
+      },
+    })
+
+    await adapter.exportXML({} as any, {
+      profile: {
+        serialization: {
+          namespaces: { custom: 'http://example.com/custom' },
+          extensionProperties: { prefix: 'custom', namespaceUri: 'http://example.com/custom' },
+        },
+      },
+    } as any)
+
+    expect(exportBpmnXml).toHaveBeenCalledWith({} as any, expect.objectContaining({
+      serialization: expect.objectContaining({
+        namespaces: { custom: 'http://example.com/custom' },
+        extensionProperties: {
+          prefix: 'custom',
+          namespaceUri: 'http://example.com/custom',
+          containerLocalName: 'entries',
+          propertyLocalName: 'entry',
+        },
       }),
     }))
 
@@ -1206,6 +1245,7 @@ describe('createBpmn2ImporterAdapter', () => {
     const adapter = mod.createBpmn2ImporterAdapter({
       serialization: {
         namespaces: { smart: 'http://smartengine.org/schema/process' },
+        extensionProperties: { prefix: 'smart', namespaceUri: 'http://smartengine.org/schema/process' },
         xmlNames: {
           ...DEFAULT_BPMN_XML_NAME_SETTINGS,
           acceptedTagPrefixes: ['', 'flow'],
@@ -1222,6 +1262,7 @@ describe('createBpmn2ImporterAdapter', () => {
         nodeMapping: undefined,
         edgeMapping: undefined,
         namespaces: { smart: 'http://smartengine.org/schema/process' },
+        extensionProperties: { prefix: 'smart', namespaceUri: 'http://smartengine.org/schema/process' },
         xmlNames: {
           moddlePrefix: 'bpmn',
           namespaceUri: 'http://www.omg.org/spec/BPMN/20100524/MODEL',
@@ -1235,6 +1276,94 @@ describe('createBpmn2ImporterAdapter', () => {
     })
     expect(loadBpmnGraph).toHaveBeenCalledOnce()
 
+    vi.doUnmock('../../../src/import/index')
+    vi.resetModules()
+  })
+
+  it('importXML 应合并 profile 与 options 的 extensionProperties 配置', async () => {
+    vi.resetModules()
+    const parseBpmnXml = vi.fn().mockResolvedValue({ nodes: [], edges: [] })
+    const loadBpmnGraph = vi.fn()
+    vi.doMock('../../../src/import/index', () => ({ parseBpmnXml, loadBpmnGraph }))
+
+    const mod = await import('../../../src/import/adapter')
+    const adapter = mod.createBpmn2ImporterAdapter({
+      serialization: {
+        extensionProperties: { propertyLocalName: 'entry' },
+      },
+    })
+
+    await adapter.importXML({} as any, '<bpmn:definitions />', {
+      profile: {
+        serialization: {
+          namespaces: { custom: 'http://example.com/custom' },
+          extensionProperties: {
+            prefix: 'custom',
+            namespaceUri: 'http://example.com/custom',
+            containerLocalName: 'entries',
+          },
+        },
+      },
+    } as any)
+
+    expect(parseBpmnXml).toHaveBeenCalledWith('<bpmn:definitions />', {
+      serialization: {
+        nodeMapping: undefined,
+        edgeMapping: undefined,
+        namespaces: { custom: 'http://example.com/custom' },
+        xmlNames: undefined,
+        extensionProperties: {
+          prefix: 'custom',
+          namespaceUri: 'http://example.com/custom',
+          containerLocalName: 'entries',
+          propertyLocalName: 'entry',
+        },
+        nodeSerializers: undefined,
+        edgeSerializers: undefined,
+      },
+    })
+    expect(loadBpmnGraph).toHaveBeenCalledOnce()
+
+    vi.doUnmock('../../../src/import/index')
+    vi.resetModules()
+  })
+
+  it('显式传入 false 时应关闭 extensionProperties 合并结果', async () => {
+    vi.resetModules()
+    const exportBpmnXml = vi.fn().mockResolvedValue('<bpmn:definitions />')
+    const parseBpmnXml = vi.fn().mockResolvedValue({ nodes: [], edges: [] })
+    const loadBpmnGraph = vi.fn()
+    vi.doMock('../../../src/export/exporter', () => ({ exportBpmnXml }))
+    vi.doMock('../../../src/import/index', () => ({ parseBpmnXml, loadBpmnGraph }))
+
+    const exportMod = await import('../../../src/export/adapter')
+    const importMod = await import('../../../src/import/adapter')
+    const exporter = exportMod.createBpmn2ExporterAdapter({
+      serialization: { extensionProperties: false },
+    })
+    const importer = importMod.createBpmn2ImporterAdapter({
+      serialization: { extensionProperties: false },
+    })
+
+    const context = {
+      profile: {
+        serialization: {
+          extensionProperties: { prefix: 'custom', namespaceUri: 'http://example.com/custom' },
+        },
+      },
+    } as any
+
+    await exporter.exportXML({} as any, context)
+    await importer.importXML({} as any, '<bpmn:definitions />', context)
+
+    expect(exportBpmnXml).toHaveBeenCalledWith({} as any, expect.objectContaining({
+      serialization: expect.objectContaining({ extensionProperties: false }),
+    }))
+    expect(parseBpmnXml).toHaveBeenCalledWith('<bpmn:definitions />', {
+      serialization: expect.objectContaining({ extensionProperties: false }),
+    })
+
+    vi.doUnmock('../../../src/export/exporter')
     vi.doUnmock('../../../src/import/index')
     vi.resetModules()
   })

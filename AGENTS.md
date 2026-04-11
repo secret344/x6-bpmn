@@ -33,6 +33,10 @@ These rules apply to all AI coding agents in this workspace.
 - Do not add synthetic tests that only chase coverage numbers.
 - Every new test must map to a real BPMN or SmartEngine business rule, export path, adapter behavior, or regression scenario.
 - If a branch is hard to test, explain the business reason and add the closest meaningful scenario instead of artificial assertions.
+- Treat `/* istanbul ignore */` and `/* v8 ignore */` as last-resort tools, not normal workflow.
+- Before adding a new ignore, first try to cover the branch with a business-realistic test or remove the dead code.
+- Any newly added ignore must include an inline reason comment explaining why the branch is unreachable, tool-miscounted, or otherwise not worth a real scenario.
+- When touching historical ignores, review whether they are still necessary and delete them if a meaningful test can replace them.
 - Headless browser tests must generate and assert visual snapshots; artifact-only screenshots are not sufficient verification.
 - Browser regression specs must live under `packages/x6-plugin-bpmn/tests/browser/*.spec.ts` and reuse the existing spec file when the scenario belongs to the same behavior area; do not create parallel duplicate spec files for the same regression theme.
 - Snapshot baselines for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/<spec-file>.ts-snapshots/`, grouped by test-case folders.

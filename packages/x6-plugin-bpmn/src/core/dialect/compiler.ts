@@ -63,6 +63,7 @@ function emptyDataModel(): DataModelSet {
 function emptySerialization(): SerializationSet {
   return {
     namespaces: {},
+    extensionProperties: undefined,
     nodeMapping: {},
     edgeMapping: {},
     processAttributes: {},

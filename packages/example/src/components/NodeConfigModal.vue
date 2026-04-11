@@ -53,7 +53,7 @@
                 </a-form-item>
               </a-col>
               <a-col :span="12">
-                <a-form-item label="优先级 (camunda:priority)">
+                <a-form-item label="优先级 (扩展属性)">
                   <a-input v-model="form.priority" placeholder="如: ${priority}" allow-clear />
                 </a-form-item>
               </a-col>
@@ -504,6 +504,7 @@ function classifyShape(s: string): ShapeCategory {
 // Form data
 // ============================================================================
 interface FormData {
+  [key: string]: string | number | boolean | Record<string, unknown> | undefined
   // Basic
   id: string
   label: string
@@ -641,6 +642,16 @@ const timerPlaceholder = computed(() => {
   }
 })
 
+function resetForm() {
+  const defaults = emptyForm()
+  for (const key of Object.keys(form.value)) {
+    if (!(key in defaults)) {
+      delete form.value[key]
+    }
+  }
+  Object.assign(form.value, defaults)
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -716,6 +727,12 @@ function loadBpmnData(cell: Cell) {
   form.value.annotationText = bpmn.annotationText || getCellLabel(cell)
   // Group
   form.value.categoryValueRef = bpmn.categoryValueRef || ''
+
+  for (const key of Object.keys(bpmn)) {
+    if (!(key in form.value)) {
+      form.value[key] = bpmn[key]
+    }
+  }
 }
 
 function saveBpmnData(): Record<string, any> {
@@ -797,6 +814,14 @@ function saveBpmnData(): Record<string, any> {
   if (cat === 'group') {
     if (form.value.categoryValueRef) bpmn.categoryValueRef = form.value.categoryValueRef
   }
+
+  const standardKeys = new Set(Object.keys(emptyForm()))
+  for (const key of Object.keys(form.value)) {
+    if (!standardKeys.has(key) && form.value[key] !== undefined && form.value[key] !== '') {
+      bpmn[key] = form.value[key]
+    }
+  }
+
   return bpmn
 }
 
@@ -809,7 +834,7 @@ function openModal(cell: Cell) {
   const nodeFlag = cell.isNode()
   isNode.value = nodeFlag
 
-  Object.assign(form.value, emptyForm())
+  resetForm()
   form.value.id = cell.id
   form.value.label = getCellLabel(cell)
   form.value.documentation = (cell.getData()?.documentation ?? '') as string
@@ -838,7 +863,9 @@ function onSave(done: (closed: boolean) => void) {
   const cell = currentCell.value
   if (!cell) { done(true); return }
 
-  const label = form.value.label
+  const label = shapeCategory.value === 'textAnnotation'
+    ? (form.value.annotationText || form.value.label)
+    : form.value.label
   if (cell.isNode()) {
     const n = cell as Node
     if (n.getAttrByPath('headerLabel/text') !== undefined) {

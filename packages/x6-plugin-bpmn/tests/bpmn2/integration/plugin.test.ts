@@ -202,6 +202,11 @@ describe('插件入口（Plugin Entry Point）', () => {
       expect(typeof mod.forceRegisterBpmnShapes).toBe('function')
     })
 
+    it('应导出 setupBpmnGraph 函数', async () => {
+      const mod = await import('../../../src/index')
+      expect(typeof mod.setupBpmnGraph).toBe('function')
+    })
+
     it('应重新导出各类图形注册函数', async () => {
       const mod = await import('../../../src/index')
       expect(typeof mod.registerEventShapes).toBe('function')
@@ -224,6 +229,184 @@ describe('插件入口（Plugin Entry Point）', () => {
       expect(mod.BPMN_SEQUENCE_FLOW).toBeDefined()
       expect(mod.BPMN_COLORS).toBeDefined()
       expect(mod.BPMN_ICONS).toBeDefined()
+    })
+
+    it('setupBpmnGraph 应补齐默认连线能力且保留宿主自定义实现', async () => {
+      const mod = await import('../../../src/index')
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+
+      const graph = new Graph({ container, width: 800, height: 600, connecting: {} })
+      const dispose = mod.setupBpmnGraph(graph, { behaviors: false })
+
+      expect(typeof graph.options.connecting.createEdge).toBe('function')
+      expect(typeof graph.options.connecting.validateConnection).toBe('function')
+      expect(typeof graph.options.connecting.validateEdge).toBe('function')
+      const defaultEdge = graph.options.connecting.createEdge?.call(graph, {} as any)
+      expect(defaultEdge).toBeTruthy()
+
+      dispose()
+      graph.dispose()
+
+      const customCreateEdge = vi.fn(() => ({ shape: 'custom-flow' }))
+      const customValidateConnection = vi.fn(() => true)
+      const customValidateEdge = vi.fn(() => true)
+      const graphWithCustom = new Graph({
+        container,
+        width: 800,
+        height: 600,
+        connecting: {
+          createEdge: customCreateEdge as any,
+          validateConnection: customValidateConnection,
+          validateEdge: customValidateEdge,
+        },
+      })
+
+      mod.setupBpmnGraph(graphWithCustom, { behaviors: false, edgeShape: 'bpmn-message-flow' })
+
+      expect(graphWithCustom.options.connecting.createEdge).toBe(customCreateEdge)
+      expect(graphWithCustom.options.connecting.validateConnection).toBe(customValidateConnection)
+      expect(graphWithCustom.options.connecting.validateEdge).toBe(customValidateEdge)
+
+      graphWithCustom.dispose()
+      container.remove()
+    })
+
+    it('setupBpmnGraph 应支持关闭注册、默认连线和交互安装', async () => {
+      const mod = await import('../../../src/index')
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+      const graph = new Graph({ container, width: 800, height: 600, connecting: {} })
+      const registerNodeCount = registerNodeSpy.mock.calls.length
+      const registerEdgeCount = registerEdgeSpy.mock.calls.length
+      const originalCreateEdge = graph.options.connecting.createEdge
+      const originalValidateConnection = graph.options.connecting.validateConnection
+      const originalValidateEdge = graph.options.connecting.validateEdge
+
+      const dispose = mod.setupBpmnGraph(graph, {
+        registration: false,
+        validate: false,
+        installDefaultCreateEdge: false,
+        behaviors: false,
+      })
+
+      expect(registerNodeSpy).toHaveBeenCalledTimes(registerNodeCount)
+      expect(registerEdgeSpy).toHaveBeenCalledTimes(registerEdgeCount)
+        expect(graph.options.connecting.createEdge).toBe(originalCreateEdge)
+        expect(graph.options.connecting.validateConnection).toBe(originalValidateConnection)
+        expect(graph.options.connecting.validateEdge).toBe(originalValidateEdge)
+
+      dispose()
+      graph.dispose()
+      container.remove()
+    })
+
+    it('setupBpmnGraph 在启用默认行为时应返回可释放函数', async () => {
+      const mod = await import('../../../src/index')
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+      const graph = new Graph({ container, width: 800, height: 600, connecting: {} })
+
+      const dispose = mod.setupBpmnGraph(graph)
+
+      expect(typeof dispose).toBe('function')
+      dispose()
+
+      graph.dispose()
+      container.remove()
+    })
+
+    it('setupBpmnGraph 应在宿主未提供时补齐 createEdge 与校验器', async () => {
+      const mod = await import('../../../src/index')
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+      const graph = new Graph({ container, width: 800, height: 600 })
+
+      ;(graph.options as any).connecting = undefined
+      const createEdgeSpy = vi.spyOn(graph, 'createEdge').mockImplementation((metadata: any) => metadata as any)
+
+      const nextEdgeShape = vi.fn(() => mod.BPMN_MESSAGE_FLOW)
+      const dispose = mod.setupBpmnGraph(graph, {
+        registration: false,
+        edgeShape: nextEdgeShape,
+        behaviors: false,
+      })
+
+      expect(typeof graph.options.connecting.createEdge).toBe('function')
+      expect(typeof graph.options.connecting.validateConnection).toBe('function')
+      expect(typeof graph.options.connecting.validateEdge).toBe('function')
+      const source = { id: 'source', shape: mod.BPMN_USER_TASK } as any
+      const target = { id: 'target', shape: mod.BPMN_USER_TASK } as any
+      graph.options.connecting.validateConnection?.call(graph, {
+        sourceCell: source,
+        targetCell: target,
+        targetMagnet: {} as any,
+        edge: undefined,
+      } as any)
+      const createdEdge = graph.options.connecting.createEdge?.call(graph, {} as any)
+      expect(nextEdgeShape).toHaveBeenCalled()
+      expect(createdEdge).toEqual({ shape: mod.BPMN_MESSAGE_FLOW })
+      expect(createEdgeSpy).toHaveBeenCalledWith({ shape: mod.BPMN_MESSAGE_FLOW })
+
+      dispose()
+      graph.dispose()
+      container.remove()
+    })
+
+    it('setupBpmnGraph 应支持字符串形式的默认连线类型', async () => {
+      const mod = await import('../../../src/index')
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+      const graph = new Graph({ container, width: 800, height: 600 })
+
+      ;(graph.options as any).connecting = undefined
+      const createEdgeSpy = vi.spyOn(graph, 'createEdge').mockImplementation((metadata: any) => metadata as any)
+      const dispose = mod.setupBpmnGraph(graph, {
+        registration: false,
+        edgeShape: mod.BPMN_MESSAGE_FLOW,
+        behaviors: false,
+      })
+
+      const source = { id: 'source', shape: mod.BPMN_USER_TASK } as any
+      const target = { id: 'target', shape: mod.BPMN_USER_TASK } as any
+      const result = graph.options.connecting.validateConnection?.call(graph, {
+        sourceCell: source,
+        targetCell: target,
+        targetMagnet: {} as any,
+        edge: undefined,
+      } as any)
+      const createdEdge = graph.options.connecting.createEdge?.call(graph, {} as any)
+
+      expect(typeof result).toBe('boolean')
+      expect(createdEdge).toEqual({ shape: mod.BPMN_MESSAGE_FLOW })
+      expect(createEdgeSpy).toHaveBeenCalledWith({ shape: mod.BPMN_MESSAGE_FLOW })
+
+      dispose()
+      graph.dispose()
+      container.remove()
+    })
+
+    it('setupBpmnGraph 在未提供 edgeShape 时应回退到顺序流', async () => {
+      const mod = await import('../../../src/index')
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+      const graph = new Graph({ container, width: 800, height: 600 })
+
+      ;(graph.options as any).connecting = undefined
+      const createEdgeSpy = vi.spyOn(graph, 'createEdge').mockImplementation((metadata: any) => metadata as any)
+      const dispose = mod.setupBpmnGraph(graph, {
+        registration: false,
+        behaviors: false,
+      })
+
+      expect(graph.options.connecting.createEdge?.call(graph, {} as any)).toEqual({
+        shape: mod.BPMN_SEQUENCE_FLOW,
+      })
+      expect(createEdgeSpy).toHaveBeenCalledWith({ shape: mod.BPMN_SEQUENCE_FLOW })
+
+      dispose()
+      graph.dispose()
+      container.remove()
     })
   })
 })

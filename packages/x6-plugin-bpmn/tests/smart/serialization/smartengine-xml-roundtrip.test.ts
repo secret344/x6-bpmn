@@ -5,6 +5,7 @@ import { ProfileRegistry } from '../../../src/core/dialect/registry'
 import {
   bpmn2Profile,
   smartengineBaseProfile,
+  smartengineCustomProfile,
   smartengineDatabaseProfile,
 } from '../../../src/builtin'
 import {
@@ -17,12 +18,14 @@ import {
   BPMN_START_EVENT,
   BPMN_USER_TASK,
 } from '../../../src/utils/constants'
+import { SMARTENGINE_NAMESPACE_URI } from '../../../src/builtin/smartengine-base/serialization'
 
 function createSmartRegistry(): ProfileRegistry {
   const registry = new ProfileRegistry()
   registry.registerAll([
     bpmn2Profile,
     smartengineBaseProfile,
+    smartengineCustomProfile,
     smartengineDatabaseProfile,
   ])
   return registry
@@ -90,6 +93,105 @@ function createGraph(): any {
 }
 
 describe('SmartEngine XML roundtrip', () => {
+  it('smartengine-custom 应按 smart 文档导出 serviceTask 的 smart 扩展结构', async () => {
+    const graph = createGraph()
+    const resolved = createSmartRegistry().compile('smartengine-custom')
+
+    graph.addNode({
+      id: 'start_1',
+      shape: BPMN_START_EVENT,
+      x: 80,
+      y: 200,
+      width: 36,
+      height: 36,
+      data: { bpmn: { name: '开始' } },
+    })
+    graph.addNode({
+      id: 'service_1',
+      shape: BPMN_SERVICE_TASK,
+      x: 220,
+      y: 180,
+      width: 120,
+      height: 60,
+      data: {
+        bpmn: {
+          name: '调用服务A',
+          smartClass: 'com.example.ServiceADelegation',
+          smartProperties: '[{"name":"serviceName","value":"serviceA"}]',
+        },
+      },
+    })
+    graph.addNode({
+      id: 'service_2',
+      shape: BPMN_SERVICE_TASK,
+      x: 420,
+      y: 180,
+      width: 120,
+      height: 60,
+      data: {
+        bpmn: {
+          name: '调用服务B',
+          smartClass: 'com.example.ServiceBDelegation',
+          smartProperties: '[{"name":"serviceName","value":"serviceB"}]',
+        },
+      },
+    })
+    graph.addNode({
+      id: 'end_1',
+      shape: BPMN_END_EVENT,
+      x: 620,
+      y: 200,
+      width: 36,
+      height: 36,
+      data: { bpmn: { name: '结束' } },
+    })
+
+    graph.addEdge({ id: 'flow_1', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'start_1' }, target: { cell: 'service_1' } })
+    graph.addEdge({ id: 'flow_2', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'service_1' }, target: { cell: 'service_2' } })
+    graph.addEdge({ id: 'flow_3', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'service_2' }, target: { cell: 'end_1' } })
+
+    const xml = await exportBpmnXml(graph, {
+      processId: 'serviceOrchestration',
+      serialization: resolved.serialization,
+    })
+
+    expect(xml).toContain('xmlns:smart="http://smartengine.org/schema/process"')
+    expect(xml).toContain('smart:class="com.example.ServiceADelegation"')
+    expect(xml).toContain('smart:class="com.example.ServiceBDelegation"')
+    expect(xml).toContain('<smart:properties>')
+    expect(xml).toContain('name="serviceName" value="serviceA"')
+    expect(xml).toContain('name="serviceName" value="serviceB"')
+    expect(xml).not.toContain('<modeler:property name="smartClass"')
+
+    const imported = await parseBpmnXml(xml, { serialization: resolved.serialization })
+    expect(imported.nodes.find((node) => node.id === 'service_1')?.data).toEqual({
+      bpmn: {
+        $attrs: {
+          'smart:class': 'com.example.ServiceADelegation',
+        },
+        $namespaces: {
+          smart: 'http://smartengine.org/schema/process',
+        },
+        name: '调用服务A',
+        smartClass: 'com.example.ServiceADelegation',
+        smartProperties: '[{"name":"serviceName","value":"serviceA"}]',
+      },
+    })
+    expect(imported.nodes.find((node) => node.id === 'service_2')?.data).toEqual({
+      bpmn: {
+        $attrs: {
+          'smart:class': 'com.example.ServiceBDelegation',
+        },
+        $namespaces: {
+          smart: 'http://smartengine.org/schema/process',
+        },
+        name: '调用服务B',
+        smartClass: 'com.example.ServiceBDelegation',
+        smartProperties: '[{"name":"serviceName","value":"serviceB"}]',
+      },
+    })
+  })
+
   it('smartengine-base 应导出并导入 wiki 定义的 smart 扩展', async () => {
     const graph = createGraph()
     const resolved = createSmartRegistry().compile('smartengine-base')
@@ -130,7 +232,6 @@ describe('SmartEngine XML roundtrip', () => {
           smartClass: 'com.example.ServiceDelegation',
           smartProperties: '[{"type":"constant","name":"serviceName","value":"orderService"}]',
           smartExecutionListeners: '[{"event":"ACTIVITY_START,ACTIVITY_END","class":"com.example.StartListener"}]',
-          plainKey: 'keep-as-x6bpmn',
         },
       },
     })
@@ -191,7 +292,6 @@ describe('SmartEngine XML roundtrip', () => {
     expect(xml).toContain('event="ACTIVITY_START,ACTIVITY_END"')
     expect(xml).toContain('class="com.example.StartListener"')
     expect(xml).toContain('<bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" type="mvel">approve == \'agree\'</bpmn:conditionExpression>')
-    expect(xml).toContain('<x6bpmn:property name="plainKey" value="keep-as-x6bpmn"')
 
     const imported = await parseBpmnXml(xml, { serialization: resolved.serialization })
     const serviceNode = imported.nodes.find((node) => node.id === 'service_1')
@@ -205,21 +305,38 @@ describe('SmartEngine XML roundtrip', () => {
     })
     expect(serviceNode?.data).toEqual({
       bpmn: {
+        $attrs: {
+          'smart:class': 'com.example.ServiceDelegation',
+        },
+        $namespaces: {
+          smart: 'http://smartengine.org/schema/process',
+        },
         name: '执行服务',
         smartClass: 'com.example.ServiceDelegation',
         smartProperties: '[{"type":"constant","name":"serviceName","value":"orderService"}]',
         smartExecutionListeners: '[{"event":"ACTIVITY_START,ACTIVITY_END","class":"com.example.StartListener"}]',
-        plainKey: 'keep-as-x6bpmn',
       },
     })
     expect(gatewayNode?.data).toEqual({
       bpmn: {
+        $attrs: {
+          'smart:class': 'com.example.RouteGatewayDelegation',
+        },
+        $namespaces: {
+          smart: 'http://smartengine.org/schema/process',
+        },
         name: '路由网关',
         smartClass: 'com.example.RouteGatewayDelegation',
       },
     })
     expect(receiveNode?.data).toEqual({
       bpmn: {
+        $attrs: {
+          'smart:class': 'com.example.CallbackDelegation',
+        },
+        $namespaces: {
+          smart: 'http://smartengine.org/schema/process',
+        },
         name: '等待回调',
         smartClass: 'com.example.CallbackDelegation',
       },
@@ -236,6 +353,62 @@ describe('SmartEngine XML roundtrip', () => {
     const aliasServiceNode = importedAlias.nodes.find((node) => node.id === 'service_1')
     expect(aliasServiceNode?.data).toEqual(serviceNode?.data)
 
+  })
+
+  it('smartengine-base 在 smart 扩展属性场景下应按 smart 前缀导出通用属性', async () => {
+    const graph = createGraph()
+    const resolved = createSmartRegistry().compile('smartengine-base')
+    const serialization = {
+      ...resolved.serialization,
+      extensionProperties: {
+        prefix: 'smart',
+        namespaceUri: SMARTENGINE_NAMESPACE_URI,
+        containerLocalName: 'properties',
+        propertyLocalName: 'property',
+      },
+    }
+
+    graph.addNode({
+      id: 'start_1',
+      shape: BPMN_START_EVENT,
+      x: 80,
+      y: 180,
+      width: 36,
+      height: 36,
+      data: {
+        bpmn: {
+          name: '开始',
+          plainKey: 'keep-as-smart-extension',
+        },
+      },
+    })
+    graph.addNode({
+      id: 'end_1',
+      shape: BPMN_END_EVENT,
+      x: 240,
+      y: 180,
+      width: 36,
+      height: 36,
+      data: { bpmn: { name: '结束' } },
+    })
+    graph.addEdge({ id: 'flow_1', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'start_1' }, target: { cell: 'end_1' } })
+
+    const xml = await exportBpmnXml(graph, {
+      processId: 'smartExtensionFallback',
+      serialization,
+    })
+
+    expect(xml).toContain('<smart:properties>')
+    expect(xml).toContain('<smart:property name="plainKey" value="keep-as-smart-extension"')
+    expect(xml).not.toContain('<modeler:property')
+
+    const imported = await parseBpmnXml(xml, { serialization })
+    expect(imported.nodes.find((node) => node.id === 'start_1')?.data).toEqual({
+      bpmn: {
+        name: '开始',
+        plainKey: 'keep-as-smart-extension',
+      },
+    })
   })
 
   it('smartengine-database 应导出并导入 DataBase 模式的多实例 userTask', async () => {
@@ -296,10 +469,15 @@ describe('SmartEngine XML roundtrip', () => {
     expect(xml).toContain('collection="${approverList}"')
     expect(xml).toContain('elementVariable="approver"')
     expect(xml).toContain('${nrOfCompletedInstances &gt;= 2}')
+    expect(xml).toContain('<smart:properties>')
     expect(xml).toContain('name="approvalType" value="review"')
     expect(xml).toContain('name="approvalStrategy" value="any"')
     expect(xml).toContain('name="taskTitle" value="审批"')
     expect(xml).toContain('event="ACTIVITY_END"')
+    expect(xml).not.toContain('smart:approvalType=')
+    expect(xml).not.toContain('smart:approvalStrategy=')
+    expect(xml).not.toContain('<modeler:property name="approvalType"')
+    expect(xml).not.toContain('<modeler:property name="approvalStrategy"')
 
     const imported = await parseBpmnXml(xml, { serialization: resolved.serialization })
     const userTask = imported.nodes.find((node) => node.id === 'user_1')

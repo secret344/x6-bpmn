@@ -335,8 +335,8 @@ describe('swimlane-layout helpers', () => {
     expect(min.height).toBe(60)
   })
 
-  it('Lane 有 Pool 父节点时，Pool 边界方向受内容约束，内侧边仅 MIN_LANE_SIZE', () => {
-    // 水平布局：宽度（Pool 边界方向）受 Pool 内容约束，高度（内侧边方向）仅 MIN_LANE_SIZE
+  it('Lane 有 Pool 父节点时，Pool 外边界受 Pool 内容约束，内侧边受当前 Lane 内容约束', () => {
+    // 水平布局：宽度（Pool 外边界方向）受 Pool 内容约束，高度（内侧边方向）受当前 Lane 自身内容约束
     const task = createMockNode('task', BPMN_USER_TASK, 140, 70, 100, 60)
     const pool = createMockNode('pool', BPMN_POOL, 40, 40, 500, 400, {
       data: { bpmn: { isHorizontal: true } },
@@ -351,11 +351,11 @@ describe('swimlane-layout helpers', () => {
     const min = computeLaneMinSize(lane)
     // Pool 内容右边界 = 240，相对 Pool.x=40 → 200，减去 HEADER_SIZE=30 → 170
     expect(min.width).toBeGreaterThanOrEqual(170)
-    // 高度（内侧边方向）仅 MIN_LANE_SIZE
-    expect(min.height).toBe(60)
+    // 当前 Lane 内容底部 = 70 + 60 = 130，相对 Lane.y=40 → 90
+    expect(min.height).toBeGreaterThanOrEqual(90)
   })
 
-  it('垂直 Pool 中 Lane 的 Pool 边界方向（高度）受内容约束，宽度仅 MIN_LANE_SIZE', () => {
+  it('垂直 Pool 中 Lane 的 Pool 外边界受 Pool 内容约束，内侧边受当前 Lane 内容约束', () => {
     const task = createMockNode('task', BPMN_USER_TASK, 70, 100, 100, 60)
     const pool = createMockNode('pool', BPMN_POOL, 40, 40, 400, 500, {
       data: { bpmn: { isHorizontal: false } },
@@ -368,11 +368,35 @@ describe('swimlane-layout helpers', () => {
     pool.getChildren = () => [lane]
 
     const min = computeLaneMinSize(lane)
-    // 宽度（内侧边方向）仅 MIN_LANE_SIZE
-    expect(min.width).toBe(60)
-    // 高度（Pool 边界方向）受 Pool 内容约束
+    // 当前 Lane 内容右边界 = 70 + 100 = 170，相对 Lane.x=40 → 130
+    expect(min.width).toBeGreaterThanOrEqual(130)
+    // 高度（Pool 外边界方向）受 Pool 内容约束
     // Pool 内容底部 = 100 + 60 = 160，相对 Pool.y=40 → 120，减去 HEADER_SIZE=30 → 90
     expect(min.height).toBeGreaterThanOrEqual(90)
+  })
+
+  it('Lane 内侧边最小尺寸不应被其他 Lane 的内容串联约束', () => {
+    const lane1Task = createMockNode('task-1', BPMN_USER_TASK, 140, 70, 100, 60)
+    const lane2Task = createMockNode('task-2', BPMN_USER_TASK, 140, 260, 100, 120)
+    const pool = createMockNode('pool', BPMN_POOL, 40, 40, 500, 400, {
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane1 = createMockNode('lane-1', BPMN_LANE, 70, 40, 470, 180, {
+      parent: pool,
+      children: [lane1Task],
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane2 = createMockNode('lane-2', BPMN_LANE, 70, 220, 470, 220, {
+      parent: pool,
+      children: [lane2Task],
+      data: { bpmn: { isHorizontal: true } },
+    })
+    pool.getChildren = () => [lane1, lane2]
+
+    const min = computeLaneMinSize(lane1)
+
+    // lane1 的内侧高度只看自身内容：70 + 60 - 40 = 90，而不是被 lane2 的 340 串联约束。
+    expect(min.height).toBe(90)
   })
 
   it('空 Lane 最小尺寸不低于 MIN_LANE_SIZE', () => {

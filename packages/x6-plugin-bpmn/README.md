@@ -65,25 +65,18 @@
 ```ts
 import { Graph } from '@antv/x6'
 import {
-  registerBpmnShapes,
-  createBpmnValidateConnection,
+  setupBpmnGraph,
   exportBpmnXml,
   importBpmnXml,
 } from '@x6-bpmn2/plugin'
-
-registerBpmnShapes()
 
 const graph = new Graph({
   container: document.getElementById('container')!,
   width: 1200,
   height: 800,
-  connecting: {
-    createEdge() {
-      return graph.createEdge({ shape: 'bpmn-sequence-flow' })
-    },
-    validateConnection: createBpmnValidateConnection(() => 'bpmn-sequence-flow'),
-  },
 })
+
+setupBpmnGraph(graph)
 
 const xml = await exportBpmnXml(graph)
 await importBpmnXml(graph, xml)
@@ -123,7 +116,7 @@ manager.bind(graph, 'bpmn2')
 
 | 链路 / Flow | 入口 / Entry | 说明 / Notes |
 |---|---|---|
-| 图形注册 / Shape registration | `registerBpmnShapes()` | 注册 BPMN 节点和连线到 X6 |
+| 默认初始化 / Default setup | `setupBpmnGraph()` | 注册 BPMN 图形并补齐默认连线与交互能力 |
 | 方言绑定 / Dialect binding | `ProfileRegistry.register()` -> `DialectManager.bind()` | 将规则、渲染、导入导出能力绑定到 graph |
 | XML 导入 / XML import | `parseBpmnXml()` -> `loadBpmnGraph()` | 先解析，再装载 |
 | XML 导出 / XML export | `exportBpmnXml()` | 从图状态生成标准 BPMN XML |

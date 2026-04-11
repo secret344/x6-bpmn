@@ -14,9 +14,8 @@ import { History } from '@antv/x6/lib/plugin/history'
 import { Keyboard } from '@antv/x6/lib/plugin/keyboard'
 import { Clipboard } from '@antv/x6/lib/plugin/clipboard'
 import {
-  registerBpmnShapes,
   getShapeLabel,
-  setupBpmnInteractionBehaviors,
+  setupBpmnGraph,
   isBoundaryShape,
   attachBoundaryToHost,
   distanceToRectEdge,
@@ -99,9 +98,6 @@ function resolveDroppedNodeSize(shape: string, width?: number, height?: number) 
   }
 }
 
-// 先注册全量 BPMN 图形（Legacy API 注册，方言系统的 bindProfileToGraph 也会注册）
-registerBpmnShapes()
-
 /** 边工具配置 */
 const EDGE_TOOLS = [
   {
@@ -155,9 +151,6 @@ onMounted(async () => {
       highlight: true,
       router: { name: 'orth', args: { padding: 20 } },
       connector: { name: 'rounded', args: { radius: 8 } },
-      createEdge() {
-        return graph!.createEdge({ shape: currentEdgeType.value })
-      },
     },
     highlighting: {
       magnetAdsorbed: {
@@ -216,7 +209,9 @@ onMounted(async () => {
   graph.bindKey('meta+v', () => { graph!.paste({ offset: 32 }); return false })
   graph.bindKey('meta+a', () => { graph!.select(graph!.getCells()); return false })
 
-  disposeBpmnBehaviors = setupBpmnInteractionBehaviors(graph)
+  disposeBpmnBehaviors = setupBpmnGraph(graph, {
+    edgeShape: () => currentEdgeType.value,
+  })
 
   // 边工具：悬停/选中时显示
   graph.on('edge:mouseenter', ({ edge }) => {

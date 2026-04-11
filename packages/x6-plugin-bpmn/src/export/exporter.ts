@@ -48,14 +48,14 @@ import {
   createBpmnElement,
   resolveBpmnXmlNameSettings,
 } from '../utils/bpmn-xml-names'
+import {
+  getQualifiedExtensionPropertyContainerName,
+  getQualifiedExtensionPropertyItemName,
+  resolveExtensionPropertySerialization,
+} from '../utils/extension-properties'
 import { resolveSwimlaneIsHorizontal } from '../shapes/swimlane-presentation'
 import { resolveLaneMemberNodes } from '../core/swimlane-membership'
 
-// ============================================================================
-// 扩展命名空间（用于存储自定义属性）
-// ============================================================================
-
-const NS_X6BPMN = 'http://x6-bpmn2.io/schema'
 const EXPANDABLE_ACTIVITY_SHAPES = new Set([
   BPMN_SUB_PROCESS,
   BPMN_EVENT_SUB_PROCESS,
@@ -79,6 +79,10 @@ interface ProcessBuildContext {
   nestedFlowElements: Map<string, ModdleElement[]>
   artifactElements: ModdleElement[]
 }
+
+const PRESERVED_XML_ATTRS_KEY = '$attrs'
+const PRESERVED_XML_NAMESPACES_KEY = '$namespaces'
+const BOUNDARY_INTERNAL_BPMN_KEYS = new Set(['attachedToRef', 'boundaryPosition'])
 
 function appendXmlAttributes(element: ModdleElement, attrs: Record<string, unknown> | undefined): void {
   if (!attrs || Object.keys(attrs).length === 0) return
@@ -106,6 +110,37 @@ function appendExtensionValue(
   ]
 }
 
+function readPreservedXmlAttributes(bpmnData: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!bpmnData) return undefined
+
+  const rawAttrs = bpmnData[PRESERVED_XML_ATTRS_KEY]
+  if (!rawAttrs || typeof rawAttrs !== 'object' || Array.isArray(rawAttrs)) {
+    return undefined
+  }
+
+  const entries = Object.entries(rawAttrs as Record<string, unknown>)
+    .filter(([, value]) => value !== undefined && value !== null)
+  if (entries.length === 0) return undefined
+
+  return Object.fromEntries(entries)
+}
+
+function readPreservedXmlNamespaces(bpmnData: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!bpmnData) return undefined
+
+  const rawNamespaces = bpmnData[PRESERVED_XML_NAMESPACES_KEY]
+  if (!rawNamespaces || typeof rawNamespaces !== 'object' || Array.isArray(rawNamespaces)) {
+    return undefined
+  }
+
+  const entries = Object.entries(rawNamespaces as Record<string, unknown>)
+    .filter(([prefix, value]) => Boolean(prefix) && value !== undefined && value !== null && value !== '')
+    .map(([prefix, value]) => [`xmlns:${prefix}`, value])
+  if (entries.length === 0) return undefined
+
+  return Object.fromEntries(entries)
+}
+
 // ============================================================================
 // 辅助函数
 // ============================================================================
@@ -118,6 +153,14 @@ function getNodeLabel(node: Node): string {
   const data = node.getData<{ label?: string }>()
   if (data?.label) return data.label
   return ''
+}
+
+function getTextAnnotationText(node: Node): string {
+  const bpmn = node.getData<{ bpmn?: { annotationText?: unknown } }>()?.bpmn
+  if (typeof bpmn?.annotationText === 'string' && bpmn.annotationText.trim() !== '') {
+    return bpmn.annotationText.replace(/\n/g, ' ')
+  }
+  return getNodeLabel(node)
 }
 
 /** 从连接线获取标签文本 */
@@ -333,7 +376,10 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   const nodeMapping = options.serialization?.nodeMapping ?? NODE_MAPPING
   const edgeMapping = options.serialization?.edgeMapping ?? EDGE_MAPPING
   const namespaces = options.serialization?.namespaces ?? {}
-  const x6bpmnNamespace = namespaces.x6bpmn ?? NS_X6BPMN
+  const extensionProperties = resolveExtensionPropertySerialization(
+    options.serialization?.extensionProperties,
+    namespaces,
+  )
   const targetNamespace = options.serialization?.targetNamespace ?? 'http://bpmn.io/schema/bpmn'
   const processAttributes = options.serialization?.processAttributes ?? {}
   const nodeSerializers = options.serialization?.nodeSerializers ?? {}
@@ -650,6 +696,18 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const bpmnData = node.getData<{ bpmn?: Record<string, any> }>()?.bpmn
     const nodeSerializer = nodeSerializers[node.shape]
     const omitBpmnKeys = new Set<string>()
+    const preservedXmlAttrs = readPreservedXmlAttributes(bpmnData)
+    const preservedXmlNamespaces = readPreservedXmlNamespaces(bpmnData)
+
+    if (preservedXmlNamespaces) {
+      appendXmlAttributes(element, preservedXmlNamespaces)
+      omitBpmnKeys.add(PRESERVED_XML_NAMESPACES_KEY)
+    }
+
+    if (preservedXmlAttrs) {
+      appendXmlAttributes(element, preservedXmlAttrs)
+      omitBpmnKeys.add(PRESERVED_XML_ATTRS_KEY)
+    }
 
     if (nodeSerializer?.export) {
       const result = nodeSerializer.export({
@@ -666,13 +724,28 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       }
     }
 
-    if (bpmnData && Object.keys(bpmnData).length > 0) {
+    if (isBoundaryShape(node.shape)) {
+      // 边界事件内部附着元数据只用于画布恢复，不能回落成通用扩展属性。
+      for (const key of BOUNDARY_INTERNAL_BPMN_KEYS) {
+        omitBpmnKeys.add(key)
+      }
+    }
+
+    if (extensionProperties && bpmnData && Object.keys(bpmnData).length > 0) {
       const propChildren = Object.entries(bpmnData)
         .filter(([key, v]) => !omitBpmnKeys.has(key) && v !== undefined && v !== null && v !== '')
-        .map(([k, v]) => moddle.createAny('x6bpmn:property', x6bpmnNamespace, { name: k, value: String(v) }))
+        .map(([key, value]) => moddle.createAny(
+          getQualifiedExtensionPropertyItemName(extensionProperties),
+          extensionProperties.namespaceUri,
+          { name: key, value: String(value) },
+        ))
       /* istanbul ignore else */
       if (propChildren.length > 0) {
-        const propsContainer = moddle.createAny('x6bpmn:properties', x6bpmnNamespace, { $children: propChildren })
+        const propsContainer = moddle.createAny(
+          getQualifiedExtensionPropertyContainerName(extensionProperties),
+          extensionProperties.namespaceUri,
+          { $children: propChildren },
+        )
         appendExtensionValue(element, moddle, propsContainer, xmlNames)
       }
     }
@@ -736,6 +809,15 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       seqFlow.conditionExpression = createBpmnElement(moddle, 'formalExpression', {
         body: String(edgeData.conditionExpression || getEdgeLabel(edge) || 'condition'),
       }, xmlNames)
+    }
+
+    const preservedXmlAttrs = readPreservedXmlAttributes(edgeData)
+    const preservedXmlNamespaces = readPreservedXmlNamespaces(edgeData)
+    if (preservedXmlNamespaces) {
+      appendXmlAttributes(seqFlow, preservedXmlNamespaces)
+    }
+    if (preservedXmlAttrs) {
+      appendXmlAttributes(seqFlow, preservedXmlAttrs)
     }
 
     edgeSerializers[edge.shape]?.export?.({
@@ -810,12 +892,21 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     if (node.shape === BPMN_TEXT_ANNOTATION) {
       element = createBpmnElement(moddle, 'textAnnotation', {
         id: toXmlId(node.id),
-        text: getNodeLabel(node),
+        text: getTextAnnotationText(node),
       }, xmlNames)
     } else {
       element = createBpmnElement(moddle, mapping.tag, {
         id: toXmlId(node.id),
       }, xmlNames)
+    }
+    const bpmnData = node.getData<{ bpmn?: Record<string, unknown> }>()?.bpmn
+    const preservedXmlAttrs = readPreservedXmlAttributes(bpmnData)
+    const preservedXmlNamespaces = readPreservedXmlNamespaces(bpmnData)
+    if (preservedXmlNamespaces) {
+      appendXmlAttributes(element, preservedXmlNamespaces)
+    }
+    if (preservedXmlAttrs) {
+      appendXmlAttributes(element, preservedXmlAttrs)
     }
     nodeElements.set(node.id, element)
     const processContext = resolveProcessContextForNode(node)
@@ -847,6 +938,15 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
             sourceRef: [srcEl],
             targetRef: tgtEl,
           }, xmlNames)
+          const edgeData = edge.getData<{ bpmn?: Record<string, unknown> }>()?.bpmn
+          const preservedXmlAttrs = readPreservedXmlAttributes(edgeData)
+          const preservedXmlNamespaces = readPreservedXmlNamespaces(edgeData)
+          if (preservedXmlNamespaces) {
+            appendXmlAttributes(dia, preservedXmlNamespaces)
+          }
+          if (preservedXmlAttrs) {
+            appendXmlAttributes(dia, preservedXmlAttrs)
+          }
           /* istanbul ignore else */
           if (!tgtEl.dataInputAssociations) tgtEl.dataInputAssociations = []
           tgtEl.dataInputAssociations.push(dia)
@@ -857,6 +957,15 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
             sourceRef: [srcEl],
             targetRef: tgtEl,
           }, xmlNames)
+          const edgeData = edge.getData<{ bpmn?: Record<string, unknown> }>()?.bpmn
+          const preservedXmlAttrs = readPreservedXmlAttributes(edgeData)
+          const preservedXmlNamespaces = readPreservedXmlNamespaces(edgeData)
+          if (preservedXmlNamespaces) {
+            appendXmlAttributes(doa, preservedXmlNamespaces)
+          }
+          if (preservedXmlAttrs) {
+            appendXmlAttributes(doa, preservedXmlAttrs)
+          }
           /* istanbul ignore else */
           if (!srcEl.dataOutputAssociations) srcEl.dataOutputAssociations = []
           srcEl.dataOutputAssociations.push(doa)
@@ -875,9 +984,19 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       if (edge.shape === BPMN_DIRECTED_ASSOCIATION) {
         props.associationDirection = 'One'
       }
+      const association = createBpmnElement(moddle, 'association', props, xmlNames)
+      const edgeData = edge.getData<{ bpmn?: Record<string, unknown> }>()?.bpmn
+      const preservedXmlAttrs = readPreservedXmlAttributes(edgeData)
+      const preservedXmlNamespaces = readPreservedXmlNamespaces(edgeData)
+      if (preservedXmlNamespaces) {
+        appendXmlAttributes(association, preservedXmlNamespaces)
+      }
+      if (preservedXmlAttrs) {
+        appendXmlAttributes(association, preservedXmlAttrs)
+      }
       resolveProcessContextForEdge(edge.getSourceCellId(), edge.getTargetCellId())
         .artifactElements
-        .push(createBpmnElement(moddle, 'association', props, xmlNames))
+        .push(association)
     }
   }
 
@@ -903,6 +1022,15 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
           name: getNodeLabel(lane),
           flowNodeRef: refs,
         }, xmlNames)
+        const bpmnData = lane.getData<{ bpmn?: Record<string, unknown> }>()?.bpmn
+        const preservedXmlAttrs = readPreservedXmlAttributes(bpmnData)
+        const preservedXmlNamespaces = readPreservedXmlNamespaces(bpmnData)
+        if (preservedXmlNamespaces) {
+          appendXmlAttributes(laneElement, preservedXmlNamespaces)
+        }
+        if (preservedXmlAttrs) {
+          appendXmlAttributes(laneElement, preservedXmlAttrs)
+        }
         swimlaneElements.set(lane.id, laneElement)
         nodeElements.set(lane.id, laneElement)
         return laneElement
@@ -937,11 +1065,21 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const participants: ModdleElement[] = pools.map((pool) => {
       /* istanbul ignore next -- participant 与 pool processContext 在上文已一一建立映射，兜底仅防御非法中间状态 */
       const processContext = processContextByPoolId.get(pool.id) ?? getFallbackProcessContext()
-      return createBpmnElement(moddle, 'participant', {
+      const participant = createBpmnElement(moddle, 'participant', {
         id: toXmlId(pool.id),
         name: getNodeLabel(pool),
         processRef: processContext.process,
       }, xmlNames)
+      const bpmnData = pool.getData<{ bpmn?: Record<string, unknown> }>()?.bpmn
+      const preservedXmlAttrs = readPreservedXmlAttributes(bpmnData)
+      const preservedXmlNamespaces = readPreservedXmlNamespaces(bpmnData)
+      if (preservedXmlNamespaces) {
+        appendXmlAttributes(participant, preservedXmlNamespaces)
+      }
+      if (preservedXmlAttrs) {
+        appendXmlAttributes(participant, preservedXmlAttrs)
+      }
+      return participant
     })
     pools.forEach((pool, index) => {
       const participant = participants[index] as ModdleElement
@@ -952,12 +1090,22 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const msgFlowElements: ModdleElement[] = messageFlows.map((mf) => {
       const srcEl = nodeElements.get(mf.getSourceCellId())
       const tgtEl = nodeElements.get(mf.getTargetCellId())
-      return createBpmnElement(moddle, 'messageFlow', {
+      const messageFlow = createBpmnElement(moddle, 'messageFlow', {
         id: toXmlId(mf.id),
         name: getEdgeLabel(mf),
         sourceRef: srcEl,
         targetRef: tgtEl,
       }, xmlNames)
+      const edgeData = mf.getData<{ bpmn?: Record<string, unknown> }>()?.bpmn
+      const preservedXmlAttrs = readPreservedXmlAttributes(edgeData)
+      const preservedXmlNamespaces = readPreservedXmlNamespaces(edgeData)
+      if (preservedXmlNamespaces) {
+        appendXmlAttributes(messageFlow, preservedXmlNamespaces)
+      }
+      if (preservedXmlAttrs) {
+        appendXmlAttributes(messageFlow, preservedXmlAttrs)
+      }
+      return messageFlow
     })
 
     collaboration = createBpmnElement(moddle, 'collaboration', {

@@ -22,6 +22,10 @@ In `packages/x6-plugin-bpmn`:
 - Cover realistic BPMN/SmartEngine scenarios.
 - Prefer domain outcome assertions over implementation-detail assertions.
 - Do not add tests that exist only to satisfy coverage percentages.
+- Treat `/* istanbul ignore */` and `/* v8 ignore */` as last-resort tools, not routine coverage cleanup.
+- Before adding a new ignore, first try to cover the branch with a business-realistic test or remove the dead code.
+- Every new ignore must carry an inline reason comment that explains why the branch is unreachable, tool-miscounted, or otherwise not worth a real scenario.
+- When editing code around historical ignores, review whether they can be replaced by a meaningful test and delete them when they are no longer justified.
 - Headless browser tests must generate and assert visual snapshots; artifact-only screenshots are not sufficient verification.
 - Browser regression specs must live under `packages/x6-plugin-bpmn/tests/browser/*.spec.ts` and reuse the existing spec file when the scenario belongs to the same behavior area; do not create parallel duplicate spec files for the same regression theme.
 - Snapshot baselines for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/<spec-file>.ts-snapshots/`, grouped by test-case folders.

@@ -24,6 +24,8 @@ import { createBpmn2NodeRenderers } from '../../core/rendering/node-renderers'
 import { createBpmn2EdgeRenderers } from '../../core/rendering/edge-renderers'
 import { requireStartEvent, requireEndEvent } from '../../core/rules/constraints'
 
+const MODELER_EXTENSION_NAMESPACE_URI = 'http://x6-bpmn2.io/schema'
+
 // ============================================================================
 // shape → 渲染器名称 映射
 // ============================================================================
@@ -526,7 +528,13 @@ export const bpmn2Profile: Profile = {
       bpmndi: 'http://www.omg.org/spec/BPMN/20100524/DI',
       dc: 'http://www.omg.org/spec/DD/20100524/DC',
       di: 'http://www.omg.org/spec/DD/20100524/DI',
-      x6bpmn: 'http://x6-bpmn2.io/schema',
+      modeler: MODELER_EXTENSION_NAMESPACE_URI,
+    },
+    extensionProperties: {
+      prefix: 'modeler',
+      namespaceUri: MODELER_EXTENSION_NAMESPACE_URI,
+      containerLocalName: 'properties',
+      propertyLocalName: 'property',
     },
     xmlNames: DEFAULT_BPMN_XML_NAME_SETTINGS,
     nodeMapping: { ...NODE_MAPPING },

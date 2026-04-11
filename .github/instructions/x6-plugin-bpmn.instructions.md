@@ -61,6 +61,16 @@ applyTo:
 - 发现架构性问题且补丁无法清晰修复时，允许且鼓励全面重构，而非层叠变通。
   When an architectural issue is discovered that a patch cannot cleanly fix, thorough refactoring is permitted and encouraged over incremental workarounds.
 
+## ignore 使用约束 / Ignore usage policy
+- `/* istanbul ignore */` 与 `/* v8 ignore */` 只能作为最后手段，不能作为常规补覆盖率方式。
+  Treat `/* istanbul ignore */` and `/* v8 ignore */` as last-resort tools, not a normal way to close coverage gaps.
+- 在新增 ignore 之前，必须先尝试用真实业务测试覆盖分支，或删除已经失效/不可达的代码。
+  Before adding any new ignore, first try to cover the branch with a real business test or remove dead or unreachable code.
+- 每一处新增 ignore 都必须带有行内理由注释，明确说明为何分支不可达、为何属于工具统计偏差，或为何不值得为其构造业务场景。
+  Every newly added ignore must include an inline reason comment explaining why the branch is unreachable, why the counter is inaccurate, or why a real business scenario would be unjustified.
+- 遇到历史遗留 ignore 时，必须先评估是否仍有必要；若可以被有意义的测试替代，就应删除。
+  When touching historical ignores, evaluate whether they are still necessary; if a meaningful test can replace them, remove the ignore.
+
 ## 推荐回归流程 / Recommended regression flow
 1. 通过失败测试复现问题。Reproduce problem via failing test.
 2. 修复实现。Fix implementation.

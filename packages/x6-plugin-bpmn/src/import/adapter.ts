@@ -8,6 +8,7 @@
 import type { Graph } from '@antv/x6'
 import type { ImporterAdapter, ProfileContext } from '../core/dialect/types'
 import { mergeBpmnXmlNameSettings } from '../utils/bpmn-xml-names'
+import { mergeExtensionPropertySerialization } from '../utils/extension-properties'
 import { parseBpmnXml, loadBpmnGraph } from './index'
 import type { ImportBpmnOptions } from './index'
 import type { BpmnImportData } from './types'
@@ -64,6 +65,10 @@ export function createBpmn2ImporterAdapter(
             xmlNames: profileSerialization?.xmlNames || options?.serialization?.xmlNames
               ? mergeBpmnXmlNameSettings(profileSerialization?.xmlNames, options?.serialization?.xmlNames)
               : undefined,
+            extensionProperties: mergeExtensionPropertySerialization(
+              profileSerialization?.extensionProperties,
+              options?.serialization?.extensionProperties,
+            ),
             nodeSerializers: profileSerialization?.nodeSerializers || options?.serialization?.nodeSerializers
               ? {
                   ...(profileSerialization?.nodeSerializers ?? {}),

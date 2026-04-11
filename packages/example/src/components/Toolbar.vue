@@ -203,9 +203,12 @@ import {
 import BpmnPreviewModal from './BpmnPreviewModal.vue'
 import BpmnEditorModal from './BpmnEditorModal.vue'
 import DiagramValidationModal from './DiagramValidationModal.vue'
-import { exportBpmnXml, importBpmnXml } from '@x6-bpmn2/plugin'
 import { createSampleProcess } from '../sample-process'
 import { SAMPLE_BPMN_XML } from '../sample-bpmn-xml'
+import {
+  exportStandardBpmnXml,
+  importExampleBpmnXml,
+} from '../bpmn-xml'
 
 const props = defineProps<{
   graph: Graph | null
@@ -309,7 +312,7 @@ function onLoadSampleProcess() {
 
 async function onExportBpmn() {
   if (!props.graph) return
-  const xml = await exportBpmnXml(props.graph, { processName: 'BPMN流程' })
+  const xml = await exportStandardBpmnXml(props.graph, { processName: 'BPMN流程' })
   xmlModalTitle.value = '导出 BPMN XML'
   xmlModalContent.value = xml
   xmlModalReadonly.value = true
@@ -338,7 +341,7 @@ async function onConfirmImportBpmn() {
     return
   }
   try {
-    await importBpmnXml(props.graph, xml)
+    await importExampleBpmnXml(props.graph, xml)
     xmlModalVisible.value = false
     const nodeCount = props.graph.getNodes().length
     const edgeCount = props.graph.getEdges().length
@@ -367,7 +370,7 @@ function onValidateDiagram() {
 async function onBpmnPreview() {
   if (!props.graph) return
   try {
-    const xml = await exportBpmnXml(props.graph, { processName: 'BPMN流程' })
+    const xml = await exportStandardBpmnXml(props.graph, { processName: 'BPMN流程' })
     bpmnPreviewRef.value?.open(xml)
   } catch (err: any) {
     Modal.error({ title: '生成 XML 失败', content: err.message || String(err) })
@@ -377,7 +380,7 @@ async function onBpmnPreview() {
 async function onViewRawXml() {
   if (!props.graph) return
   try {
-    const xml = await exportBpmnXml(props.graph, { processName: 'BPMN流程' })
+    const xml = await exportStandardBpmnXml(props.graph, { processName: 'BPMN流程' })
     xmlModalTitle.value = '原始 BPMN XML'
     xmlModalContent.value = xml
     xmlModalReadonly.value = true
@@ -390,7 +393,7 @@ async function onViewRawXml() {
 async function onLoadSampleXml() {
   if (!props.graph) return
   try {
-    await importBpmnXml(props.graph, SAMPLE_BPMN_XML)
+    await importExampleBpmnXml(props.graph, SAMPLE_BPMN_XML)
   } catch (err: any) {
     alert('加载示例失败: ' + (err.message || err))
   }
