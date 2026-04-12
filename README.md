@@ -112,6 +112,10 @@ pnpm run typecheck
 # 主库测试
 pnpm run test
 pnpm run test:coverage
+pnpm run test:plugin:browser
+
+# SmartEngine demo 浏览器回归
+pnpm run test:smartengine:browser
 ```
 
 ```bash
@@ -136,6 +140,10 @@ pnpm run typecheck
 # Plugin tests
 pnpm run test
 pnpm run test:coverage
+pnpm run test:plugin:browser
+
+# SmartEngine demo browser regression
+pnpm run test:smartengine:browser
 ```
 
 `pnpm run typecheck` 会对纯 TypeScript 包执行 `tsc --noEmit`，对 Vue 示例包执行 `vue-tsc --noEmit`，用于在构建前尽早发现跨包类型问题。
@@ -203,10 +211,12 @@ These submodules are read-only in the current workspace. If you discover an issu
 - [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md)：新人快速理解整体结构、改动入口与阅读顺序。
 - [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md)：主库公开 API、模块职责与代码阅读建议。
 - [docs/custom-extension-guide.md](docs/custom-extension-guide.md)：宿主如何按最小代价扩展图形、Profile 与 XML 语义。
+- [docs/smartengine-xml-extension-reference.md](docs/smartengine-xml-extension-reference.md)：SmartEngine 命名空间、字段到 XML 的映射与回退规则参考。
 
 - [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md): the fastest way for a newcomer to understand the whole structure, change entry points, and reading order.
 - [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md): public API, module responsibilities, and code reading advice for the main library.
 - [docs/custom-extension-guide.md](docs/custom-extension-guide.md): how a host extends shapes, profiles, and XML semantics with the smallest viable change.
+- [docs/smartengine-xml-extension-reference.md](docs/smartengine-xml-extension-reference.md): reference for the SmartEngine namespace, field-to-XML mapping, and fallback rules.
 
 ## 9. 许可 / License
 

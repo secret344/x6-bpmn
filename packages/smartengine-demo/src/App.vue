@@ -8,10 +8,10 @@
       </div>
       <div class="header-right">
         <a-space>
-          <a-button size="small" @click="handleExportXML">导出 XML</a-button>
+          <a-button size="small" data-testid="smart-export-xml-button" @click="handleExportXML">导出 XML</a-button>
           <a-button size="small" @click="handleImportXML">导入 XML</a-button>
           <a-button size="small" @click="handleValidation">验证流程</a-button>
-          <a-button size="small" type="outline" @click="handleCreateSample">创建示例流程</a-button>
+          <a-button size="small" type="outline" data-testid="smart-create-sample-button" @click="handleCreateSample">创建示例流程</a-button>
         </a-space>
       </div>
     </a-layout-header>
@@ -108,6 +108,7 @@
     <a-modal v-model:visible="xmlModalVisible" :title="xmlModalTitle" :width="700" :footer="false">
       <a-textarea
         v-model="xmlContent"
+        data-testid="smart-xml-modal-textarea"
         :auto-size="{ minRows: 15, maxRows: 30 }"
         style="font-family: monospace; font-size: 12px"
       />

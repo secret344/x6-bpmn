@@ -21,6 +21,7 @@
     "test": "pnpm --filter @x6-bpmn2/plugin test",
     "test:coverage": "pnpm --filter @x6-bpmn2/plugin test:coverage",
     "test:plugin:browser": "pnpm --filter @x6-bpmn2/plugin test:browser",
+    "test:smartengine:browser": "pnpm --filter @x6-bpmn2/smartengine-demo test:browser",
     "dev": "pnpm --filter @x6-bpmn2/example dev",
     "dev:approval": "pnpm --filter @x6-bpmn2/approval-flow dev",
     "dev:dialect": "pnpm --filter @x6-bpmn2/dialect-demo dev",

@@ -1,5 +1,5 @@
 <template>
-  <div class="adapters-panel">
+  <div class="adapters-panel" data-testid="smart-adapters-panel">
     <!-- 适配器架构 -->
     <div class="adapter-section">
       <div class="section-title">适配器架构</div>
@@ -50,15 +50,17 @@
     <div class="adapter-section">
       <div class="section-title">
         实时导出预览
-        <a-button size="mini" type="text" @click="refreshPreview">刷新</a-button>
+        <a-button size="mini" type="text" data-testid="smart-refresh-preview-button" @click="refreshPreview">刷新</a-button>
       </div>
       <div class="xml-stats" v-if="xmlStats">
         <a-tag size="small" color="blue">{{ xmlStats.nodeCount }} 个节点</a-tag>
         <a-tag size="small" color="green">{{ xmlStats.edgeCount }} 条边</a-tag>
         <a-tag size="small" color="orange">{{ xmlStats.xmlLength }} 字符</a-tag>
         <a-tag v-if="xmlStats.hasSmartengineNS" size="small" color="purple">含 SE 命名空间</a-tag>
+        <a-tag v-if="xmlStats.hasSmartProperties" size="small" color="arcoblue">含 smart:properties</a-tag>
+        <a-tag v-if="!xmlStats.hasModelerProperties" size="small" color="green">无 modeler:properties</a-tag>
       </div>
-      <pre class="xml-preview" v-if="xmlPreview">{{ xmlPreview }}</pre>
+      <pre class="xml-preview" data-testid="smart-export-preview" v-if="xmlPreview">{{ xmlPreview }}</pre>
       <div v-else class="empty-hint">画布无内容或未初始化</div>
     </div>
 
@@ -114,28 +116,42 @@ import { useSmartEngineSingleton } from '../composables/useSmartEngine'
 const props = defineProps<{ graph: Graph | null }>()
 
 const { exportXML, detectDialect } = useSmartEngineSingleton()
+const MAX_XML_PREVIEW_LENGTH = 4000
 
 // ---- 导出预览 ----
 const xmlPreview = ref('')
-const xmlStats = ref<{ nodeCount: number; edgeCount: number; xmlLength: number; hasSmartengineNS: boolean } | null>(null)
+const xmlStats = ref<{
+  nodeCount: number
+  edgeCount: number
+  xmlLength: number
+  hasSmartengineNS: boolean
+  hasSmartProperties: boolean
+  hasModelerProperties: boolean
+} | null>(null)
 
 async function refreshPreview() {
   if (!props.graph) return
   try {
     const xml = await exportXML()
-    // 截取前 1000 字符
-    xmlPreview.value = xml.length > 1000 ? xml.slice(0, 1000) + '\n... (截断)' : xml
+    xmlPreview.value = xml.length > MAX_XML_PREVIEW_LENGTH ? xml.slice(0, MAX_XML_PREVIEW_LENGTH) + '\n... (截断)' : xml
     xmlStats.value = {
       nodeCount: props.graph.getNodes().length,
       edgeCount: props.graph.getEdges().length,
       xmlLength: xml.length,
-        hasSmartengineNS: xml.includes('xmlns:smart="http://smartengine.org/schema/process"'),
+      hasSmartengineNS: xml.includes('xmlns:smart="http://smartengine.org/schema/process"'),
+      hasSmartProperties: xml.includes('<smart:properties>'),
+      hasModelerProperties: xml.includes('<modeler:properties>'),
     }
   } catch (e: any) {
     xmlPreview.value = `导出失败: ${e.message}`
     xmlStats.value = null
   }
 }
+
+watch(() => props.graph, (nextGraph) => {
+  if (!nextGraph) return
+  void refreshPreview()
+}, { immediate: true })
 
 // ---- 方言检测 ----
 const detectInput = ref('')
