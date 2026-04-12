@@ -1266,6 +1266,7 @@ describe('createBpmn2ImporterAdapter', () => {
         xmlNames: {
           moddlePrefix: 'bpmn',
           namespaceUri: 'http://www.omg.org/spec/BPMN/20100524/MODEL',
+          useDefaultNamespace: false,
           acceptedTagPrefixes: ['', 'flow'],
           moddleNames: { multipleEventDefinition: 'bpmn:multipleEventDefinition' },
           createModes: { multipleEventDefinition: 'createAny' },

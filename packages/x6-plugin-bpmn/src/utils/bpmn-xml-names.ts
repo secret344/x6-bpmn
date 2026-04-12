@@ -9,6 +9,8 @@ export interface BpmnXmlNameSettings {
   moddlePrefix: string
   /** 标准 BPMN 命名空间 URI。 */
   namespaceUri: string
+  /** 导出 XML 时是否将 BPMN 命名空间写为默认 xmlns，从而省略 bpmn: 标签前缀。 */
+  useDefaultNamespace?: boolean
   /** 原始 XML 中允许出现的标签前缀；'*' 表示接受任意前缀。 */
   acceptedTagPrefixes?: string[]
   /** 个别元素在 moddle 中的显式名称覆盖。 */
@@ -20,6 +22,7 @@ export interface BpmnXmlNameSettings {
 export const DEFAULT_BPMN_XML_NAME_SETTINGS: BpmnXmlNameSettings = {
   moddlePrefix: 'bpmn',
   namespaceUri: BPMN_XML_NAMESPACE_URI,
+  useDefaultNamespace: false,
   acceptedTagPrefixes: ['*'],
   moddleNames: {
     multipleEventDefinition: 'bpmn:multipleEventDefinition',
@@ -64,22 +67,24 @@ export function resolveBpmnXmlNameSettings(
 }
 
 export function cloneBpmnXmlNameSettings(
-  settings?: BpmnXmlNameSettings,
+  settings?: Partial<BpmnXmlNameSettings>,
 ): BpmnXmlNameSettings | undefined {
   if (!settings) return undefined
 
+  const resolved = resolveBpmnXmlNameSettings(settings)
+
   return {
-    ...settings,
-    acceptedTagPrefixes: settings.acceptedTagPrefixes
-      ? [...settings.acceptedTagPrefixes]
+    ...resolved,
+    acceptedTagPrefixes: resolved.acceptedTagPrefixes
+      ? [...resolved.acceptedTagPrefixes]
       : undefined,
-    moddleNames: cloneRecord(settings.moddleNames),
-    createModes: cloneRecord(settings.createModes),
+    moddleNames: cloneRecord(resolved.moddleNames),
+    createModes: cloneRecord(resolved.createModes),
   }
 }
 
 export function mergeBpmnXmlNameSettings(
-  parent?: BpmnXmlNameSettings,
+  parent?: Partial<BpmnXmlNameSettings>,
   child?: Partial<BpmnXmlNameSettings>,
 ): BpmnXmlNameSettings | undefined {
   if (!parent && !child) return undefined

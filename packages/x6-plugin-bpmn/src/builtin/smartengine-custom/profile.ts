@@ -31,6 +31,12 @@ export const smartengineCustomProfile: Profile = {
     },
   },
 
+  serialization: {
+    xmlNames: {
+      useDefaultNamespace: true,
+    },
+  },
+
   // 收紧规则，避免在 Custom 模式下误用 Database 专属能力
   rules: {
     constraints: [

@@ -1266,10 +1266,15 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     id: 'Definitions_1',
     targetNamespace,
   }, xmlNames)
+  if (xmlNames.useDefaultNamespace) {
+    appendXmlAttributes(definitions, { xmlns: xmlNames.namespaceUri })
+  }
   appendXmlAttributes(
     definitions,
     Object.fromEntries(
-      Object.entries(namespaces).map(([prefix, uri]) => [`xmlns:${prefix}`, uri]),
+      Object.entries(namespaces)
+        .filter(([prefix]) => !(xmlNames.useDefaultNamespace && prefix === 'bpmn'))
+        .map(([prefix, uri]) => [`xmlns:${prefix}`, uri]),
     ),
   )
 

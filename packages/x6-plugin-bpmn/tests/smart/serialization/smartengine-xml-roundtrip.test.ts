@@ -93,6 +93,85 @@ function createGraph(): any {
 }
 
 describe('SmartEngine XML roundtrip', () => {
+  it('smartengine-custom 仅在服务编排模式下省略 BPMN 标签前缀', async () => {
+    const graph = createGraph()
+    const registry = createSmartRegistry()
+    const customResolved = registry.compile('smartengine-custom')
+    const baseResolved = registry.compile('smartengine-base')
+
+    graph.addNode({
+      id: 'start_1',
+      shape: BPMN_START_EVENT,
+      x: 80,
+      y: 200,
+      width: 36,
+      height: 36,
+      data: { bpmn: { name: '开始' } },
+    })
+    graph.addNode({
+      id: 'service_1',
+      shape: BPMN_SERVICE_TASK,
+      x: 220,
+      y: 180,
+      width: 120,
+      height: 60,
+      data: {
+        bpmn: {
+          name: '调用服务',
+          smartClass: 'com.example.ServiceDelegation',
+          smartProperties: '[{"name":"serviceName","value":"serviceA"}]',
+        },
+      },
+    })
+    graph.addNode({
+      id: 'end_1',
+      shape: BPMN_END_EVENT,
+      x: 420,
+      y: 200,
+      width: 36,
+      height: 36,
+      data: { bpmn: { name: '结束' } },
+    })
+    graph.addEdge({ id: 'flow_1', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'start_1' }, target: { cell: 'service_1' } })
+    graph.addEdge({ id: 'flow_2', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'service_1' }, target: { cell: 'end_1' } })
+
+    const customXml = await exportBpmnXml(graph, {
+      processId: 'serviceOrchestration',
+      serialization: customResolved.serialization,
+    })
+    const baseXml = await exportBpmnXml(graph, {
+      processId: 'serviceOrchestration',
+      serialization: baseResolved.serialization,
+    })
+
+    expect(customXml).toContain('<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"')
+    expect(customXml).toContain('<startEvent id="start_1"')
+    expect(customXml).toContain('<serviceTask id="service_1"')
+    expect(customXml).not.toContain('<bpmn:startEvent')
+    expect(customXml).not.toContain('<bpmn:serviceTask')
+
+    const importedCustom = await parseBpmnXml(customXml, { serialization: customResolved.serialization })
+    expect(importedCustom.nodes.find((node) => node.id === 'start_1')?.shape).toBe(BPMN_START_EVENT)
+    expect(importedCustom.nodes.find((node) => node.id === 'service_1')?.shape).toBe(BPMN_SERVICE_TASK)
+    expect(importedCustom.nodes.find((node) => node.id === 'service_1')?.data).toEqual({
+      bpmn: {
+        $attrs: {
+          'smart:class': 'com.example.ServiceDelegation',
+        },
+        $namespaces: {
+          smart: 'http://smartengine.org/schema/process',
+        },
+        name: '调用服务',
+        smartClass: 'com.example.ServiceDelegation',
+        smartProperties: '[{"name":"serviceName","value":"serviceA"}]',
+      },
+    })
+
+    expect(baseXml).toContain('<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"')
+    expect(baseXml).toContain('<bpmn:startEvent id="start_1"')
+    expect(baseXml).toContain('<bpmn:serviceTask id="service_1"')
+  })
+
   it('smartengine-custom 应按 smart 文档导出 serviceTask 的 smart 扩展结构', async () => {
     const graph = createGraph()
     const resolved = createSmartRegistry().compile('smartengine-custom')
@@ -155,6 +234,10 @@ describe('SmartEngine XML roundtrip', () => {
       serialization: resolved.serialization,
     })
 
+    expect(xml).toContain('<startEvent id="start_1"')
+    expect(xml).toContain('<serviceTask id="service_1"')
+    expect(xml).toContain('<serviceTask id="service_2"')
+    expect(xml).not.toContain('<bpmn:startEvent')
     expect(xml).toContain('xmlns:smart="http://smartengine.org/schema/process"')
     expect(xml).toContain('smart:class="com.example.ServiceADelegation"')
     expect(xml).toContain('smart:class="com.example.ServiceBDelegation"')

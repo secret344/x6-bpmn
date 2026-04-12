@@ -28,4 +28,35 @@ test.describe('SmartEngine demo 导出回归', () => {
     expect(exportedXml).toContain('<smart:executionListener')
     expect(exportedXml).not.toContain('<modeler:properties>')
   })
+
+  test('服务编排模式导出 BPMN 标签应省略 bpmn 前缀且仅影响 custom 模式', async ({ page }) => {
+    await page.goto('/')
+
+    await page.getByTestId('smart-mode-custom').click()
+    await page.getByTestId('smart-create-sample-button').click()
+
+    const adaptersTab = page.locator('.arco-tabs-tab').filter({ hasText: '适配器' })
+    await expect(adaptersTab).toBeVisible()
+    await adaptersTab.click()
+    await page.getByTestId('smart-refresh-preview-button').click()
+
+    const preview = page.getByTestId('smart-export-preview')
+    await expect(preview).toContainText('<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"')
+    await expect(preview).toContainText('<startEvent')
+    await expect(preview).toContainText('<serviceTask')
+    await expect(preview).not.toContainText('<bpmn:startEvent')
+
+    await page.getByTestId('smart-export-xml-button').click()
+
+    const exportTextarea = page.locator('.arco-modal textarea').first()
+    await expect(exportTextarea).toBeVisible()
+    const exportedXml = await exportTextarea.inputValue()
+
+    expect(exportedXml).toContain('<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"')
+    expect(exportedXml).toContain('<process id="')
+    expect(exportedXml).toContain('<startEvent')
+    expect(exportedXml).toContain('<serviceTask')
+    expect(exportedXml).not.toContain('<bpmn:startEvent')
+    expect(exportedXml).not.toContain('<bpmn:serviceTask')
+  })
 })

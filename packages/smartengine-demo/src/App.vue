@@ -24,19 +24,19 @@
           <div class="section-title">SmartEngine 模式</div>
           <a-radio-group v-model="selectedMode" direction="vertical" @change="onModeChange">
             <a-radio value="smartengine-base">
-              <div class="mode-option">
+              <div class="mode-option" data-testid="smart-mode-base">
                 <div class="mode-name">🔧 基础模式</div>
                 <div class="mode-desc">完整 BPMN 2.0 + SmartEngine 扩展</div>
               </div>
             </a-radio>
             <a-radio value="smartengine-custom">
-              <div class="mode-option">
+              <div class="mode-option" data-testid="smart-mode-custom">
                 <div class="mode-name">⚙️ 服务编排模式</div>
                 <div class="mode-desc">强化 ServiceTask，禁用人工任务</div>
               </div>
             </a-radio>
             <a-radio value="smartengine-database">
-              <div class="mode-option">
+              <div class="mode-option" data-testid="smart-mode-database">
                 <div class="mode-name">📋 审批工单模式</div>
                 <div class="mode-desc">多实例、审批策略、UserTask 增强</div>
               </div>

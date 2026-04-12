@@ -50,6 +50,9 @@ function injectNamespaces(
 
   let injection = ''
   for (const [prefix, uri] of Object.entries(namespaces)) {
+    if (xmlNames?.useDefaultNamespace && prefix === 'bpmn') {
+      continue
+    }
     const nsAttr = `xmlns:${prefix}=`
     if (!xml.includes(nsAttr)) {
       injection += ` xmlns:${prefix}="${uri}"`

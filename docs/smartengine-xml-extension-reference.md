@@ -24,7 +24,34 @@ The official prefix and URI used during SmartEngine export are:
 
 Note: dialect detection still accepts the legacy URI `http://smartengine.alibaba.com/schema`, but new exports should always use the official URI.
 
-## 3. 宿主字段到 XML 的映射 / Host Field to XML Mapping
+## 3. 服务编排模式的 BPMN 标签前缀 / BPMN Tag Prefix in Custom Mode
+
+`smartengine-custom` 也就是服务编排模式，导出时会把 BPMN 模型命名空间写成默认 `xmlns`，因此 `startEvent`、`serviceTask`、`process`、`sequenceFlow` 这类标准 BPMN 标签不会再带 `bpmn:` 前缀。
+
+`smartengine-custom`, which is the service orchestration mode, exports the BPMN model namespace as the default `xmlns`. As a result, standard BPMN tags such as `startEvent`, `serviceTask`, `process`, and `sequenceFlow` are emitted without the `bpmn:` prefix.
+
+这是服务编排模式的专属导出限制，不影响 `smartengine-base`、`smartengine-database` 或普通 BPMN 2.0 导出；这些模式仍保持 `bpmn:*` 标签前缀。
+
+This is a service-orchestration-specific export rule. It does not affect `smartengine-base`, `smartengine-database`, or plain BPMN 2.0 export; those modes continue to emit `bpmn:*` tags.
+
+示例：
+
+Example:
+
+```xml
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL">
+  <process id="Process_1">
+    <startEvent id="StartEvent_1" />
+    <serviceTask id="ServiceTask_1" smart:class="com.example.ServiceDelegation" />
+  </process>
+</definitions>
+```
+
+如果服务编排模式的导出里仍出现 `<bpmn:startEvent>` 这类标签，优先检查 profile 的 `serialization.xmlNames.useDefaultNamespace` 是否生效，以及导出阶段是否又把 `xmlns:bpmn` 重新注入回根节点。
+
+If the service orchestration export still contains tags such as `<bpmn:startEvent>`, first verify that the profile `serialization.xmlNames.useDefaultNamespace` is active and that the export pipeline did not inject `xmlns:bpmn` back onto the root element.
+
+## 4. 宿主字段到 XML 的映射 / Host Field to XML Mapping
 
 宿主侧应把 SmartEngine 数据放在节点的 `data.bpmn` 下。字段名和 XML 输出的对应关系如下：
 
@@ -40,7 +67,7 @@ Hosts should store SmartEngine data under node `data.bpmn`. The mapping between 
 
 `smartProperties` and `smartExecutionListeners` are host-side data-model field names, not XML element names. The exported XML must use `smart:*` extension elements.
 
-## 4. 当前支持的 Smart 节点类别 / Supported Smart Node Categories
+## 5. 当前支持的 Smart 节点类别 / Supported Smart Node Categories
 
 当前内置 SmartEngine profile 会对下列 BPMN 节点应用 Smart 序列化规则：
 
@@ -57,7 +84,7 @@ The built-in SmartEngine profile currently applies Smart serialization rules to 
 
 `userTask` does not export `smart:class`, but its `smartProperties` and `smartExecutionListeners` must still be serialized as `smart:*` extensions instead of the generic extension container.
 
-## 5. 回退规则 / Fallback Rules
+## 6. 回退规则 / Fallback Rules
 
 `modeler:properties` 是通用扩展属性容器，只应用在没有专用 profile 序列化器接管的普通扩展字段上。
 
@@ -77,7 +104,7 @@ For SmartEngine-specific fields, the rule is:
 3. `smartExecutionListeners` must serialize only as `smart:executionListener`.
 4. If the export result places those Smart fields under `modeler:properties`, the node did not go through the Smart serializer. Check the profile `nodeSerializers` configuration first.
 
-## 6. 参考示例 / Reference Example
+## 7. 参考示例 / Reference Example
 
 下面这段 XML 体现了正确的 SmartEngine 导出结构：
 
@@ -98,7 +125,7 @@ The snippet below shows the correct SmartEngine export structure:
 
 If this turns into `modeler:properties`, that is not a SmartEngine documentation requirement. It means the implementation fell back to the generic extension path.
 
-## 7. 回归验证命令 / Regression Verification Commands
+## 8. 回归验证命令 / Regression Verification Commands
 
 和这条规则直接相关的回归验证命令如下：
 

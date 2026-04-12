@@ -287,7 +287,7 @@ export interface SerializationSet {
   /** 通用扩展属性的命名空间与标签配置；传入 false 可显式关闭。 */
   extensionProperties?: ExtensionPropertySerialization | false
   /** BPMN XML 名称规则，如前缀、本地名接受策略与特殊构造模式。 */
-  xmlNames?: BpmnXmlNameSettings
+  xmlNames?: Partial<BpmnXmlNameSettings>
   /** 节点 shape → BPMN 节点映射 */
   nodeMapping: Record<string, BpmnNodeMapping>
   /** 边 shape → BPMN 边映射 */

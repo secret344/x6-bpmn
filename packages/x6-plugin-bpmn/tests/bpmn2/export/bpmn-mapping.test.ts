@@ -341,21 +341,26 @@ describe('BPMN XML 名称工具', () => {
   it('应解析并合并默认 XML 名称配置', () => {
     const resolved = resolveBpmnXmlNameSettings()
     const customized = resolveBpmnXmlNameSettings({
+      useDefaultNamespace: true,
       acceptedTagPrefixes: ['', 'flow'],
       moddleNames: { task: 'flow:Task' },
       createModes: { formalExpression: 'create' },
     })
     const merged = mergeBpmnXmlNameSettings(resolved, {
+      useDefaultNamespace: true,
       moddleNames: { task: 'bpmn:Task' },
       createModes: { formalExpression: 'create' },
     })
 
     expect(resolved.acceptedTagPrefixes).toEqual(['*'])
+    expect(resolved.useDefaultNamespace).toBe(false)
     expect(customized.acceptedTagPrefixes).toEqual(['', 'flow'])
+    expect(customized.useDefaultNamespace).toBe(true)
     expect(customized.moddleNames).toBeDefined()
     expect(customized.createModes).toBeDefined()
     expect(merged?.moddleNames).toBeDefined()
     expect(merged?.createModes).toBeDefined()
+    expect(merged?.useDefaultNamespace).toBe(true)
     expect(customized.moddleNames?.task).toBe('flow:Task')
     expect(customized.createModes?.formalExpression).toBe('create')
     expect(merged?.moddleNames?.task).toBe('bpmn:Task')
@@ -367,6 +372,7 @@ describe('BPMN XML 名称工具', () => {
     const cloned = cloneBpmnXmlNameSettings({
       moddlePrefix: 'bpmn',
       namespaceUri: 'http://www.omg.org/spec/BPMN/20100524/MODEL',
+      useDefaultNamespace: true,
     })
     const parentOnly = mergeBpmnXmlNameSettings(DEFAULT_BPMN_XML_NAME_SETTINGS)
     const mergedWithoutCreateModes = mergeBpmnXmlNameSettings(DEFAULT_BPMN_XML_NAME_SETTINGS, {
@@ -375,8 +381,10 @@ describe('BPMN XML 名称工具', () => {
 
     expect(cloneBpmnXmlNameSettings()).toBeUndefined()
     expect(mergeBpmnXmlNameSettings()).toBeUndefined()
-    expect(cloned?.acceptedTagPrefixes).toBeUndefined()
+    expect(cloned?.acceptedTagPrefixes).toEqual(['*'])
+    expect(cloned?.useDefaultNamespace).toBe(true)
     expect(parentOnly?.acceptedTagPrefixes).toEqual(['*'])
+    expect(parentOnly?.useDefaultNamespace).toBe(false)
     expect(mergedWithoutCreateModes?.createModes).toBeDefined()
     expect(mergedWithoutCreateModes?.moddleNames).toBeDefined()
     expect(mergedWithoutCreateModes?.createModes?.multipleEventDefinition).toBe('createAny')
