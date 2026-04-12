@@ -1,602 +1,385 @@
+/**
+ * 泳道交互策略
+ *
+ * 控制 Pool / Lane 的交互行为：
+ * - Lane 不允许拖拽移动（只允许 resize），参照 pool.md 明确约束
+ * - Pool 不允许内嵌到其他节点
+ * - 泳道节点的 translating.restrict 约束
+ *
+ * Swimlane interaction policy
+ *
+ * Controls Pool/Lane interaction:
+ * - Lane is non-movable (resize only)
+ * - Pool cannot embed into other nodes
+ * - Translating restrictions for swimlane nodes
+ */
+
 import type { Cell, Graph, Node } from '@antv/x6'
-import { isBoundaryShape, isSwimlaneShape } from '../export/bpmn-mapping'
-import { defaultIsValidHostForBoundary } from './boundary-attach'
-import { resolveSwimlaneIsHorizontal } from '../shapes/swimlane-presentation'
-import { BPMN_LANE, BPMN_POOL } from '../utils/constants'
-import { nodeRect, type Rect } from './swimlane-layout'
-import { findContainingSwimlane, getAncestorPool } from '../core/swimlane-membership'
+import { isLaneShape, isPoolShape, isSwimlaneShape, isBoundaryShape } from '../export/bpmn-mapping'
+import { LANE_INDENTATION, nodeRect } from './swimlane-layout'
+import type { Rect } from './geometry'
 
-const SWIMLANE_HEADER_SIZE = 30
+// ============================================================================
+// 节点分类
+// ============================================================================
 
-type Interactable = boolean | ((cellView: unknown) => boolean)
-
-interface InteractionMap {
-  nodeMovable?: Interactable
-  [key: string]: unknown
+/**
+ * 判断指定图形是否为可被 Pool/Lane 包含的流程节点。
+ *
+ * 排除泳道自身（Pool / Lane）和边界事件。
+ */
+export function isContainedFlowNode(shape: string): boolean {
+  if (isSwimlaneShape(shape)) return false
+  if (isBoundaryShape(shape)) return false
+  return true
 }
 
-type CellViewInteracting =
+// ============================================================================
+// Lane 移动禁止
+// ============================================================================
+
+type InteractingValue =
   | boolean
-  | InteractionMap
-  | ((cellView: unknown) => InteractionMap | boolean)
+  | Record<string, unknown>
+  | ((cellView: { cell?: { shape?: string } }) => boolean | Record<string, unknown>)
+  | null
+  | undefined
 
-type RestrictResolver = (this: Graph, cellView: unknown) => Rect | number | null
+/**
+ * 注入 Lane 不可移动策略到 graph.options.interacting。
+ *
+ * 替换 graph.options.interacting 为一个包装函数：
+ * - 对 Lane 节点返回 { nodeMovable: false }（或合并到原始 InteractionMap）
+ * - 对非 Lane 节点委托给原始 interacting 行为
+ */
+export function patchLaneInteracting(
+  graph: Graph,
+  original: InteractingValue,
+): void {
+  if (!graph.options) return
 
-interface TranslatingMap {
-  restrict?: boolean | number | Rect | RestrictResolver | null
-  [key: string]: unknown
+  graph.options.interacting = (cellView: { cell?: { shape?: string } }) => {
+    // 安全回退：cellView 异常时返回原始行为
+    const shape = cellView?.cell?.shape
+    if (!shape) {
+      return resolveOriginal(original, cellView)
+    }
+
+    // Lane 节点：禁止移动
+    if (isLaneShape(shape)) {
+      // 如果原始行为为 false，保持 false（完全禁止交互）
+      const resolved = resolveOriginal(original, cellView)
+      if (resolved === false) return false
+
+      // 合并到原始 InteractionMap（保留其他交互属性）
+      if (typeof resolved === 'object' && resolved !== null) {
+        return { ...resolved, nodeMovable: false }
+      }
+
+      return { nodeMovable: false }
+    }
+
+    // 非 Lane 节点：委托给原始行为
+    return resolveOriginal(original, cellView)
+  }
 }
 
-type EmbeddingFindParentArgs = {
-  node: Node
-  view?: unknown
+/**
+ * 恢复原始 interacting 配置。
+ */
+export function restoreLaneInteracting(
+  graph: Graph,
+  original: InteractingValue,
+): void {
+  if (!graph.options) return
+  graph.options.interacting = original as Graph['options']['interacting']
 }
 
-type EmbeddingFindParent =
-  | 'bbox'
-  | 'center'
-  | 'topLeft'
-  | 'topRight'
-  | 'bottomLeft'
-  | 'bottomRight'
-  | ((this: Graph, args: EmbeddingFindParentArgs) => Cell[])
+// ============================================================================
+// 完整泳道策略安装
+// ============================================================================
 
-type EmbeddingValidateArgs = {
-  child: Node
-  parent: Node
-  childView?: unknown
-  parentView?: unknown
-}
+/**
+ * 安装完整泳道策略。
+ *
+ * 包含：
+ * - Lane 不可移动
+ * - translating.restrict 约束节点在容器内移动
+ */
+export function setupSwimlanePolicy(
+  graph: Graph,
+): () => void {
+  const originalInteracting = graph.options?.interacting
+  const originalTranslating = graph.options?.translating
+  const originalRestrict =
+    typeof originalTranslating === 'object' && originalTranslating
+      ? originalTranslating.restrict
+      : undefined
 
-type EmbeddingValidate = (this: Graph, args: EmbeddingValidateArgs) => boolean
+  // 注入 Lane 不可移动
+  patchLaneInteracting(graph, originalInteracting as InteractingValue)
 
-interface EmbeddingMap {
-  enabled?: boolean
-  findParent?: EmbeddingFindParent
-  validate?: EmbeddingValidate
-  [key: string]: unknown
-}
+  // 注入 translating.restrict（限制节点在容器区域内移动）
+  if (graph.options) {
+    graph.options.translating = {
+      ...((typeof originalTranslating === 'object' && originalTranslating) || {}),
+      restrict(this: any, cellView: any) {
+        const swimlaneRestrict = resolveSwimlaneRestrictArea(this as Graph, cellView)
+        const inheritedRestrict = resolveOriginalRestrictArea(
+          this as Graph,
+          originalRestrict,
+          cellView,
+        )
 
-type GraphWithOptions = Graph & {
-  options?: Record<string, unknown>
-  container?: HTMLElement | null
-  getSelectedCells?: () => Cell[]
-  getNodesUnderNode?: (node: Node, options?: { by?: string }) => Node[]
-}
-
-export interface SwimlanePolicyOptions {
-  isContainedNode?: (shape: string) => boolean
-}
-
-function area(rect: Rect): number {
-  return rect.width * rect.height
-}
-
-function rectRight(rect: Rect): number {
-  return rect.x + rect.width
-}
-
-function rectBottom(rect: Rect): number {
-  return rect.y + rect.height
-}
-
-function containsRect(outer: Rect, inner: Rect): boolean {
-  return (
-    inner.x >= outer.x &&
-    inner.y >= outer.y &&
-    rectRight(inner) <= rectRight(outer) &&
-    rectBottom(inner) <= rectBottom(outer)
-  )
-}
-
-function overlapsRect(left: Rect, right: Rect): boolean {
-  return (
-    left.x < rectRight(right) &&
-    rectRight(left) > right.x &&
-    left.y < rectBottom(right) &&
-    rectBottom(left) > right.y
-  )
-}
-
-function intersectRects(left: Rect, right: Rect): Rect | null {
-  const x = Math.max(left.x, right.x)
-  const y = Math.max(left.y, right.y)
-  const width = Math.min(rectRight(left), rectRight(right)) - x
-  const height = Math.min(rectBottom(left), rectBottom(right)) - y
-
-  if (width < 0 || height < 0) {
-    return null
+        return intersectRestrictArea(swimlaneRestrict, inheritedRestrict)
+          ?? swimlaneRestrict
+          ?? inheritedRestrict
+          ?? null
+      },
+    }
   }
 
-  return { x, y, width, height }
-}
-
-function unionRects(rects: Rect[]): Rect | null {
-  const x = Math.min(...rects.map((rect) => rect.x))
-  const y = Math.min(...rects.map((rect) => rect.y))
-  const right = Math.max(...rects.map((rect) => rectRight(rect)))
-  const bottom = Math.max(...rects.map((rect) => rectBottom(rect)))
-  return { x, y, width: right - x, height: bottom - y }
-}
-
-function isRectLike(value: unknown): value is Rect {
-  if (!value || typeof value !== 'object') {
-    return false
+  return () => {
+    restoreLaneInteracting(graph, originalInteracting as InteractingValue)
+    if (graph.options) {
+      graph.options.translating = originalTranslating
+    }
   }
-
-  const candidate = value as Partial<Rect>
-  return (
-    typeof candidate.x === 'number' &&
-    typeof candidate.y === 'number' &&
-    typeof candidate.width === 'number' &&
-    typeof candidate.height === 'number'
-  )
 }
 
-function isHorizontalSwimlane(node: Node): boolean {
-  try {
-    return resolveSwimlaneIsHorizontal(node.getData?.(), node.getSize())
-  } catch {
+// ============================================================================
+// 辅助：解析原始 interacting 值
+// ============================================================================
+
+function resolveOriginal(
+  original: InteractingValue,
+  cellView: { cell?: { shape?: string } },
+): boolean | Record<string, unknown> {
+  if (original === null || original === undefined) {
     return true
   }
+  if (typeof original === 'boolean') {
+    return original
+  }
+  if (typeof original === 'function') {
+    return original(cellView) as boolean | Record<string, unknown>
+  }
+  if (typeof original === 'object') {
+    return { ...original }
+  }
+  return true
 }
 
-function getSwimlaneContentRect(node: Node): Rect {
-  const rect = nodeRect(node)
-  if (isHorizontalSwimlane(node)) {
-    return {
-      x: rect.x + SWIMLANE_HEADER_SIZE,
-      y: rect.y,
-      width: Math.max(0, rect.width - SWIMLANE_HEADER_SIZE),
-      height: rect.height,
-    }
+function resolveSwimlaneRestrictArea(
+  graph: Graph,
+  cellView: { cell?: unknown } | null | undefined,
+): Rect | null {
+  const cell = cellView?.cell
+  if (cell && isNodeLike(cell)) {
+    return resolveNodeRestrictArea(cell as Node)
   }
 
-  return {
-    x: rect.x,
-    y: rect.y + SWIMLANE_HEADER_SIZE,
-    width: rect.width,
-    height: Math.max(0, rect.height - SWIMLANE_HEADER_SIZE),
-  }
+  return resolveSelectionRestrictArea(graph)
 }
 
-function getGraphBounds(graph: Graph): Rect | null {
-  const graphWithOptions = graph as GraphWithOptions
-  const optionWidth = graphWithOptions.options?.width
-  const optionHeight = graphWithOptions.options?.height
-  const width = typeof optionWidth === 'number' ? optionWidth : graphWithOptions.container?.clientWidth
-  const height = typeof optionHeight === 'number' ? optionHeight : graphWithOptions.container?.clientHeight
-
-  if (typeof width !== 'number' || typeof height !== 'number') {
+function resolveOriginalRestrictArea(
+  graph: Graph,
+  originalRestrict: unknown,
+  cellView: { cell?: unknown } | null | undefined,
+): Rect | null {
+  if (!originalRestrict) {
     return null
   }
 
-  return { x: 0, y: 0, width, height }
-}
+  const inherited =
+    typeof originalRestrict === 'function'
+      ? originalRestrict.call(graph, cellView)
+      : originalRestrict
 
-function getGraphNodes(graph: Graph): Node[] {
-  try {
-    return graph.getNodes()
-  } catch {
-    return []
-  }
-}
-
-export function isContainedFlowNode(shape: string): boolean {
-  return !isSwimlaneShape(shape) && !isBoundaryShape(shape)
-}
-
-function resolveOriginalInteracting(
-  prev: CellViewInteracting | undefined,
-  cellView: unknown,
-): InteractionMap | boolean {
-  if (prev === undefined || prev === null) return true
-  if (typeof prev === 'function') return prev(cellView)
-  return prev
-}
-
-export function patchLaneInteracting(graph: Graph, original: unknown): void {
-  const opts = (graph as GraphWithOptions).options
-  if (!opts) return
-
-  const prev = original as CellViewInteracting | undefined
-
-  opts.interacting = function laneAwareInteracting(cellView: unknown): InteractionMap | boolean {
-    const cell =
-      cellView && typeof cellView === 'object'
-        ? (cellView as { cell?: { shape?: string } }).cell
-        : undefined
-
-    if (cell?.shape === BPMN_LANE) {
-      const base = resolveOriginalInteracting(prev, cellView)
-      if (typeof base === 'boolean') {
-        return base ? { nodeMovable: false } : false
-      }
-      return { ...base, nodeMovable: false }
-    }
-
-    return resolveOriginalInteracting(prev, cellView)
-  }
-}
-
-export function restoreLaneInteracting(graph: Graph, original: unknown): void {
-  const opts = (graph as GraphWithOptions).options
-  if (!opts) return
-
-  if (original === undefined) {
-    delete (opts as { interacting?: CellViewInteracting }).interacting
-    return
+  if (!inherited || typeof inherited === 'boolean' || typeof inherited === 'number') {
+    return null
   }
 
-  opts.interacting = original as CellViewInteracting
+  return isRectLike(inherited) ? inherited : null
 }
 
-function getSelectedNodes(graph: Graph): Node[] {
-  const graphWithOptions = graph as GraphWithOptions
-  if (typeof graphWithOptions.getSelectedCells !== 'function') {
-    return []
+function resolveNodeRestrictArea(node: Node): Rect | null {
+  if (isLaneShape(node.shape)) {
+    return nodeRect(node)
   }
 
-  try {
-    return graphWithOptions
-      .getSelectedCells()
-      .filter((cell) => cell.isNode?.()) as Node[]
-  } catch {
-    return []
+  if (isPoolShape(node.shape) || !isContainedFlowNode(node.shape)) {
+    return null
   }
-}
 
-function getNodeUnionRect(nodes: Node[]): Rect | null {
-  return unionRects(nodes.map((node) => nodeRect(node)))
-}
-
-function getOwningPool(graph: Graph, node: Node): Node | null {
-  const ancestorPool = getAncestorPool(node)
+  const ancestorPool = findAncestorPool(node)
   if (ancestorPool) {
-    return ancestorPool
+    return getContainmentRect(ancestorPool)
   }
 
-  const container = findContainingSwimlane(graph, node, node.id)
-  if (!container) {
-    return null
-  }
-
-  return container.shape === BPMN_POOL ? container : getAncestorPool(container)
+  const swimlaneParent = findSwimlaneParent(node)
+  return swimlaneParent ? getContainmentRect(swimlaneParent) : null
 }
 
-function resolveNodeRestrictArea(
-  graph: Graph,
-  node: Node,
-  isContainedNode: (shape: string) => boolean,
-): Rect | null {
-  if (node.shape === BPMN_LANE) {
-    return nodeRect(node)
-  }
+function resolveSelectionRestrictArea(graph: Graph): Rect | null {
+  const selectedCells = (graph as Graph & { getSelectedCells?: () => Cell[] }).getSelectedCells?.() ?? []
+  const selectedNodes = selectedCells.filter((cell): cell is Node => cell.isNode())
 
-  if (node.shape === BPMN_POOL) {
-    return null
-  }
-
-  if (!isContainedNode(node.shape)) {
-    return null
-  }
-
-  const owningPool = getOwningPool(graph, node)
-  if (!owningPool) {
-    return nodeRect(node)
-  }
-
-  return getSwimlaneContentRect(owningPool)
-}
-
-function resolveSelectionRestrictArea(
-  graph: Graph,
-  isContainedNode: (shape: string) => boolean,
-): Rect | null {
-  const selectedNodes = getSelectedNodes(graph)
   if (selectedNodes.length === 0) {
     return null
   }
 
-  if (selectedNodes.some((node) => node.shape === BPMN_LANE)) {
-    return getNodeUnionRect(selectedNodes)
+  if (selectedNodes.some((node) => isLaneShape(node.shape))) {
+    return getNodesUnionRect(selectedNodes)
   }
 
-  if (selectedNodes.some((node) => node.shape === BPMN_POOL)) {
+  if (selectedNodes.some((node) => isPoolShape(node.shape))) {
     return null
   }
 
-  const managedNodes = selectedNodes.filter((node) => isContainedNode(node.shape))
-  if (managedNodes.length === 0) {
+  if (!selectedNodes.every((node) => isContainedFlowNode(node.shape))) {
     return null
   }
 
-  const poolIds = new Set<string>()
-  let onlyPool: Node | null = null
-
-  for (const node of managedNodes) {
-    const pool = getOwningPool(graph, node)
-    if (!pool) {
-      return getNodeUnionRect(selectedNodes)
+  const firstPool = findAncestorPool(selectedNodes[0])
+  if (firstPool) {
+    for (const node of selectedNodes.slice(1)) {
+      const currentPool = findAncestorPool(node)
+      if (!currentPool || currentPool.id !== firstPool.id) {
+        return null
+      }
     }
 
-    poolIds.add(pool.id)
-    if (!onlyPool) {
-      onlyPool = pool
+    return getContainmentRect(firstPool)
+  }
+
+  const firstParent = findSwimlaneParent(selectedNodes[0])
+  if (!firstParent) {
+    return null
+  }
+
+  for (const node of selectedNodes.slice(1)) {
+    const currentParent = findSwimlaneParent(node)
+    if (!currentParent || currentParent.id !== firstParent.id) {
+      return null
     }
   }
 
-  if (poolIds.size !== 1 || !onlyPool) {
-    return getNodeUnionRect(selectedNodes)
-  }
-
-  return getSwimlaneContentRect(onlyPool)
+  return getContainmentRect(firstParent)
 }
 
-function normalizeRestrictArea(graph: Graph, areaValue: unknown): Rect | number | null {
-  if (isRectLike(areaValue) || typeof areaValue === 'number') {
-    return areaValue
-  }
+function findAncestorPool(node: Node): Node | null {
+  let current: Cell | null = node.getParent()
 
-  if (areaValue === true) {
-    return getGraphBounds(graph)
+  while (current) {
+    if (current.isNode() && isPoolShape((current as Node).shape)) {
+      return current as Node
+    }
+    current = current.getParent()
   }
 
   return null
 }
 
-function mergeRestrictArea(graph: Graph, originalArea: unknown, bpmnArea: Rect | null): Rect | number | null {
-  if (!bpmnArea) {
-    return normalizeRestrictArea(graph, originalArea)
+function findSwimlaneParent(node: Node): Node | null {
+  let current: Cell | null = node.getParent()
+
+  while (current) {
+    if (current.isNode() && isSwimlaneShape((current as Node).shape)) {
+      return current as Node
+    }
+    current = current.getParent()
   }
 
-  if (isRectLike(originalArea)) {
-    return intersectRects(originalArea, bpmnArea) ?? bpmnArea
-  }
-
-  return bpmnArea
+  return null
 }
 
-function resolveOriginalRestrictArea(
-  graph: Graph,
-  original: TranslatingMap['restrict'],
-  cellView: unknown,
-): unknown {
-  if (typeof original === 'function') {
-    return original.call(graph, cellView)
-  }
-
-  return original
-}
-
-export function patchTranslatingRestrict(
-  graph: Graph,
-  original: unknown,
-  isContainedNode: (shape: string) => boolean,
-): void {
-  const opts = (graph as GraphWithOptions).options
-  if (!opts) return
-
-  const previous = original && typeof original === 'object' ? (original as TranslatingMap) : {}
-  const previousRestrict = previous.restrict
-
-  ;(opts as unknown as { translating?: TranslatingMap }).translating = {
-    ...previous,
-    restrict(this: Graph, cellView: unknown) {
-      const viewCell = cellView && typeof cellView === 'object'
-        ? ((cellView as { cell?: Cell }).cell as Node | undefined)
-        : undefined
-      const bpmnArea = viewCell
-        ? resolveNodeRestrictArea(graph, viewCell, isContainedNode)
-        : resolveSelectionRestrictArea(graph, isContainedNode)
-      const originalArea = resolveOriginalRestrictArea(graph, previousRestrict, cellView)
-      return mergeRestrictArea(graph, originalArea, bpmnArea)
-    },
-  }
-}
-
-export function restoreTranslatingRestrict(graph: Graph, original: unknown): void {
-  const opts = (graph as GraphWithOptions).options
-  if (!opts) return
-
-  if (original === undefined) {
-    delete (opts as unknown as { translating?: TranslatingMap }).translating
-    return
-  }
-
-  ;(opts as unknown as { translating?: TranslatingMap }).translating = original as TranslatingMap
-}
-
-function resolveDefaultEmbeddingCandidates(graph: Graph, node: Node): Cell[] {
-  const graphWithOptions = graph as GraphWithOptions
-  if (typeof graphWithOptions.getNodesUnderNode === 'function') {
-    try {
-      return graphWithOptions.getNodesUnderNode(node, { by: 'bbox' })
-    } catch {
-      // 失败时退回基础遍历。
+function getContainmentRect(container: Node): Rect {
+  if (isPoolShape(container.shape)) {
+    const rect = nodeRect(container)
+    return {
+      x: rect.x + LANE_INDENTATION,
+      y: rect.y,
+      width: Math.max(0, rect.width - LANE_INDENTATION),
+      height: rect.height,
     }
   }
 
-  const rect = nodeRect(node)
-  return getGraphNodes(graph)
-    .filter((candidate) => candidate.id !== node.id)
-    .filter((candidate) => overlapsRect(nodeRect(candidate), rect))
+  return nodeRect(container)
 }
 
-function resolveOriginalFindParent(
-  graph: Graph,
-  original: EmbeddingMap['findParent'],
-  args: EmbeddingFindParentArgs,
-): Cell[] {
-  if (typeof original === 'function') {
-    return original.call(graph, args)
-  }
-
-  if (typeof original === 'string') {
-    const graphWithOptions = graph as GraphWithOptions
-    if (typeof graphWithOptions.getNodesUnderNode === 'function') {
-      try {
-        return graphWithOptions.getNodesUnderNode(args.node, { by: original })
-      } catch {
-        return resolveDefaultEmbeddingCandidates(graph, args.node)
-      }
-    }
-  }
-
-  return resolveDefaultEmbeddingCandidates(graph, args.node)
-}
-
-function resolveBpmnEmbeddingCandidates(
-  graph: Graph,
-  node: Node,
-  isContainedNode: (shape: string) => boolean,
-): Cell[] | null {
-  if (node.shape === BPMN_POOL) {
-    return []
-  }
-
-  const rect = nodeRect(node)
-
-  if (node.shape === BPMN_LANE) {
-    return getGraphNodes(graph)
-      .filter((candidate) => candidate.shape === BPMN_POOL)
-      .filter((candidate) => containsRect(getSwimlaneContentRect(candidate), rect))
-      .sort((left, right) => area(nodeRect(left)) - area(nodeRect(right)))
-  }
-
-  if (isBoundaryShape(node.shape)) {
-    return resolveDefaultEmbeddingCandidates(graph, node)
-  }
-
-  if (!isContainedNode(node.shape)) {
+function getNodesUnionRect(nodes: Node[]): Rect | null {
+  if (nodes.length === 0) {
     return null
   }
 
-  return getGraphNodes(graph)
-    .filter((candidate) => isSwimlaneShape(candidate.shape))
-    .filter((candidate) => candidate.id !== node.id)
-    .filter((candidate) => containsRect(nodeRect(candidate), rect))
-    .sort((left, right) => area(nodeRect(left)) - area(nodeRect(right)))
-}
+  let left = Number.POSITIVE_INFINITY
+  let top = Number.POSITIVE_INFINITY
+  let right = Number.NEGATIVE_INFINITY
+  let bottom = Number.NEGATIVE_INFINITY
 
-function mergeEmbeddingCandidates(primary: Cell[] | null, fallback: Cell[]): Cell[] {
-  if (primary === null) {
-    return fallback
+  for (const node of nodes) {
+    const rect = nodeRect(node)
+    left = Math.min(left, rect.x)
+    top = Math.min(top, rect.y)
+    right = Math.max(right, rect.x + rect.width)
+    bottom = Math.max(bottom, rect.y + rect.height)
   }
 
-  const merged: Cell[] = []
-  const seen = new Set<string>()
-
-  for (const candidate of [...primary, ...fallback]) {
-    if (seen.has(candidate.id)) continue
-    seen.add(candidate.id)
-    merged.push(candidate)
-  }
-
-  return merged
-}
-
-function resolveOriginalEmbeddingValidate(
-  graph: Graph,
-  original: EmbeddingMap['validate'],
-  args: EmbeddingValidateArgs,
-): boolean {
-  if (typeof original === 'function') {
-    return original.call(graph, args)
-  }
-
-  return true
-}
-
-function resolveBpmnEmbeddingValidate(
-  child: Node,
-  parent: Node,
-  isContainedNode: (shape: string) => boolean,
-): boolean | undefined {
-  if (child.shape === BPMN_POOL) {
-    return false
-  }
-
-  if (child.shape === BPMN_LANE) {
-    return parent.shape === BPMN_POOL
-  }
-
-  if (isBoundaryShape(child.shape)) {
-    return defaultIsValidHostForBoundary(parent.shape, child.shape)
-  }
-
-  if (isContainedNode(child.shape)) {
-    return isSwimlaneShape(parent.shape)
-  }
-
-  return undefined
-}
-
-export function patchEmbeddingOptions(
-  graph: Graph,
-  original: unknown,
-  isContainedNode: (shape: string) => boolean,
-): void {
-  const opts = (graph as GraphWithOptions).options
-  if (!opts) return
-
-  const previous = original && typeof original === 'object' ? (original as EmbeddingMap) : {}
-  const previousFindParent = previous.findParent
-  const previousValidate = previous.validate
-
-  ;(opts as unknown as { embedding?: EmbeddingMap }).embedding = {
-    ...previous,
-    enabled: true,
-    findParent(this: Graph, args: EmbeddingFindParentArgs) {
-      const fallback = resolveOriginalFindParent(graph, previousFindParent, args)
-      const bpmn = resolveBpmnEmbeddingCandidates(graph, args.node, isContainedNode)
-      return mergeEmbeddingCandidates(bpmn, fallback)
-    },
-    validate(this: Graph, args: EmbeddingValidateArgs) {
-      const bpmnResult = resolveBpmnEmbeddingValidate(args.child, args.parent, isContainedNode)
-      if (bpmnResult === false) {
-        return false
-      }
-
-      const originalResult = resolveOriginalEmbeddingValidate(graph, previousValidate, args)
-      if (!originalResult) {
-        return false
-      }
-
-      return bpmnResult ?? originalResult
-    },
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
   }
 }
 
-export function restoreEmbeddingOptions(graph: Graph, original: unknown): void {
-  const opts = (graph as GraphWithOptions).options
-  if (!opts) return
-
-  if (original === undefined) {
-    delete (opts as unknown as { embedding?: EmbeddingMap }).embedding
-    return
+function intersectRestrictArea(left: Rect | null, right: Rect | null): Rect | null {
+  if (!left || !right) {
+    return null
   }
 
-  ;(opts as unknown as { embedding?: EmbeddingMap }).embedding = original as EmbeddingMap
+  const nextLeft = Math.max(left.x, right.x)
+  const nextTop = Math.max(left.y, right.y)
+  const nextRight = Math.min(left.x + left.width, right.x + right.width)
+  const nextBottom = Math.min(left.y + left.height, right.y + right.height)
+
+  return {
+    x: nextLeft,
+    y: nextTop,
+    width: Math.max(0, nextRight - nextLeft),
+    height: Math.max(0, nextBottom - nextTop),
+  }
 }
 
-export function setupSwimlanePolicy(
-  graph: Graph,
-  options: SwimlanePolicyOptions = {},
-): () => void {
-  const graphOptions = (graph as GraphWithOptions).options
-  const isContainedNode = options.isContainedNode ?? isContainedFlowNode
-  const originalInteracting = graphOptions?.interacting
-  const originalTranslating = graphOptions?.translating
-  const originalEmbedding = graphOptions?.embedding
+function isNodeLike(value: unknown): value is Node {
+  return Boolean(
+    value
+      && typeof value === 'object'
+      && typeof (value as Node).getPosition === 'function'
+      && typeof (value as Node).getSize === 'function',
+  )
+}
 
-  patchLaneInteracting(graph, originalInteracting)
-  patchTranslatingRestrict(graph, originalTranslating, isContainedNode)
-  patchEmbeddingOptions(graph, originalEmbedding, isContainedNode)
+function isRectLike(value: unknown): value is Rect {
+  return Boolean(
+    value
+      && typeof value === 'object'
+      && typeof (value as Rect).x === 'number'
+      && typeof (value as Rect).y === 'number'
+      && typeof (value as Rect).width === 'number'
+      && typeof (value as Rect).height === 'number',
+  )
+}
 
-  return () => {
-    restoreEmbeddingOptions(graph, originalEmbedding)
-    restoreTranslatingRestrict(graph, originalTranslating)
-    restoreLaneInteracting(graph, originalInteracting)
-  }
+export const __test__ = {
+  resolveSwimlaneRestrictArea,
+  resolveOriginalRestrictArea,
+  resolveNodeRestrictArea,
+  resolveSelectionRestrictArea,
+  findAncestorPool,
+  findSwimlaneParent,
+  getContainmentRect,
+  getNodesUnionRect,
+  intersectRestrictArea,
 }

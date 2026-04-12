@@ -1,21 +1,20 @@
 /**
  * Lane 管理行为 — 单元测试
  *
- * 验证添加 Lane、无间隙布局与 Lane resize 同步相邻 Lane 的正确性。
+ * 验证添加 Lane、无间隙布局的正确性。
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   addLaneToPool,
   addLaneAbove,
   addLaneBelow,
   compactLaneLayout,
-  reconcileLaneResize,
-  setupLaneManagement,
 } from '../../../src/behaviors/lane-management'
 import {
   BPMN_LANE,
   BPMN_POOL,
+  BPMN_USER_TASK,
 } from '../../../src/utils/constants'
 
 // ============================================================================
@@ -34,12 +33,14 @@ function createMockNode(
   let position = { x, y }
   let size = { width, height }
   let parent: any = null
+  const children: any[] = []
 
   const self: any = {
     id,
     shape,
     getPosition: () => ({ ...position }),
     getSize: () => ({ ...size }),
+    getChildren: () => children.slice(),
     setPosition: vi.fn((nextX: number, nextY: number) => {
       position = { x: nextX, y: nextY }
     }),
@@ -52,9 +53,16 @@ function createMockNode(
     getParent: () => parent,
     getBBox: () => ({ x: position.x, y: position.y, width: size.width, height: size.height }),
     embed: vi.fn((child: any) => {
+      if (!children.includes(child)) {
+        children.push(child)
+      }
       child.__setParent(self)
     }),
     unembed: vi.fn((child: any) => {
+      const index = children.indexOf(child)
+      if (index >= 0) {
+        children.splice(index, 1)
+      }
       child.__setParent(null)
     }),
     remove: vi.fn(),
@@ -266,39 +274,6 @@ describe('addLaneToPool', () => {
     expect(addedConfig.height).toBe(250)
   })
 
-  it('垂直 Pool 空间不足时应向右追加 Lane 并扩展 Pool 宽度', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 200, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 150, 370, verticalData)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    addLaneToPool(graph as any, pool)
-
-    const addedConfig = graph.addNode.mock.calls[0][0]
-    expect(pool.resize).toHaveBeenCalledWith(275, 400, { bpmnLayout: true })
-    expect(addedConfig.x).toBe(190)
-    expect(addedConfig.y).toBe(70)
-    expect(addedConfig.width).toBe(125)
-    expect(addedConfig.height).toBe(370)
-  })
-
-  it('垂直 Pool 剩余空间足够时应直接在右侧追加 Lane', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 100, 370, verticalData)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    addLaneToPool(graph as any, pool)
-
-    expect(pool.resize).not.toHaveBeenCalled()
-    const addedConfig = graph.addNode.mock.calls[0][0]
-    expect(addedConfig.x).toBe(140)
-    expect(addedConfig.y).toBe(70)
-    expect(addedConfig.width).toBe(125)
-    expect(addedConfig.height).toBe(370)
-  })
 })
 
 // ============================================================================
@@ -367,34 +342,7 @@ describe('compactLaneLayout', () => {
     expect(poolSize.height).toBeGreaterThanOrEqual(180) // 3 × 60
   })
 
-  it('垂直布局 Lane 总宽度超出 Pool 时应扩展 Pool', () => {
-    // 垂直 Pool: 内容区顶部为 HEADER, Lane 横向堆叠
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 100, 400, {
-      bpmn: { isHorizontal: false },
-    })
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 60, 370, {
-      bpmn: { isHorizontal: false },
-    })
-    const lane2 = createMockNode('lane2', BPMN_LANE, 100, 70, 60, 370, {
-      bpmn: { isHorizontal: false },
-    })
-    const lane3 = createMockNode('lane3', BPMN_LANE, 160, 70, 60, 370, {
-      bpmn: { isHorizontal: false },
-    })
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    lane3.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2, lane3])
-
-    compactLaneLayout(graph as any, pool)
-
-    // Pool 应扩展以容纳所有 Lane
-    const poolSize = pool.getSize()
-    expect(poolSize.width).toBeGreaterThanOrEqual(180) // 3 × 60
-  })
-
-  it('direction=top 时首 Lane 应吸收 Pool 顶部扩展空间（水平布局）', () => {
-    // Pool 高度 460（多出 60），首 Lane 应得到 260 而非末 Lane
+  it('direction=top 时仍应保持保尺寸紧排，并由末 Lane 吸收剩余空间（水平布局）', () => {
     const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 460)
     const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 200)
     const lane2 = createMockNode('lane2', BPMN_LANE, 70, 240, 570, 200)
@@ -405,14 +353,14 @@ describe('compactLaneLayout', () => {
     compactLaneLayout(graph as any, pool, 'top')
 
     const lane1Size = lane1.getSize()
-    expect(lane1Size.height).toBe(260) // 460 - 200 = 260
+    expect(lane1Size.height).toBe(200)
     const lane2Size = lane2.getSize()
-    expect(lane2Size.height).toBe(200) // 不变
+    expect(lane2Size.height).toBe(260)
     const lane2Pos = lane2.getPosition()
-    expect(lane2Pos.y).toBe(300) // 40 + 260
+    expect(lane2Pos.y).toBe(240)
   })
 
-  it('direction=top 且内容不足时应回退顶边位置，而不是把 Pool 向下撑大', () => {
+  it('direction=top 且内容不足时应保持已有 Lane 尺寸，并直接扩展 Pool', () => {
     const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 200)
     const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 100)
     const lane2 = createMockNode('lane2', BPMN_LANE, 70, 140, 570, 150)
@@ -422,51 +370,14 @@ describe('compactLaneLayout', () => {
 
     compactLaneLayout(graph as any, pool, 'top')
 
-    expect(pool.getPosition()).toEqual({ x: 40, y: 30 })
-    expect(pool.getSize()).toEqual({ width: 600, height: 210 })
+    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
+    expect(pool.getSize()).toEqual({ width: 600, height: 250 })
     expect(lane1.getPosition()).toEqual({ x: 70, y: 40 })
-    expect(lane1.getSize()).toEqual({ width: 570, height: 60 })
-    expect(lane2.getPosition()).toEqual({ x: 70, y: 100 })
+    expect(lane1.getSize()).toEqual({ width: 570, height: 100 })
+    expect(lane2.getPosition()).toEqual({ x: 70, y: 140 })
     expect(lane2.getSize()).toEqual({ width: 570, height: 150 })
   })
 
-  it('direction=left 时首 Lane 应吸收 Pool 左侧扩展空间（垂直布局）', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    // 垂直布局 header 在顶部，content.width = pool.width = 260
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 80, 370, verticalData)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 120, 70, 100, 370, verticalData)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    compactLaneLayout(graph as any, pool, 'left')
-
-    const lane1Size = lane1.getSize()
-    // content.width = 260, othersTotal = 100, 首 Lane = 260-100 = 160
-    expect(lane1Size.width).toBe(160)
-    const lane2Size = lane2.getSize()
-    expect(lane2Size.width).toBe(100)
-  })
-
-  it('direction=left 且内容不足时应回退左边位置，而不是把 Pool 向右撑大', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 200, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 100, 370, verticalData)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 140, 70, 150, 370, verticalData)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    compactLaneLayout(graph as any, pool, 'left')
-
-    expect(pool.getPosition()).toEqual({ x: 30, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 210, height: 400 })
-    expect(lane1.getPosition()).toEqual({ x: 40, y: 70 })
-    expect(lane1.getSize()).toEqual({ width: 60, height: 370 })
-    expect(lane2.getPosition()).toEqual({ x: 100, y: 70 })
-    expect(lane2.getSize()).toEqual({ width: 150, height: 370 })
-  })
 })
 
 // ============================================================================
@@ -504,26 +415,6 @@ describe('addLaneAbove', () => {
     expect(addedConfig.attrs.headerLabel.text).toBe('Lane')
   })
 
-  it('垂直 Pool 中应在指定 Lane 左侧插入新 Lane，并推动参照 Lane 向右移动', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 200, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 150, 370, verticalData)
-    lane1.__setParent(pool)
-    pool.embed(lane1)
-    const graph = createMockGraph([pool, lane1])
-
-    const newLane = addLaneAbove(graph as any, lane1, { label: '左侧泳道' })
-
-    expect(newLane).not.toBeNull()
-    expect(lane1.setPosition).toHaveBeenCalledWith(165, 70, { bpmnLayout: true })
-    expect(pool.resize).toHaveBeenCalledWith(325, 400, { bpmnLayout: true })
-    const addedConfig = graph.addNode.mock.calls[0][0]
-    expect(addedConfig.x).toBe(40)
-    expect(addedConfig.y).toBe(70)
-    expect(addedConfig.width).toBe(125)
-    expect(addedConfig.height).toBe(370)
-  })
-
   it('Lane 无父 Pool 时应返回 null', () => {
     const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 200)
     const graph = createMockGraph([lane1])
@@ -557,23 +448,6 @@ describe('addLaneBelow', () => {
     expect(result).toBeNull()
   })
 
-  it('垂直 Pool 中应在指定 Lane 右侧插入新 Lane', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 100, 370, verticalData)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    const result = addLaneBelow(graph as any, lane1, { label: '右侧泳道' })
-
-    expect(result).not.toBeNull()
-    const addedConfig = graph.addNode.mock.calls[0][0]
-    expect(addedConfig.x).toBe(140)
-    expect(addedConfig.y).toBe(70)
-    expect(addedConfig.width).toBe(125)
-    expect(addedConfig.height).toBe(370)
-  })
-
   it('存在中间父节点时应继续沿父链找到 Pool', () => {
     const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 400)
     const wrapper = {
@@ -590,440 +464,5 @@ describe('addLaneBelow', () => {
 
     expect(result).not.toBeNull()
     expect(graph.addNode).toHaveBeenCalledOnce()
-  })
-})
-
-// ============================================================================
-// resize 收敛测试
-// ============================================================================
-
-describe('reconcileLaneResize', () => {
-  it('水平 Lane 左右边拖拽应投影为 Pool 宽度变化', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 30, 40, 470, 150)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 190, 430, 150)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    const result = reconcileLaneResize(graph as any, lane1 as any, 'left')
-
-    expect(result).toBe(pool)
-    expect(pool.getPosition()).toEqual({ x: 0, y: 40 })
-    expect(pool.getSize().width).toBe(500)
-    expect(lane1.getPosition().x).toBe(30)
-    expect(lane1.getSize().width).toBe(470)
-    expect(lane2.getPosition().x).toBe(30)
-    expect(lane2.getSize().width).toBe(470)
-  })
-
-  it('水平右边拖拽直接使用当前 rect 扩展 Pool 宽度', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 470, 150)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 190, 430, 150)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'right')
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 500, height: 300 })
-  })
-
-  it('省略 direction 时应按当前 Lane union 收敛 Pool 与兄弟 Lane', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 430, 120)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 160, 430, 210)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane1 as any)
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 460, height: 330 })
-    expect(lane1.getPosition()).toEqual({ x: 70, y: 40 })
-    expect(lane1.getSize()).toEqual({ width: 430, height: 120 })
-    expect(lane2.getPosition()).toEqual({ x: 70, y: 160 })
-    expect(lane2.getSize()).toEqual({ width: 430, height: 210 })
-  })
-
-  it('水平左边拖拽未越过其他 Lane 的左边界时不应移动 Pool', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 80, 40, 430, 150)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 190, 430, 150)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'left')
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 470, height: 300 })
-  })
-
-  it('单 Lane 左边拖拽仅改变位置时应直接跟随当前 Lane 左边界', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 30, 40, 430, 300)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'left')
-
-    expect(pool.getPosition()).toEqual({ x: 0, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 460, height: 300 })
-  })
-
-  it('单 Lane 右边拖拽仅改变尺寸时应依赖起始 rect 扩展 Pool 宽度', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 470, 300)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    reconcileLaneResize(
-      graph as any,
-      lane1 as any,
-      'right',
-      { x: 70, y: 40, width: 430, height: 300 },
-    )
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 500, height: 300 })
-  })
-
-  it('首 Lane 顶边拖拽应投影为 Pool 高度向上扩展', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 0, 430, 190)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 190, 430, 150)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'top')
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 0 })
-    expect(pool.getSize().height).toBe(340)
-    expect(lane1.getPosition().y).toBe(0)
-    expect(lane2.getPosition().y).toBe(190)
-  })
-
-  it('单 Lane 顶边拖拽仅改变位置时应直接跟随当前 Lane 顶边', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 0, 430, 300)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'top')
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 0 })
-    expect(pool.getSize()).toEqual({ width: 460, height: 300 })
-  })
-
-  it('单 Lane 底边拖拽仅改变尺寸时应依赖起始 rect 扩展 Pool 高度', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 430, 340)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    reconcileLaneResize(
-      graph as any,
-      lane1 as any,
-      'bottom',
-      { x: 70, y: 40, width: 430, height: 300 },
-    )
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 460, height: 340 })
-  })
-
-  it('末 Lane 底边拖拽应投影为 Pool 高度向下扩展', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 430, 150)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 190, 430, 210)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane2 as any, 'bottom')
-
-    expect(pool.getSize().height).toBe(360)
-    expect(lane2.getPosition().y + lane2.getSize().height).toBe(400)
-  })
-
-  it('内侧 top 拖拽命中前一条 Lane 最小高度时应钳制共享边界而不扩展 Pool', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 430, 70)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 80, 430, 260)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane2 as any, 'top')
-
-    expect(lane1.getSize().height).toBe(60)
-    expect(pool.getPosition().y).toBe(40)
-    expect(pool.getSize().height).toBe(300)
-    expect(lane2.getPosition().y).toBe(100)
-  })
-
-  it('内侧 top 拖拽命中原高度时不应重复调整前一条 Lane 或扩展 Pool', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 430, 70)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 110, 430, 230)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane2 as any, 'top')
-
-    expect(lane1.getSize().height).toBe(70)
-    expect(pool.getPosition().y).toBe(40)
-    expect(pool.getSize().height).toBe(300)
-  })
-
-  it('垂直布局顶底边拖拽应投影为 Pool 高度变化', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 60, 130, 390, verticalData)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 170, 70, 130, 370, verticalData)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'top')
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 30 })
-    expect(pool.getSize().height).toBe(420)
-    expect(lane1.getPosition().y).toBe(60)
-    expect(lane2.getSize().height).toBe(390)
-  })
-
-  it('单 Lane 垂直布局上边拖拽仅改变位置时应直接跟随当前 Lane 顶边', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 40, 260, 370, verticalData)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'top')
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 10 })
-    expect(pool.getSize()).toEqual({ width: 260, height: 400 })
-  })
-
-  it('单 Lane 垂直布局下边拖拽直接使用当前 rect 扩展 Pool 高度', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 260, 390, verticalData)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'bottom')
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 260, height: 420 })
-  })
-
-  it('单 Lane 垂直布局下边拖拽仅改变尺寸时应依赖起始 rect 扩展 Pool 高度', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 260, 430, verticalData)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    reconcileLaneResize(
-      graph as any,
-      lane1 as any,
-      'bottom',
-      { x: 40, y: 70, width: 260, height: 370 },
-    )
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 260, height: 460 })
-  })
-
-  it('垂直布局左边界拖拽应投影为 Pool 宽度变化', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 10, 70, 160, 370, verticalData)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 170, 70, 130, 370, verticalData)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'left')
-
-    expect(pool.getPosition()).toEqual({ x: 10, y: 40 })
-    expect(pool.getSize().width).toBe(290)
-    expect(lane2.getPosition().x).toBe(170)
-  })
-
-  it('单 Lane 垂直布局左边拖拽仅改变位置时应直接跟随当前 Lane 左边界', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 10, 70, 260, 370, verticalData)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    reconcileLaneResize(graph as any, lane1 as any, 'left')
-
-    expect(pool.getPosition()).toEqual({ x: 10, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 260, height: 400 })
-  })
-
-  it('垂直布局右边界拖拽应投影为 Pool 宽度变化', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 100, 370, verticalData)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 140, 70, 190, 370, verticalData)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane2 as any, 'right')
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
-    expect(pool.getSize().width).toBe(290)
-  })
-
-  it('单 Lane 垂直布局右边拖拽仅改变尺寸时应依赖起始 rect 扩展 Pool 宽度', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 290, 370, verticalData)
-    lane1.__setParent(pool)
-    const graph = createMockGraph([pool, lane1])
-
-    reconcileLaneResize(
-      graph as any,
-      lane1 as any,
-      'right',
-      { x: 40, y: 70, width: 260, height: 370 },
-    )
-
-    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
-    expect(pool.getSize()).toEqual({ width: 290, height: 400 })
-  })
-
-  it('垂直布局内侧 left 拖拽命中前一条 Lane 最小宽度时应钳制共享边界而不扩展 Pool', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 70, 370, verticalData)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 90, 70, 220, 370, verticalData)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane2 as any, 'left')
-
-    expect(lane1.getSize().width).toBe(60)
-    expect(pool.getPosition().x).toBe(40)
-    expect(pool.getSize().width).toBe(270)
-    expect(lane2.getPosition().x).toBe(100)
-  })
-
-  it('垂直布局内侧 left 拖拽命中原宽度时不应重复调整前一条 Lane 或扩展 Pool', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 260, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 90, 370, verticalData)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 130, 70, 170, 370, verticalData)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    reconcileLaneResize(graph as any, lane2 as any, 'left')
-
-    expect(lane1.getSize().width).toBe(90)
-    expect(pool.getPosition().x).toBe(40)
-    expect(pool.getSize().width).toBe(260)
-  })
-
-  it('垂直布局内侧非 left 拖拽应保持前一条 Lane 不变，并按实际最右边界收敛 Pool', () => {
-    const verticalData = { bpmn: { isHorizontal: false } }
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 360, 400, verticalData)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 40, 70, 100, 370, verticalData)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 140, 70, 100, 370, verticalData)
-    const lane3 = createMockNode('lane3', BPMN_LANE, 240, 70, 100, 370, verticalData)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    lane3.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2, lane3])
-
-    reconcileLaneResize(graph as any, lane2 as any, 'right')
-
-    expect(lane1.getSize().width).toBe(100)
-    expect(lane2.getPosition().x).toBe(140)
-    expect(pool.getSize().width).toBe(300)
-  })
-
-  it('Lane 不在 graph 节点列表中时应回退为普通紧凑布局', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 430, 100)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 140, 430, 100)
-    const ghostLane = createMockNode('ghost', BPMN_LANE, 70, 100, 430, 200)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    ghostLane.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    const result = reconcileLaneResize(graph as any, ghostLane as any, 'bottom')
-
-    expect(result).toBe(pool)
-    expect(lane1.getPosition().y).toBe(40)
-    expect(lane2.getPosition().y).toBe(140)
-  })
-})
-
-describe('setupLaneManagement', () => {
-  it('应注册 node:resized 事件监听器', () => {
-    const graph = createMockGraph([])
-
-    const dispose = setupLaneManagement(graph as any)
-
-    expect(typeof dispose).toBe('function')
-    expect(graph.on).toHaveBeenCalledWith('node:resized', expect.any(Function))
-  })
-
-  it('dispose 后应移除 node:resized 事件监听器', () => {
-    const graph = createMockGraph([])
-
-    const dispose = setupLaneManagement(graph as any)
-    const [[eventName, handler]] = graph.on.mock.calls
-
-    dispose()
-
-    expect(graph.off).toHaveBeenCalledWith(eventName, handler)
-    expect(eventName).toBe('node:resized')
-  })
-
-  it('Lane resize 完成后应触发 onLaneResize 回调', () => {
-    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 460, 300)
-    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 430, 180)
-    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 220, 430, 120)
-    lane1.__setParent(pool)
-    lane2.__setParent(pool)
-    const graph = createMockGraph([pool, lane1, lane2])
-
-    const onLaneResize = vi.fn()
-    setupLaneManagement(graph as any, { onLaneResize })
-
-    graph.__emit('node:resized', { node: lane1, options: { direction: 'bottom' } })
-
-    expect(onLaneResize).toHaveBeenCalledWith(lane1, pool)
-  })
-
-  it('非 Lane、silent 或无父 Pool 时不应触发回调', () => {
-    const task = createMockNode('task1', 'bpmn-user-task', 100, 100, 100, 60)
-    const lane = createMockNode('lane1', BPMN_LANE, 70, 40, 430, 180)
-    const graph = createMockGraph([task, lane])
-    const onLaneResize = vi.fn()
-
-    setupLaneManagement(graph as any, { onLaneResize })
-
-    graph.__emit('node:resized', { node: task, options: {} })
-    graph.__emit('node:resized', { node: lane, options: { silent: true } })
-    graph.__emit('node:resized', { node: lane, options: {} })
-
-    expect(onLaneResize).not.toHaveBeenCalled()
   })
 })

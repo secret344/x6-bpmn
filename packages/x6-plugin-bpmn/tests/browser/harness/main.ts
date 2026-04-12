@@ -1,4 +1,5 @@
 import { Graph, type Cell, type Edge, type Node } from '@antv/x6'
+import { Keyboard } from '@antv/x6/lib/plugin/keyboard'
 import { Selection } from '@antv/x6/lib/plugin/selection'
 import { Transform } from '@antv/x6/lib/plugin/transform'
 import {
@@ -67,6 +68,11 @@ type MultiLaneScenarioIds = {
   serviceTaskId: string
 }
 
+type AddedLaneScenarioIds = {
+  laneId: string
+  addedTaskId: string
+}
+
 type EdgeSnapshot = {
   id: string
   shape: string
@@ -78,14 +84,18 @@ declare global {
   interface Window {
     __x6PluginBrowserHarness?: {
       clear: () => void
+      setViewportTransform: (tx: number, ty: number, scale?: number) => void
       createStandaloneTaskScenario: () => StandaloneTaskScenarioIds
       addFirstPoolScenario: () => FirstPoolWrapScenarioIds
       createPoolLaneTaskScenario: () => ScenarioIds
       createPoolLaneTaskBoundaryScenario: () => ScenarioIds
       createTwoPoolMessageScenario: () => MessageScenarioIds
       createMultiLaneScenario: () => MultiLaneScenarioIds
-      addLaneToPoolScenario: (poolId: string) => string | null
+      createExampleLikeMultiLaneScenario: () => MultiLaneScenarioIds
+      addLaneToPoolScenario: (poolId: string) => AddedLaneScenarioIds | null
       removeNode: (id: string) => boolean
+      selectCell: (id: string) => string[]
+      removeSelectedCells: () => string[]
       getNodeSnapshot: (id: string) => NodeSnapshot
       getPoolLaneSnapshots: (poolId: string) => NodeSnapshot[]
       getSelectedCellIds: () => string[]
@@ -128,6 +138,21 @@ graph.use(
     rotating: { enabled: false },
   }),
 )
+graph.use(
+  new Keyboard({
+    enabled: true,
+    global: true,
+  }),
+)
+
+graph.bindKey(['backspace', 'delete'], () => {
+  const selectableGraph = graph as Graph & { getSelectedCells?: () => Cell[] }
+  const selectedCells = selectableGraph.getSelectedCells?.() ?? []
+  if (selectedCells.length) {
+    graph.removeCells(selectedCells)
+  }
+  return false
+})
 
 setupBpmnGraph(graph, {
   edgeShape: () => currentEdgeShape,
@@ -171,6 +196,7 @@ function emitGraphEvent(eventName: 'node:added' | 'node:moving' | 'node:moved', 
 
 function clear(): void {
   setCurrentEdgeShape(BPMN_SEQUENCE_FLOW)
+  setViewportTransform(0, 0, 1)
 
   const resettableGraph = graph as Graph & { resetCells?: (cells: Cell[]) => void }
   if (typeof resettableGraph.resetCells === 'function') {
@@ -179,6 +205,11 @@ function clear(): void {
   }
 
   graph.clearCells()
+}
+
+function setViewportTransform(tx: number, ty: number, scale = 1): void {
+  graph.zoomTo(scale)
+  graph.translate(tx, ty)
 }
 
 function getNodeSnapshot(id: string): NodeSnapshot {
@@ -461,7 +492,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
     id: 'pool-multi',
     shape: BPMN_POOL,
     x: 40,
-    y: 40,
+    y: 120,
     width: 900,
     height: 400,
     attrs: { headerLabel: { text: '审批流程' } },
@@ -473,7 +504,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
     id: 'lane-multi-1',
     shape: BPMN_LANE,
     x: 70,
-    y: 40,
+    y: 120,
     width: 870,
     height: 200,
     parent: pool.id,
@@ -495,7 +526,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
     id: 'start-multi',
     shape: BPMN_START_EVENT,
     x: 110,
-    y: 115,
+    y: 195,
     parent: lane1.id,
     attrs: { label: { text: '发起' } },
   })
@@ -506,7 +537,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
     id: 'task-multi',
     shape: BPMN_USER_TASK,
     x: 200,
-    y: 100,
+    y: 180,
     width: 100,
     height: 60,
     parent: lane1.id,
@@ -519,7 +550,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
     id: 'service-multi',
     shape: BPMN_SERVICE_TASK,
     x: 620,
-    y: 100,
+    y: 180,
     width: 100,
     height: 60,
     parent: lane1.id,
@@ -532,7 +563,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
     id: 'end-multi',
     shape: BPMN_END_EVENT,
     x: 830,
-    y: 115,
+    y: 195,
     parent: lane1.id,
     attrs: { label: { text: '完成' } },
   })
@@ -544,7 +575,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
     id: 'gw-multi',
     shape: BPMN_EXCLUSIVE_GATEWAY,
     x: 360,
-    y: 300,
+    y: 380,
     parent: lane2.id,
     attrs: { label: { text: '天数?' } },
   })
@@ -555,7 +586,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
     id: 'task2-multi',
     shape: BPMN_USER_TASK,
     x: 460,
-    y: 260,
+    y: 340,
     width: 100,
     height: 60,
     parent: lane2.id,
@@ -568,7 +599,7 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
     id: 'send-multi',
     shape: BPMN_SEND_TASK,
     x: 620,
-    y: 280,
+    y: 360,
     width: 100,
     height: 60,
     parent: lane2.id,
@@ -599,7 +630,157 @@ function createMultiLaneScenario(): MultiLaneScenarioIds {
   }
 }
 
-function addLaneToPoolScenario(poolId: string): string | null {
+function createExampleLikeMultiLaneScenario(): MultiLaneScenarioIds {
+  clear()
+
+  const pool = graph.addNode({
+    id: 'pool-example-like',
+    shape: BPMN_POOL,
+    x: 40,
+    y: 40,
+    width: 1100,
+    height: 460,
+    attrs: { headerLabel: { text: '员工请假审批流程' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+
+  const lane1 = graph.addNode({
+    id: 'lane-example-like-1',
+    shape: BPMN_LANE,
+    x: 70,
+    y: 40,
+    width: 1070,
+    height: 200,
+    parent: pool.id,
+    attrs: { headerLabel: { text: '申请人' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+
+  const lane2 = graph.addNode({
+    id: 'lane-example-like-2',
+    shape: BPMN_LANE,
+    x: 70,
+    y: 240,
+    width: 1070,
+    height: 260,
+    parent: pool.id,
+    attrs: { headerLabel: { text: '审批人' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+
+  pool.embed(lane1)
+  pool.embed(lane2)
+  emitGraphEvent('node:added', { node: pool })
+  emitGraphEvent('node:added', { node: lane1 })
+  emitGraphEvent('node:added', { node: lane2 })
+
+  const start = graph.addNode({
+    id: 'start-example-like',
+    shape: BPMN_START_EVENT,
+    x: 120,
+    y: 120,
+    parent: lane1.id,
+    attrs: { label: { text: '发起' } },
+  })
+  lane1.embed(start)
+  emitGraphEvent('node:added', { node: start })
+
+  const task = graph.addNode({
+    id: 'task-example-like',
+    shape: BPMN_USER_TASK,
+    x: 210,
+    y: 105,
+    width: 100,
+    height: 60,
+    parent: lane1.id,
+    attrs: { label: { text: '填写\n请假单' } },
+  })
+  lane1.embed(task)
+  emitGraphEvent('node:added', { node: task })
+
+  const serviceTask = graph.addNode({
+    id: 'service-example-like',
+    shape: BPMN_SERVICE_TASK,
+    x: 820,
+    y: 105,
+    width: 100,
+    height: 60,
+    parent: lane1.id,
+    attrs: { label: { text: '更新\n考勤' } },
+  })
+  lane1.embed(serviceTask)
+  emitGraphEvent('node:added', { node: serviceTask })
+
+  const end = graph.addNode({
+    id: 'end-example-like',
+    shape: BPMN_END_EVENT,
+    x: 980,
+    y: 120,
+    parent: lane1.id,
+    attrs: { label: { text: '完成' } },
+  })
+  lane1.embed(end)
+  emitGraphEvent('node:added', { node: end })
+
+  const gateway = graph.addNode({
+    id: 'gw-example-like',
+    shape: BPMN_EXCLUSIVE_GATEWAY,
+    x: 370,
+    y: 330,
+    parent: lane2.id,
+    attrs: { label: { text: '天数?' } },
+  })
+  lane2.embed(gateway)
+  emitGraphEvent('node:added', { node: gateway })
+
+  const task2 = graph.addNode({
+    id: 'task2-example-like',
+    shape: BPMN_USER_TASK,
+    x: 470,
+    y: 290,
+    width: 100,
+    height: 60,
+    parent: lane2.id,
+    attrs: { label: { text: '主管\n审批' } },
+  })
+  lane2.embed(task2)
+  emitGraphEvent('node:added', { node: task2 })
+
+  const sendTask = graph.addNode({
+    id: 'send-example-like',
+    shape: BPMN_SEND_TASK,
+    x: 730,
+    y: 315,
+    width: 100,
+    height: 60,
+    parent: lane2.id,
+    attrs: { label: { text: '发送\n通知' } },
+  })
+  lane2.embed(sendTask)
+  emitGraphEvent('node:added', { node: sendTask })
+
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: start, target: task })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: task, target: gateway })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: gateway, target: task2 })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: task2, target: sendTask })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: sendTask, target: serviceTask })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: serviceTask, target: end })
+
+  return {
+    poolId: pool.id,
+    lane1Id: lane1.id,
+    lane2Id: lane2.id,
+    taskId: task.id,
+    startId: start.id,
+    endId: end.id,
+    gatewayId: gateway.id,
+    task2Id: task2.id,
+    sendTaskId: sendTask.id,
+    serviceTaskId: serviceTask.id,
+  }
+}
+
+function addLaneToPoolScenario(poolId: string): AddedLaneScenarioIds | null {
   const cell = graph.getCellById(poolId)
   if (!cell?.isNode?.()) return null
   const pool = cell as Node
@@ -618,21 +799,36 @@ function addLaneToPoolScenario(poolId: string): string | null {
   )
 
   const lane = addLaneToPool(graph, pool, { label: '新泳道' })
-  if (lane && graph.getCellById(lane.id)?.isNode?.()) {
-    return lane.id
+  const createdLane = lane && graph.getCellById(lane.id)?.isNode?.()
+    ? (graph.getCellById(lane.id) as Node)
+    : graph
+      .getNodes()
+      .find((node) => node.shape === BPMN_LANE && node.getParent()?.id === pool.id && !existingLaneIds.has(node.id))
+      ?? graph
+        .getNodes()
+        .find((node) => node.shape === BPMN_LANE && !existingAllLaneIds.has(node.id))
+
+  if (!createdLane) {
+    return null
   }
 
-  const embeddedLane = graph
-    .getNodes()
-    .find((node) => node.shape === BPMN_LANE && node.getParent()?.id === pool.id && !existingLaneIds.has(node.id))
-  if (embeddedLane) {
-    return embeddedLane.id
-  }
+  const laneTask = graph.addNode({
+    id: `task-added-${createdLane.id}`,
+    shape: BPMN_USER_TASK,
+    x: createdLane.getPosition().x + 110,
+    y: createdLane.getPosition().y + 40,
+    width: 100,
+    height: 60,
+    parent: createdLane.id,
+    attrs: { label: { text: '新增\n任务' } },
+  })
+  createdLane.embed(laneTask)
+  emitGraphEvent('node:added', { node: laneTask })
 
-  return graph
-    .getNodes()
-    .find((node) => node.shape === BPMN_LANE && !existingAllLaneIds.has(node.id))
-    ?.id ?? null
+  return {
+    laneId: createdLane.id,
+    addedTaskId: laneTask.id,
+  }
 }
 
 function removeNode(id: string): boolean {
@@ -645,6 +841,39 @@ function removeNode(id: string): boolean {
   return !graph.getCellById(id)
 }
 
+function selectCell(id: string): string[] {
+  const cell = graph.getCellById(id)
+  if (!cell) {
+    return []
+  }
+
+  const selectionGraph = graph as Graph & {
+    cleanSelection?: () => void
+    select?: (cell: Cell) => void
+    getSelectedCells?: () => Cell[]
+  }
+
+  selectionGraph.cleanSelection?.()
+  selectionGraph.select?.(cell)
+  return selectionGraph.getSelectedCells?.().map((selected) => selected.id) ?? []
+}
+
+function removeSelectedCells(): string[] {
+  const selectableGraph = graph as Graph & { getSelectedCells?: () => Cell[] }
+  if (typeof selectableGraph.getSelectedCells !== 'function') {
+    return []
+  }
+
+  const selectedCells = selectableGraph.getSelectedCells()
+  if (!selectedCells.length) {
+    return []
+  }
+
+  const removedIds = selectedCells.map((cell) => cell.id)
+  graph.removeCells(selectedCells)
+  return removedIds.filter((id) => !graph.getCellById(id))
+}
+
 async function roundtripXml(): Promise<string> {
   const xml = await exportBpmnXml(graph, { processName: '浏览器测试流程' })
   await importBpmnXml(graph, xml, { zoomToFit: false })
@@ -653,14 +882,18 @@ async function roundtripXml(): Promise<string> {
 
 window.__x6PluginBrowserHarness = {
   clear,
+  setViewportTransform,
   createStandaloneTaskScenario,
   addFirstPoolScenario,
   createPoolLaneTaskScenario,
   createPoolLaneTaskBoundaryScenario,
   createTwoPoolMessageScenario,
   createMultiLaneScenario,
+  createExampleLikeMultiLaneScenario,
   addLaneToPoolScenario,
   removeNode,
+  selectCell,
+  removeSelectedCells,
   getNodeSnapshot,
   getPoolLaneSnapshots,
   getSelectedCellIds,

@@ -48,6 +48,11 @@ export type MultiLaneScenarioIds = {
   serviceTaskId: string
 }
 
+export type AddedLaneScenarioIds = {
+  laneId: string
+  addedTaskId: string
+}
+
 export type NodeSnapshot = {
   id: string
   x: number
@@ -94,6 +99,19 @@ export type TimedResizeOptions = {
 export async function waitForHarness(page: Page): Promise<void> {
   await page.goto('/')
   await page.waitForFunction(() => Boolean(window.__x6PluginBrowserHarness))
+}
+
+export async function setViewportTransform(
+  page: Page,
+  options: { tx: number; ty: number; scale?: number },
+): Promise<void> {
+  await page.evaluate(({ tx, ty, scale }) => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    harness.setViewportTransform(tx, ty, scale)
+  }, options)
 }
 
 export async function createPoolLaneTaskScenario(page: Page): Promise<ScenarioIds> {
@@ -156,7 +174,19 @@ export async function createMultiLaneScenario(page: Page): Promise<MultiLaneScen
   })
 }
 
-export async function addLaneToPoolInBrowser(page: Page, poolId: string): Promise<string | null> {
+export async function createExampleLikeMultiLaneScenarioInBrowser(
+  page: Page,
+): Promise<MultiLaneScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.createExampleLikeMultiLaneScenario()
+  })
+}
+
+export async function addLaneToPoolInBrowser(page: Page, poolId: string): Promise<AddedLaneScenarioIds | null> {
   return page.evaluate((id) => {
     const harness = window.__x6PluginBrowserHarness
     if (!harness) {
@@ -173,6 +203,26 @@ export async function removeNodeInBrowser(page: Page, id: string): Promise<boole
       throw new Error('浏览器测试 harness 尚未就绪')
     }
     return harness.removeNode(nodeId)
+  }, id)
+}
+
+export async function removeSelectedCellsInBrowser(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.removeSelectedCells()
+  })
+}
+
+export async function selectCellInBrowser(page: Page, id: string): Promise<string[]> {
+  return page.evaluate((cellId) => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.selectCell(cellId)
   }, id)
 }
 
@@ -293,6 +343,10 @@ export function getNodeLocator(page: Page, id: string): Locator {
   return page.locator(`.x6-node[data-cell-id="${id}"]`).first()
 }
 
+export function getResizePreviewLocator(page: Page, id: string): Locator {
+  return page.locator(`[data-bpmn-swimlane-resize-preview="true"][data-node-id="${id}"]`).first()
+}
+
 export function getPortLocator(page: Page, id: string, group: 'left' | 'right' | 'top' | 'bottom'): Locator {
   return page.locator(`.x6-node[data-cell-id="${id}"] .x6-port-${group} .x6-port-body`).first()
 }
@@ -332,6 +386,8 @@ export async function clickNode(page: Page, id: string, offset?: DragPoint): Pro
 
   if (!(await getSelectedCellIds(page)).includes(id)) {
     await clearSelection(page)
+  } else {
+    return
   }
 
   const box = await locator.boundingBox()
@@ -368,6 +424,48 @@ export async function clickNode(page: Page, id: string, offset?: DragPoint): Pro
   }
 
   await expect.poll(() => getSelectedCellIds(page)).toContain(id)
+}
+
+export async function clickNodeWithoutClearingSelection(
+  page: Page,
+  id: string,
+  offset?: DragPoint,
+): Promise<void> {
+  const locator = getNodeLocator(page, id)
+  await expect(locator).toBeVisible()
+
+  const box = await locator.boundingBox()
+  if (!box) {
+    throw new Error(`无法定位节点: ${id}`)
+  }
+
+  await locator.click({
+    position: {
+      x: offset?.x ?? box.width / 2,
+      y: offset?.y ?? box.height / 2,
+    },
+    force: true,
+  })
+
+  if ((await getSelectedCellIds(page)).includes(id)) {
+    return
+  }
+
+  const labels = locator.locator('text')
+  for (let index = 0; index < await labels.count(); index += 1) {
+    await labels.nth(index).click({ force: true })
+    if ((await getSelectedCellIds(page)).includes(id)) {
+      return
+    }
+  }
+
+  const shapes = locator.locator('path, rect, polygon, ellipse')
+  for (let index = 0; index < await shapes.count(); index += 1) {
+    await shapes.nth(index).click({ force: true })
+    if ((await getSelectedCellIds(page)).includes(id)) {
+      return
+    }
+  }
 }
 
 export async function dragNodeBy(page: Page, id: string, delta: DragPoint, options: DragOptions = {}): Promise<void> {
@@ -524,6 +622,80 @@ export async function resizeNodeBy(page: Page, id: string, delta: DragPoint, sel
 }
 
 export type ResizeEdge = 'top' | 'bottom' | 'left' | 'right'
+export type ResizeHandlePosition =
+  | ResizeEdge
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
+
+function getResizeHandleTarget(
+  box: { x: number; y: number; width: number; height: number },
+  position: ResizeHandlePosition,
+): DragPoint {
+  return {
+    left: { x: box.x, y: box.y + box.height / 2 },
+    right: { x: box.x + box.width, y: box.y + box.height / 2 },
+    top: { x: box.x + box.width / 2, y: box.y },
+    bottom: { x: box.x + box.width / 2, y: box.y + box.height },
+    'top-left': { x: box.x, y: box.y },
+    'top-right': { x: box.x + box.width, y: box.y },
+    'bottom-left': { x: box.x, y: box.y + box.height },
+    'bottom-right': { x: box.x + box.width, y: box.y + box.height },
+  }[position]
+}
+
+/**
+ * 通过指定手柄拖拽节点尺寸。
+ */
+export async function resizeNodeByHandle(
+  page: Page,
+  id: string,
+  position: ResizeHandlePosition,
+  delta: DragPoint,
+  selectOffset?: DragPoint,
+): Promise<void> {
+  await clickNode(page, id, selectOffset)
+
+  const locator = getNodeLocator(page, id)
+  const box = await locator.boundingBox()
+  if (!box) {
+    throw new Error(`无法定位节点: ${id}`)
+  }
+
+  const handle = await getClosestResizeHandle(page, id, position, getResizeHandleTarget(box, position))
+  await expect(handle).toBeVisible()
+
+  const center = await getCenter(handle)
+  await dragPointerOverTime(page, center, delta, { durationMs: 0, steps: 1 })
+  await waitForLayoutToSettle(page)
+}
+
+/**
+ * 通过指定手柄执行持续拖拽。
+ */
+export async function resizeNodeByHandleOverTime(
+  page: Page,
+  id: string,
+  position: ResizeHandlePosition,
+  delta: DragPoint,
+  options: TimedResizeOptions = {},
+): Promise<void> {
+  await clickNode(page, id, options.selectOffset)
+
+  const locator = getNodeLocator(page, id)
+  const box = await locator.boundingBox()
+  if (!box) {
+    throw new Error(`无法定位节点: ${id}`)
+  }
+
+  const handle = await getClosestResizeHandle(page, id, position, getResizeHandleTarget(box, position))
+  await expect(handle).toBeVisible()
+
+  const center = await getCenter(handle)
+  await dragPointerOverTime(page, center, delta, options)
+  await waitForLayoutToSettle(page)
+}
 
 /**
  * 通过指定方向的 resize 手柄拖拽节点边缘。
@@ -541,28 +713,7 @@ export async function resizeNodeByEdge(
   delta: DragPoint,
   selectOffset?: DragPoint,
 ): Promise<void> {
-  await clickNode(page, id, selectOffset)
-
-  const locator = getNodeLocator(page, id)
-  const box = await locator.boundingBox()
-  if (!box) {
-    throw new Error(`无法定位节点: ${id}`)
-  }
-
-  const target = {
-    left: { x: box.x, y: box.y + box.height / 2 },
-    right: { x: box.x + box.width, y: box.y + box.height / 2 },
-    top: { x: box.x + box.width / 2, y: box.y },
-    bottom: { x: box.x + box.width / 2, y: box.y + box.height },
-  }[edge]
-  const handle = await getClosestResizeHandle(page, id, edge, target)
-  await expect(handle).toBeVisible()
-
-  const center = await getCenter(handle)
-  await dragPointerOverTime(page, center, delta, { durationMs: 0, steps: 1 })
-
-  // Wait for layout to settle after resize (two rAF cycles covers batched updates)
-  await waitForLayoutToSettle(page)
+  await resizeNodeByHandle(page, id, edge, delta, selectOffset)
 }
 
 /**
@@ -577,26 +728,7 @@ export async function resizeNodeByEdgeOverTime(
   delta: DragPoint,
   options: TimedResizeOptions = {},
 ): Promise<void> {
-  await clickNode(page, id, options.selectOffset)
-
-  const locator = getNodeLocator(page, id)
-  const box = await locator.boundingBox()
-  if (!box) {
-    throw new Error(`无法定位节点: ${id}`)
-  }
-
-  const target = {
-    left: { x: box.x, y: box.y + box.height / 2 },
-    right: { x: box.x + box.width, y: box.y + box.height / 2 },
-    top: { x: box.x + box.width / 2, y: box.y },
-    bottom: { x: box.x + box.width / 2, y: box.y + box.height },
-  }[edge]
-  const handle = await getClosestResizeHandle(page, id, edge, target)
-  await expect(handle).toBeVisible()
-
-  const center = await getCenter(handle)
-  await dragPointerOverTime(page, center, delta, options)
-  await waitForLayoutToSettle(page)
+  await resizeNodeByHandleOverTime(page, id, edge, delta, options)
 }
 
 export async function selectEdgeShape(page: Page, shape: 'bpmn-sequence-flow' | 'bpmn-message-flow'): Promise<void> {
@@ -638,7 +770,7 @@ export async function dragConnection(
  * 1. Lane2.y ≈ Lane1.y + Lane1.height（无间隙）
  * 2. Lane1 + Lane2 覆盖 Pool 内容区（无溢出）
  * 3. parentId 链完整
- * 4. Task 在 Lane1 内部
+ * 4. Task 在 Pool 内容区内部
  *
  * @returns 各节点快照，供后续追加断言
  */
@@ -675,24 +807,24 @@ export async function assertMultiLaneIntegrity(
   expect(lane2.parentId).toBe(pool.id)
   expect(task.parentId).toBe(ids.lane1Id)
 
-  // Task 在 Lane1 内部
+  // Pool 内部节点在 lane resize 后应保持在 Pool 内容区内，而不是被强制跟随 lane 边界移动
   expect(task.x).toBeGreaterThanOrEqual(lane1.x - 1)
-  expect(task.y).toBeGreaterThanOrEqual(lane1.y - 1)
+  expect(task.y).toBeGreaterThanOrEqual(pool.y - 1)
   expect(task.x + task.width).toBeLessThanOrEqual(lane1.x + lane1.width + 1)
-  expect(task.y + task.height).toBeLessThanOrEqual(lane1.y + lane1.height + 1)
+  expect(task.y + task.height).toBeLessThanOrEqual(pool.y + pool.height + 1)
 
   // Lane 2 内的网关和任务应在 Lane2 内部（仅在有节点时检查）
   if (ids.gatewayId && ids.task2Id) {
     try {
       const gateway = await getNodeSnapshot(page, ids.gatewayId)
       expect(gateway.parentId).toBe(ids.lane2Id)
-      expect(gateway.y).toBeGreaterThanOrEqual(lane2.y - 1)
-      expect(gateway.y + gateway.height).toBeLessThanOrEqual(lane2.y + lane2.height + 1)
+      expect(gateway.y).toBeGreaterThanOrEqual(pool.y - 1)
+      expect(gateway.y + gateway.height).toBeLessThanOrEqual(pool.y + pool.height + 1)
 
       const task2 = await getNodeSnapshot(page, ids.task2Id)
       expect(task2.parentId).toBe(ids.lane2Id)
-      expect(task2.y).toBeGreaterThanOrEqual(lane2.y - 1)
-      expect(task2.y + task2.height).toBeLessThanOrEqual(lane2.y + lane2.height + 1)
+      expect(task2.y).toBeGreaterThanOrEqual(pool.y - 1)
+      expect(task2.y + task2.height).toBeLessThanOrEqual(pool.y + pool.height + 1)
     } catch {
       // 节点可能不存在于精简场景
     }

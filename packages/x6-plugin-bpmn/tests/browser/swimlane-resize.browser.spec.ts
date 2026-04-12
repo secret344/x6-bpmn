@@ -12,17 +12,27 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { createBrowserScreenshotTaker } from './screenshot-taker'
 import {
+  addLaneToPoolInBrowser,
   assertMultiLaneIntegrity,
   clickNode,
+  clickNodeWithoutClearingSelection,
   createMultiLaneScenario,
+  createPoolLaneTaskBoundaryScenario,
+  dragNodeBy,
+  expectInsideRect,
   getNodeLocator,
+  getResizePreviewLocator,
   getNodeSnapshot,
   getPoolLaneSnapshots,
   getSelectedCellIds,
   removeNodeInBrowser,
   resizeNodeByEdgeOverTime,
+  resizeNodeByHandleOverTime,
+  setViewportTransform,
+  type AddedLaneScenarioIds,
   type MultiLaneScenarioIds,
   type ResizeEdge,
+  type ResizeHandlePosition,
   type NodeSnapshot,
   waitForHarness,
 } from './helpers'
@@ -42,6 +52,345 @@ type IntegritySnapshot = {
   lane1: NodeSnapshot
   lane2: NodeSnapshot
   task: NodeSnapshot
+}
+
+type LaneMatrixSnapshot = {
+  pool: NodeSnapshot
+  lanes: NodeSnapshot[]
+  laneMap: Record<string, NodeSnapshot>
+  nodes: Record<string, NodeSnapshot>
+}
+
+type AddedLaneMatrixScenario = MultiLaneScenarioIds & AddedLaneScenarioIds
+
+type DeletedLaneMatrixScenario = MultiLaneScenarioIds & {
+  remainingLaneId: string
+}
+
+type HandleResizeCase<TScenario> = {
+  title: string
+  position: ResizeHandlePosition
+  delta: { x: number; y: number }
+  targetId: (scenario: TScenario) => string
+  selectOffset: { x: number; y: number }
+}
+
+const HANDLE_CASES: Array<{ position: ResizeHandlePosition; delta: { x: number; y: number } }> = [
+  { position: 'left', delta: { x: -60, y: 0 } },
+  { position: 'right', delta: { x: 60, y: 0 } },
+  { position: 'top', delta: { x: 0, y: -40 } },
+  { position: 'bottom', delta: { x: 0, y: 40 } },
+  { position: 'top-left', delta: { x: -60, y: -40 } },
+  { position: 'top-right', delta: { x: 60, y: -40 } },
+  { position: 'bottom-left', delta: { x: -60, y: 40 } },
+  { position: 'bottom-right', delta: { x: 60, y: 40 } },
+]
+
+async function getLaneMatrixSnapshot(
+  page: Page,
+  poolId: string,
+  trackedNodeIds: string[] = [],
+): Promise<LaneMatrixSnapshot> {
+  const pool = await getNodeSnapshot(page, poolId)
+  const lanes = (await getPoolLaneSnapshots(page, poolId))
+    .slice()
+    .sort((left, right) => left.y - right.y)
+
+  const laneMap = Object.fromEntries(lanes.map((lane) => [lane.id, lane]))
+  const nodes = Object.fromEntries(
+    await Promise.all(trackedNodeIds.map(async (id) => [id, await getNodeSnapshot(page, id)] as const)),
+  )
+
+  return { pool, lanes, laneMap, nodes }
+}
+
+function expectLaneStackFillsPool(snapshot: LaneMatrixSnapshot): void {
+  const { pool, lanes, laneMap, nodes } = snapshot
+
+  expect(lanes.length).toBeGreaterThan(0)
+
+  for (let index = 0; index < lanes.length; index += 1) {
+    const lane = lanes[index]
+    expect(lane.parentId).toBe(pool.id)
+    expect(lane.x).toBeCloseTo(pool.x + 30, 0)
+    expect(lane.width).toBeCloseTo(pool.width - 30, 0)
+
+    if (index === 0) {
+      expect(lane.y).toBeCloseTo(pool.y, 0)
+    } else {
+      const previousLane = lanes[index - 1]
+      expect(lane.y).toBeCloseTo(previousLane.y + previousLane.height, 0)
+    }
+  }
+
+  const lastLane = lanes[lanes.length - 1]
+  expect(lastLane.y + lastLane.height).toBeCloseTo(pool.y + pool.height, 0)
+
+  for (const node of Object.values(nodes)) {
+    const parentLane = laneMap[node.parentId ?? '']
+    if (parentLane) {
+      expectInsideRect(node, {
+        x: pool.x + 30,
+        y: pool.y,
+        width: pool.width - 30,
+        height: pool.height,
+      }, 12)
+    }
+  }
+}
+
+function expectPoolHandleGeometry(
+  before: LaneMatrixSnapshot,
+  after: LaneMatrixSnapshot,
+  position: ResizeHandlePosition,
+  delta: { x: number; y: number },
+): void {
+  if (position.includes('left')) {
+    if (delta.x < 0) {
+      expect(after.pool.x).toBeLessThan(before.pool.x)
+      expect(after.pool.width).toBeGreaterThan(before.pool.width)
+    } else {
+      expect(after.pool.x).toBeGreaterThan(before.pool.x)
+      expect(after.pool.width).toBeLessThan(before.pool.width)
+    }
+  }
+
+  if (position.includes('right')) {
+    if (delta.x > 0) {
+      expect(after.pool.width).toBeGreaterThan(before.pool.width)
+    } else {
+      expect(after.pool.width).toBeLessThan(before.pool.width)
+    }
+  }
+
+  if (position.includes('top')) {
+    if (delta.y < 0) {
+      expect(after.pool.y).toBeLessThan(before.pool.y)
+      expect(after.pool.height).toBeGreaterThan(before.pool.height)
+    } else {
+      expect(after.pool.y).toBeGreaterThan(before.pool.y)
+      expect(after.pool.height).toBeLessThan(before.pool.height)
+    }
+  }
+
+  if (position.includes('bottom')) {
+    if (delta.y > 0) {
+      expect(after.pool.height).toBeGreaterThan(before.pool.height)
+    } else {
+      expect(after.pool.height).toBeLessThan(before.pool.height)
+    }
+  }
+}
+
+function expectLaneHandleGeometry(
+  before: LaneMatrixSnapshot,
+  after: LaneMatrixSnapshot,
+  targetLaneId: string,
+  position: ResizeHandlePosition,
+  delta: { x: number; y: number },
+): void {
+  const beforeTarget = before.laneMap[targetLaneId]
+  const afterTarget = after.laneMap[targetLaneId]
+  const targetIndex = before.lanes.findIndex((lane) => lane.id === targetLaneId)
+
+  expect(targetIndex).toBeGreaterThanOrEqual(0)
+  expect(afterTarget.parentId).toBe(after.pool.id)
+
+  if (position.includes('left')) {
+    expect(after.pool.x).toBeLessThan(before.pool.x)
+    expect(after.pool.width).toBeGreaterThan(before.pool.width)
+  }
+
+  if (position.includes('right')) {
+    expect(after.pool.width).toBeGreaterThan(before.pool.width)
+  }
+
+  if (position.includes('top')) {
+    if (targetIndex === 0) {
+      expect(after.pool.y).toBeLessThan(before.pool.y)
+      expect(after.pool.height).toBeGreaterThan(before.pool.height)
+      expect(afterTarget.y).toBeCloseTo(after.pool.y, 0)
+    } else {
+      expect(after.pool.y).toBeCloseTo(before.pool.y, 0)
+      expect(after.pool.height).toBeCloseTo(before.pool.height, 0)
+      expect(afterTarget.y).toBeLessThan(beforeTarget.y)
+      expect(afterTarget.height).toBeGreaterThan(beforeTarget.height)
+    }
+  }
+
+  if (position.includes('bottom')) {
+    if (targetIndex === before.lanes.length - 1) {
+      expect(after.pool.height).toBeGreaterThan(before.pool.height)
+      expect(afterTarget.y + afterTarget.height).toBeCloseTo(after.pool.y + after.pool.height, 0)
+    } else {
+      expect(after.pool.y).toBeCloseTo(before.pool.y, 0)
+      expect(after.pool.height).toBeCloseTo(before.pool.height, 0)
+      expect(afterTarget.height).toBeGreaterThan(beforeTarget.height)
+    }
+  }
+
+  expect(delta.x).not.toBeNaN()
+  expect(delta.y).not.toBeNaN()
+}
+
+async function createAddedLaneMatrixScenario(page: Page): Promise<AddedLaneMatrixScenario> {
+  const scenario = await createMultiLaneScenario(page)
+  const added = await addLaneToPoolInBrowser(page, scenario.poolId)
+
+  expect(added).not.toBeNull()
+  await expect.poll(() => getPoolLaneSnapshots(page, scenario.poolId)).toHaveLength(3)
+
+  return {
+    ...scenario,
+    laneId: added!.laneId,
+    addedTaskId: added!.addedTaskId,
+  }
+}
+
+async function createDeletedLaneMatrixScenario(page: Page): Promise<DeletedLaneMatrixScenario> {
+  const scenario = await createMultiLaneScenario(page)
+
+  expect(await removeNodeInBrowser(page, scenario.lane1Id)).toBe(true)
+  await expect.poll(() => getPoolLaneSnapshots(page, scenario.poolId)).toHaveLength(1)
+
+  return {
+    ...scenario,
+    remainingLaneId: scenario.lane2Id,
+  }
+}
+
+async function resizeByHandleWithSnapshot(
+  page: Page,
+  takeScreenshot: ReturnType<typeof createBrowserScreenshotTaker>,
+  title: string,
+  nodeId: string,
+  position: ResizeHandlePosition,
+  delta: { x: number; y: number },
+  selectOffset: { x: number; y: number },
+): Promise<void> {
+  await resizeNodeByHandleOverTime(page, nodeId, position, delta, {
+    selectOffset,
+    durationMs: 1200,
+    steps: 18,
+  })
+  await takeScreenshot(page, title)
+}
+
+async function resizeByHandleWithPreviewSnapshot(
+  page: Page,
+  takeScreenshot: ReturnType<typeof createBrowserScreenshotTaker>,
+  title: string,
+  nodeId: string,
+  position: ResizeHandlePosition,
+  delta: { x: number; y: number },
+  selectOffset: { x: number; y: number },
+): Promise<{
+  beforeBox: { x: number; y: number; width: number; height: number }
+  previewBox: { x: number; y: number; width: number; height: number }
+}> {
+  await clickNode(page, nodeId, selectOffset)
+
+  const targetLocator = getNodeLocator(page, nodeId)
+  const beforeBox = await targetLocator.boundingBox()
+
+  expect(beforeBox).not.toBeNull()
+
+  let previewBox: { x: number; y: number; width: number; height: number } | null = null
+
+  await resizeNodeByHandleOverTime(page, nodeId, position, delta, {
+    selectOffset,
+    durationMs: 1200,
+    steps: 18,
+    onStep: async ({ step }) => {
+      if (step !== 9) {
+        return
+      }
+
+      const preview = getResizePreviewLocator(page, nodeId)
+      await expect(preview).toBeVisible()
+      previewBox = await preview.boundingBox()
+      await takeScreenshot(page, `${title}-preview`)
+    },
+  })
+
+  expect(previewBox).not.toBeNull()
+  await takeScreenshot(page, `${title}-终态`)
+
+  return {
+    beforeBox: beforeBox!,
+    previewBox: previewBox!,
+  }
+}
+
+const poolCornerCases: Array<HandleResizeCase<MultiLaneScenarioIds>> = HANDLE_CASES
+  .filter((handle) => handle.position.includes('-'))
+  .map((handle) => ({
+    title: `Pool-${handle.position}-拖拽应严格符合-pool-md`,
+    position: handle.position,
+    delta: handle.delta,
+    targetId: (scenario) => scenario.poolId,
+    selectOffset: { x: 220, y: 120 },
+  }))
+
+const laneCornerCases: Array<HandleResizeCase<MultiLaneScenarioIds>> = [
+  { title: 'Lane-top-left-拖拽应同时收敛-Pool-左上边界', position: 'top-left', delta: { x: -60, y: -40 }, targetId: (scenario) => scenario.lane1Id, selectOffset: { x: 140, y: 80 } },
+  { title: 'Lane-top-right-拖拽应同时收敛-Pool-上边与右边', position: 'top-right', delta: { x: 60, y: -40 }, targetId: (scenario) => scenario.lane1Id, selectOffset: { x: 140, y: 80 } },
+  { title: 'Lane-bottom-left-拖拽应同时收敛-Pool-左边与底边', position: 'bottom-left', delta: { x: -60, y: 40 }, targetId: (scenario) => scenario.lane2Id, selectOffset: { x: 140, y: 80 } },
+  { title: 'Lane-bottom-right-拖拽应同时收敛-Pool-右下边界', position: 'bottom-right', delta: { x: 60, y: 40 }, targetId: (scenario) => scenario.lane2Id, selectOffset: { x: 140, y: 80 } },
+]
+
+const addedLaneHandleCases: Array<HandleResizeCase<AddedLaneMatrixScenario>> = HANDLE_CASES.map((handle) => ({
+  title: `新增-Lane-后-${handle.position}-拖拽应严格符合-pool-md`,
+  position: handle.position,
+  delta: handle.position.includes('top') ? { x: handle.delta.x, y: -30 } : handle.delta,
+  targetId: (scenario) => scenario.laneId,
+  selectOffset: { x: 140, y: 60 },
+}))
+
+const deletedLaneHandleCases: Array<HandleResizeCase<DeletedLaneMatrixScenario>> = HANDLE_CASES.map((handle) => ({
+  title: `删除-Lane-后-${handle.position}-拖拽应严格符合-pool-md`,
+  position: handle.position,
+  delta: handle.delta,
+  targetId: (scenario) => scenario.remainingLaneId,
+  selectOffset: { x: 140, y: 80 },
+}))
+
+function expectMiddleLaneTopResizeGeometry(
+  before: LaneMatrixSnapshot,
+  after: LaneMatrixSnapshot,
+  laneIds: { top: string; middle: string; bottom: string },
+): void {
+  const beforeTop = before.laneMap[laneIds.top]
+  const beforeMiddle = before.laneMap[laneIds.middle]
+  const beforeBottom = before.laneMap[laneIds.bottom]
+  const afterTop = after.laneMap[laneIds.top]
+  const afterMiddle = after.laneMap[laneIds.middle]
+  const afterBottom = after.laneMap[laneIds.bottom]
+
+  expect(afterTop.height).toBeLessThan(beforeTop.height)
+  expect(afterMiddle.y).toBeLessThan(beforeMiddle.y)
+  expect(afterMiddle.height).toBeGreaterThan(beforeMiddle.height)
+  expect(afterBottom.y).toBeCloseTo(beforeBottom.y, 0)
+  expect(afterBottom.height).toBeCloseTo(beforeBottom.height, 0)
+}
+
+function expectMiddleLaneBottomResizeGeometry(
+  before: LaneMatrixSnapshot,
+  after: LaneMatrixSnapshot,
+  laneIds: { top: string; middle: string; bottom: string },
+): void {
+  const beforeTop = before.laneMap[laneIds.top]
+  const beforeMiddle = before.laneMap[laneIds.middle]
+  const beforeBottom = before.laneMap[laneIds.bottom]
+  const afterTop = after.laneMap[laneIds.top]
+  const afterMiddle = after.laneMap[laneIds.middle]
+  const afterBottom = after.laneMap[laneIds.bottom]
+
+  expect(afterTop.y).toBeCloseTo(beforeTop.y, 0)
+  expect(afterTop.height).toBeCloseTo(beforeTop.height, 0)
+  expect(afterMiddle.height).toBeGreaterThan(beforeMiddle.height)
+  expect(afterBottom.y).toBeGreaterThan(beforeBottom.y)
+  expect(afterBottom.height).toBeLessThan(beforeBottom.height)
 }
 
 async function captureResizeProcess(
@@ -388,10 +737,7 @@ test.describe('泳道 resize 浏览器视觉回归', () => {
     const lane2BeforeClickBox = await getNodeLocator(page, scenario.lane2Id).boundingBox()
     await takeScreenshot(page, '拖拽 Pool 改变大小后从 Pool 直接切换点击下方 Lane 不应产生视觉错位-点击前')
 
-    const lane2Locator = getNodeLocator(page, scenario.lane2Id)
-    await lane2Locator.click({ position: { x: 140, y: 80 }, force: true })
-
-    await expect.poll(() => getSelectedCellIds(page)).toContain(scenario.lane2Id)
+    await clickNodeWithoutClearingSelection(page, scenario.lane2Id, { x: 140, y: 80 })
 
     const laneAfterClick = await assertMultiLaneIntegrity(page, scenario)
     const lane2AfterClickBox = await getNodeLocator(page, scenario.lane2Id).boundingBox()
@@ -482,6 +828,395 @@ test.describe('泳道 resize 浏览器视觉回归', () => {
     expect(sendTaskAfterResize.y).toBeGreaterThanOrEqual(poolAfterResize.y)
   })
 
+  test('三条 Lane 时中间 Lane 顶边拖拽应只与相邻上方 Lane 重分配高度', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createAddedLaneMatrixScenario(page)
+    const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    const { beforeBox, previewBox } = await resizeByHandleWithPreviewSnapshot(
+      page,
+      takeScreenshot,
+      '三条-Lane-中间-top-拖拽应只影响相邻上方-Lane',
+      scenario.lane2Id,
+      'top',
+      { x: 0, y: -80 },
+      { x: 140, y: 80 },
+    )
+
+    expect(Math.abs(previewBox.x - beforeBox.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(previewBox.width - beforeBox.width)).toBeLessThanOrEqual(2)
+    expect(previewBox.y).toBeLessThan(beforeBox.y)
+    expect(previewBox.height).toBeGreaterThan(beforeBox.height)
+
+    const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    expect(after.lanes).toHaveLength(3)
+    expectLaneStackFillsPool(after)
+    expectMiddleLaneTopResizeGeometry(before, after, {
+      top: scenario.lane1Id,
+      middle: scenario.lane2Id,
+      bottom: scenario.laneId,
+    })
+  })
+
+  test('三条 Lane 时中间 Lane 底边拖拽应只与相邻下方 Lane 重分配高度', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createAddedLaneMatrixScenario(page)
+    const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    const { beforeBox, previewBox } = await resizeByHandleWithPreviewSnapshot(
+      page,
+      takeScreenshot,
+      '三条-Lane-中间-bottom-拖拽应只影响相邻下方-Lane',
+      scenario.lane2Id,
+      'bottom',
+      { x: 0, y: 80 },
+      { x: 140, y: 80 },
+    )
+
+    expect(Math.abs(previewBox.x - beforeBox.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(previewBox.y - beforeBox.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(previewBox.width - beforeBox.width)).toBeLessThanOrEqual(2)
+    expect(previewBox.height).toBeGreaterThan(beforeBox.height)
+
+    const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    expect(after.lanes).toHaveLength(3)
+    expectLaneStackFillsPool(after)
+    expectMiddleLaneBottomResizeGeometry(before, after, {
+      top: scenario.lane1Id,
+      middle: scenario.lane2Id,
+      bottom: scenario.laneId,
+    })
+  })
+
+  test('三条 Lane 时中间 Lane 顶边向内拖拽应只与相邻上方 Lane 重分配高度', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createAddedLaneMatrixScenario(page)
+    const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    const { beforeBox, previewBox } = await resizeByHandleWithPreviewSnapshot(
+      page,
+      takeScreenshot,
+      '三条-Lane-中间-top-向内拖拽应只影响相邻上方-Lane',
+      scenario.lane2Id,
+      'top',
+      { x: 0, y: 60 },
+      { x: 140, y: 80 },
+    )
+
+    expect(Math.abs(previewBox.x - beforeBox.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(previewBox.width - beforeBox.width)).toBeLessThanOrEqual(2)
+    expect(previewBox.y).toBeGreaterThan(beforeBox.y)
+    expect(previewBox.height).toBeLessThan(beforeBox.height)
+
+    const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    expect(after.lanes).toHaveLength(3)
+    expectLaneStackFillsPool(after)
+    expect(after.pool.y).toBeCloseTo(before.pool.y, 0)
+    expect(after.pool.height).toBeCloseTo(before.pool.height, 0)
+    expect(after.laneMap[scenario.lane1Id].height).toBeGreaterThan(before.laneMap[scenario.lane1Id].height)
+    expect(after.laneMap[scenario.lane2Id].y).toBeGreaterThan(before.laneMap[scenario.lane2Id].y)
+    expect(after.laneMap[scenario.lane2Id].height).toBeLessThan(before.laneMap[scenario.lane2Id].height)
+    expect(after.laneMap[scenario.laneId].y).toBeCloseTo(before.laneMap[scenario.laneId].y, 0)
+    expect(after.laneMap[scenario.laneId].height).toBeCloseTo(before.laneMap[scenario.laneId].height, 0)
+  })
+
+  test('三条 Lane 时中间 Lane 底边向内拖拽应只与相邻下方 Lane 重分配高度', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createAddedLaneMatrixScenario(page)
+    const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    const { beforeBox, previewBox } = await resizeByHandleWithPreviewSnapshot(
+      page,
+      takeScreenshot,
+      '三条-Lane-中间-bottom-向内拖拽应只影响相邻下方-Lane',
+      scenario.lane2Id,
+      'bottom',
+      { x: 0, y: -60 },
+      { x: 140, y: 80 },
+    )
+
+    expect(Math.abs(previewBox.x - beforeBox.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(previewBox.y - beforeBox.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(previewBox.width - beforeBox.width)).toBeLessThanOrEqual(2)
+    expect(previewBox.height).toBeLessThan(beforeBox.height)
+
+    const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    expect(after.lanes).toHaveLength(3)
+    expectLaneStackFillsPool(after)
+    expect(after.pool.y).toBeCloseTo(before.pool.y, 0)
+    expect(after.pool.height).toBeCloseTo(before.pool.height, 0)
+    expect(after.laneMap[scenario.lane1Id].y).toBeCloseTo(before.laneMap[scenario.lane1Id].y, 0)
+    expect(after.laneMap[scenario.lane1Id].height).toBeCloseTo(before.laneMap[scenario.lane1Id].height, 0)
+    expect(after.laneMap[scenario.lane2Id].height).toBeLessThan(before.laneMap[scenario.lane2Id].height)
+    expect(after.laneMap[scenario.laneId].y).toBeLessThan(before.laneMap[scenario.laneId].y)
+    expect(after.laneMap[scenario.laneId].height).toBeGreaterThan(before.laneMap[scenario.laneId].height)
+  })
+
+  test('三条 Lane 时下方 Lane 顶边向上大幅拖拽应钳制在相邻上方 Lane 最小高度', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createAddedLaneMatrixScenario(page)
+    const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    const { beforeBox, previewBox } = await resizeByHandleWithPreviewSnapshot(
+      page,
+      takeScreenshot,
+      '三条-Lane-下方-top-向上大幅拖拽应钳制相邻上方-Lane-最小高度',
+      scenario.laneId,
+      'top',
+      { x: 0, y: -260 },
+      { x: 140, y: 60 },
+    )
+
+    const expectedClampedTop = before.laneMap[scenario.lane2Id].y + 60
+    const expectedPreviewTop = beforeBox.y - (before.laneMap[scenario.laneId].y - expectedClampedTop)
+
+    expect(Math.abs(previewBox.x - beforeBox.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(previewBox.width - beforeBox.width)).toBeLessThanOrEqual(2)
+    expect(Math.abs(previewBox.y - expectedPreviewTop)).toBeLessThanOrEqual(1)
+    expect(previewBox.y).toBeGreaterThanOrEqual(expectedPreviewTop - 1)
+
+    const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    expect(after.lanes).toHaveLength(3)
+    expectLaneStackFillsPool(after)
+    expect(after.pool.y).toBeCloseTo(before.pool.y, 0)
+    expect(after.pool.height).toBeCloseTo(before.pool.height, 0)
+    expect(after.laneMap[scenario.lane1Id].y).toBeCloseTo(before.laneMap[scenario.lane1Id].y, 0)
+    expect(after.laneMap[scenario.lane1Id].height).toBeCloseTo(before.laneMap[scenario.lane1Id].height, 0)
+    expect(after.laneMap[scenario.lane2Id].y).toBeCloseTo(before.laneMap[scenario.lane2Id].y, 0)
+    expect(after.laneMap[scenario.lane2Id].height).toBeCloseTo(60, 0)
+    expect(after.laneMap[scenario.laneId].y).toBeCloseTo(expectedClampedTop, 0)
+    expect(after.laneMap[scenario.laneId].height).toBeCloseTo(
+      before.laneMap[scenario.laneId].height + (before.laneMap[scenario.laneId].y - expectedClampedTop),
+      0,
+    )
+  })
+
+  test('Lane resize 后 Pool 内部任务节点不应跟随泳道边界一起移动', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createAddedLaneMatrixScenario(page)
+    const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+    await takeScreenshot(page, 'Lane-resize-前-Pool-内部任务节点位置')
+
+    await resizeByHandleWithSnapshot(
+      page,
+      takeScreenshot,
+      'Lane-resize-后-Pool-内部任务节点不应跟随移动',
+      scenario.lane2Id,
+      'top',
+      { x: 0, y: -80 },
+      { x: 140, y: 80 },
+    )
+
+    const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ])
+
+    expect(after.lanes).toHaveLength(3)
+    expectLaneStackFillsPool(after)
+    expect(after.laneMap[scenario.lane1Id].height).toBeLessThan(before.laneMap[scenario.lane1Id].height)
+    expect(after.laneMap[scenario.lane2Id].y).toBeLessThan(before.laneMap[scenario.lane2Id].y)
+    expect(after.laneMap[scenario.lane2Id].height).toBeGreaterThan(before.laneMap[scenario.lane2Id].height)
+
+    for (const nodeId of [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+      scenario.addedTaskId,
+    ]) {
+      const beforeNode = before.nodes[nodeId]
+      const afterNode = after.nodes[nodeId]
+
+      expect(afterNode.x).toBeCloseTo(beforeNode.x, 0)
+      expect(afterNode.y).toBeCloseTo(beforeNode.y, 0)
+      expect(afterNode.width).toBeCloseTo(beforeNode.width, 0)
+      expect(afterNode.height).toBeCloseTo(beforeNode.height, 0)
+    }
+  })
+
+  test('Lane 右边收缩时应受直属任务下挂边界事件范围约束', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolLaneTaskBoundaryScenario(page)
+    expect(scenario.boundaryId).toBeTruthy()
+
+    await dragNodeBy(page, scenario.taskId, { x: 180, y: 0 })
+
+    const beforePool = await getNodeSnapshot(page, scenario.poolId)
+    const beforeLane = await getNodeSnapshot(page, scenario.laneId)
+    const beforeTask = await getNodeSnapshot(page, scenario.taskId)
+    const beforeBoundary = await getNodeSnapshot(page, scenario.boundaryId!)
+    const expectedClampedRight = beforeBoundary.x + beforeBoundary.width
+
+    expect(beforeTask.x + beforeTask.width).toBeLessThan(expectedClampedRight)
+    expect(expectedClampedRight).toBeGreaterThan(beforeLane.x + 300)
+
+    await resizeNodeByEdgeOverTime(
+      page,
+      scenario.laneId,
+      'right',
+      { x: -220, y: 0 },
+      {
+        selectOffset: { x: 250, y: 80 },
+        durationMs: 1600,
+        steps: 20,
+      },
+    )
+
+    const afterPool = await getNodeSnapshot(page, scenario.poolId)
+    const afterLane = await getNodeSnapshot(page, scenario.laneId)
+    const afterTask = await getNodeSnapshot(page, scenario.taskId)
+    const afterBoundary = await getNodeSnapshot(page, scenario.boundaryId!)
+    await takeScreenshot(page, 'Lane-右边收缩应受边界事件后代范围约束')
+
+    expect(afterPool.x).toBeCloseTo(beforePool.x, 0)
+    expect(afterLane.x).toBeCloseTo(beforeLane.x, 0)
+    expect(afterPool.width).toBeLessThan(beforePool.width)
+    expect(afterLane.width).toBeLessThan(beforeLane.width)
+    expect(afterPool.x + afterPool.width).toBeCloseTo(expectedClampedRight, 0)
+    expect(afterLane.x + afterLane.width).toBeCloseTo(expectedClampedRight, 0)
+    expectInsideRect(afterTask, afterLane, 2)
+    expectInsideRect(afterBoundary, afterLane, 2)
+  })
+
+  test('视图平移缩放后 resize ghost 应继续贴合节点屏幕位置', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createMultiLaneScenario(page)
+    await clickNode(page, scenario.lane1Id, { x: 140, y: 80 })
+    await setViewportTransform(page, { tx: 160, ty: 90, scale: 1.2 })
+
+    const laneLocator = getNodeLocator(page, scenario.lane1Id)
+    const beforeBox = await laneLocator.boundingBox()
+    expect(beforeBox).not.toBeNull()
+
+    let previewBox: { x: number; y: number; width: number; height: number } | null = null
+
+    await resizeNodeByHandleOverTime(page, scenario.lane1Id, 'bottom', { x: 0, y: 40 }, {
+      selectOffset: { x: 140, y: 80 },
+      durationMs: 1000,
+      steps: 12,
+      onStep: async ({ step }) => {
+        if (step !== 6) {
+          return
+        }
+
+        const preview = getResizePreviewLocator(page, scenario.lane1Id)
+        await expect(preview).toBeVisible()
+        await takeScreenshot(page, '视图变换后-resize-ghost-应贴合节点')
+        previewBox = await preview.boundingBox()
+      },
+    })
+
+    expect(previewBox).not.toBeNull()
+    expect(Math.abs(previewBox!.x - beforeBox!.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(previewBox!.y - beforeBox!.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(previewBox!.width - beforeBox!.width)).toBeLessThanOrEqual(2)
+    expect(previewBox!.height).toBeGreaterThan(beforeBox!.height)
+  })
+
   for (const resizeCase of resizeCases) {
     test(resizeCase.title, async ({ page }, testInfo) => {
       test.fail(Boolean(resizeCase.expectedFailureReason), resizeCase.expectedFailureReason)
@@ -496,6 +1231,154 @@ test.describe('泳道 resize 浏览器视觉回归', () => {
       const after = await captureResizeProcess(page, takeScreenshot, scenario, resizeCase)
 
       resizeCase.expectGeometry(before, after)
+    })
+  }
+
+  for (const cornerCase of poolCornerCases) {
+    test(cornerCase.title, async ({ page }, testInfo) => {
+      await waitForHarness(page)
+      const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+      const scenario = await createMultiLaneScenario(page)
+      const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+        scenario.taskId,
+        scenario.gatewayId,
+        scenario.task2Id,
+        scenario.sendTaskId,
+        scenario.serviceTaskId,
+      ])
+
+      await resizeByHandleWithSnapshot(
+        page,
+        takeScreenshot,
+        cornerCase.title,
+        cornerCase.targetId(scenario),
+        cornerCase.position,
+        cornerCase.delta,
+        cornerCase.selectOffset,
+      )
+
+      const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+        scenario.taskId,
+        scenario.gatewayId,
+        scenario.task2Id,
+        scenario.sendTaskId,
+        scenario.serviceTaskId,
+      ])
+
+      expectLaneStackFillsPool(after)
+      expectPoolHandleGeometry(before, after, cornerCase.position, cornerCase.delta)
+    })
+  }
+
+  for (const cornerCase of laneCornerCases) {
+    test(cornerCase.title, async ({ page }, testInfo) => {
+      await waitForHarness(page)
+      const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+      const scenario = await createMultiLaneScenario(page)
+      const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+        scenario.taskId,
+        scenario.gatewayId,
+        scenario.task2Id,
+        scenario.sendTaskId,
+        scenario.serviceTaskId,
+      ])
+
+      await resizeByHandleWithSnapshot(
+        page,
+        takeScreenshot,
+        cornerCase.title,
+        cornerCase.targetId(scenario),
+        cornerCase.position,
+        cornerCase.delta,
+        cornerCase.selectOffset,
+      )
+
+      const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+        scenario.taskId,
+        scenario.gatewayId,
+        scenario.task2Id,
+        scenario.sendTaskId,
+        scenario.serviceTaskId,
+      ])
+
+      expectLaneStackFillsPool(after)
+      expectLaneHandleGeometry(before, after, cornerCase.targetId(scenario), cornerCase.position, cornerCase.delta)
+    })
+  }
+
+  for (const handleCase of addedLaneHandleCases) {
+    test(handleCase.title, async ({ page }, testInfo) => {
+      await waitForHarness(page)
+      const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+      const scenario = await createAddedLaneMatrixScenario(page)
+      const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+        scenario.taskId,
+        scenario.gatewayId,
+        scenario.task2Id,
+        scenario.sendTaskId,
+        scenario.serviceTaskId,
+        scenario.addedTaskId,
+      ])
+
+      await resizeByHandleWithSnapshot(
+        page,
+        takeScreenshot,
+        handleCase.title,
+        handleCase.targetId(scenario),
+        handleCase.position,
+        handleCase.delta,
+        handleCase.selectOffset,
+      )
+
+      const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+        scenario.taskId,
+        scenario.gatewayId,
+        scenario.task2Id,
+        scenario.sendTaskId,
+        scenario.serviceTaskId,
+        scenario.addedTaskId,
+      ])
+
+      expect(after.lanes).toHaveLength(3)
+      expectLaneStackFillsPool(after)
+      expectLaneHandleGeometry(before, after, handleCase.targetId(scenario), handleCase.position, handleCase.delta)
+    })
+  }
+
+  for (const handleCase of deletedLaneHandleCases) {
+    test(handleCase.title, async ({ page }, testInfo) => {
+      await waitForHarness(page)
+      const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+      const scenario = await createDeletedLaneMatrixScenario(page)
+      const before = await getLaneMatrixSnapshot(page, scenario.poolId, [
+        scenario.gatewayId,
+        scenario.task2Id,
+        scenario.sendTaskId,
+      ])
+
+      await resizeByHandleWithSnapshot(
+        page,
+        takeScreenshot,
+        handleCase.title,
+        handleCase.targetId(scenario),
+        handleCase.position,
+        handleCase.delta,
+        handleCase.selectOffset,
+      )
+
+      const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+        scenario.gatewayId,
+        scenario.task2Id,
+        scenario.sendTaskId,
+      ])
+
+      expect(after.lanes).toHaveLength(1)
+      expectLaneStackFillsPool(after)
+      expectLaneHandleGeometry(before, after, handleCase.targetId(scenario), handleCase.position, handleCase.delta)
     })
   }
 })

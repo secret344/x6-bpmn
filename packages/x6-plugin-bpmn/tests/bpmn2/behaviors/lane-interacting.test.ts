@@ -197,7 +197,7 @@ describe('patchLaneInteracting / restoreLaneInteracting', () => {
 
     const dispose = setupSwimlanePolicy(graph)
 
-    expect(graph.options.translating.restrict({ cell: task })).toEqual({ x: 120, y: 80, width: 90, height: 50 })
+    expect(graph.options.translating.restrict.call(graph, { cell: task })).toBeNull()
 
     dispose()
     expect(graph.options.translating).toBeUndefined()

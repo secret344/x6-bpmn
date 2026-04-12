@@ -37,6 +37,8 @@ describe('swimlane-membership', () => {
     expect(getAncestorPool(pool)?.id).toBe('pool')
     expect(getAncestorSwimlane(task)?.id).toBe('lane')
     expect(getAncestorSwimlane(pool)).toBeNull()
+    expect(getAncestorPool(null)).toBeNull()
+    expect(getAncestorSwimlane(undefined)).toBeNull()
   })
 
   it('查找包含泳道时应优先返回更小的 Lane', () => {
@@ -51,6 +53,12 @@ describe('swimlane-membership', () => {
 
     const fallback = findContainingSwimlane(graph, { x: 60, y: 220, width: 80, height: 40 })
     expect(fallback?.id).toBe('pool')
+
+    const laneTarget = {
+      getPosition: () => ({ x: 60, y: 20 }),
+      getSize: () => ({ width: 80, height: 40 }),
+    }
+    expect(findContainingSwimlane(graph, laneTarget, lane.id)?.id).toBe('pool')
   })
 
   it('图节点遍历失败时应安全返回空结果', () => {
