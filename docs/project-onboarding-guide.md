@@ -2,150 +2,141 @@
 
 Project Onboarding and Code Reading Guide
 
-## 1. 包级职责图 / Package-Level Responsibility Map
+## 1. 适用对象 / Audience
 
-| 包 / Package | 角色 / Role | 什么时候打开 / When to open |
+这份文档面向仓库维护者和二次开发者，帮助你快速定位包职责、主库入口和常见改动落点。
+
+This document is for repository maintainers and secondary developers. It helps you quickly locate package responsibilities, library entry points, and common change locations.
+
+## 2. 仓库阅读入口 / Repository Entry Points
+
+建议先按下面顺序建立上下文：
+
+Build context in the following order:
+
+1. [../README.md](../README.md)
+2. [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md)
+3. `packages/x6-plugin-bpmn/src/index.ts`
+4. 再根据任务进入 `src/core/dialect`、`src/rules`、`src/import`、`src/export` 或 `src/behaviors`
+
+1. [../README.md](../README.md)
+2. [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md)
+3. `packages/x6-plugin-bpmn/src/index.ts`
+4. Then move into `src/core/dialect`, `src/rules`, `src/import`, `src/export`, or `src/behaviors` based on the task
+
+## 3. 包职责图 / Package Responsibility Map
+
+| 包 / Package | 作用 / Purpose | 何时查看 / When to open |
 |---|---|---|
-| `packages/x6-plugin-bpmn` | 主库 | 任何通用能力、规则、导入导出、行为问题都先看这里 |
-| `packages/example` | 标准接入示例 | 想看主库如何被最直接地接入时 |
-| `packages/dialect-demo` | 方言系统示例 | 想看 `DialectManager` 与 `Profile` 的宿主用法时 |
-| `packages/smartengine-demo` | SmartEngine 方言示例 | 想看业务方言如何扩展 BPMN2 时 |
-| `packages/approval-flow` | 业务风格示例 | 想看贴近业务界面的实际画布组织时 |
-| `packages/bpmn2-spec` | 官方规范与中文辅助材料 | 修改规范性约束之前 |
-| `packages/bpmn-moddle` | XML/moddle 参照实现 | 调整 XML 解析与序列化行为时 |
-| `packages/bpmn-js` | 社区建模器参照实现 | 对照社区交互实现时 |
+| `packages/x6-plugin-bpmn` | 主库 | 任何通用能力、规则、导入导出、行为问题 |
+| `packages/example` | 标准接入示例 | 想看最直接的宿主接入方式 |
+| `packages/dialect-demo` | 方言系统示例 | 想看 `Profile`、`DialectManager`、按图绑定 |
+| `packages/smartengine-demo` | SmartEngine 示例 | 想看方言扩展如何落到宿主项目 |
+| `packages/approval-flow` | 业务风格示例 | 想看接近业务编辑器的画布组织 |
+| `packages/bpmn2-spec` | 规范只读参照 | 修改 BPMN 约束前 |
+| `packages/bpmn-moddle` | XML 只读参照实现 | 修改 XML 解析或序列化前 |
+| `packages/bpmn-js` | 建模器只读参照实现 | 对照社区交互行为时 |
 
-| Package | Role | When to open |
+| Package | Purpose | When to open |
 |---|---|---|
-| `packages/x6-plugin-bpmn` | Main library | Start here for any reusable capability, rule, import/export, or behavior issue |
-| `packages/example` | Baseline integration demo | Open when you want the most direct example of plugin integration |
-| `packages/dialect-demo` | Dialect-system demo | Open when you want the host usage of `DialectManager` and `Profile` |
-| `packages/smartengine-demo` | SmartEngine dialect demo | Open when you want to see business dialects extending BPMN2 |
-| `packages/approval-flow` | Business-flavored demo | Open when you want a domain-oriented canvas organization example |
-| `packages/bpmn2-spec` | Official spec and Chinese reference material | Read before changing spec-driven constraints |
-| `packages/bpmn-moddle` | XML/moddle reference implementation | Read when changing XML parse/serialize behavior |
-| `packages/bpmn-js` | Community modeler reference implementation | Read when comparing community interaction behavior |
+| `packages/x6-plugin-bpmn` | Core library | Any reusable capability, rule, import/export, or runtime behavior issue |
+| `packages/example` | Baseline integration demo | When you want the most direct host integration |
+| `packages/dialect-demo` | Dialect-system demo | When you need `Profile`, `DialectManager`, and per-graph binding examples |
+| `packages/smartengine-demo` | SmartEngine demo | When you want host-level dialect extension examples |
+| `packages/approval-flow` | Business-flavored demo | When you want a more domain-oriented editor layout |
+| `packages/bpmn2-spec` | Read-only spec reference | Before changing BPMN constraints |
+| `packages/bpmn-moddle` | Read-only XML reference implementation | Before changing XML parsing or serialization |
+| `packages/bpmn-js` | Read-only modeler reference implementation | When comparing community-modeler behavior |
 
-## 2. 主库分层 / Main Library Layers
+## 4. 主库入口图 / Main Library Entry Map
 
 | 目录 / Directory | 作用 / Responsibility |
 |---|---|
-| `src/index.ts` | 总入口，统一导出公开能力 |
-| `src/core/dialect` | 方言注册、编译、绑定与运行时入口 |
-| `src/rules` 与 `src/core/rules` | BPMN 规则与方言规则适配 |
-| `src/import` 与 `src/export` | XML 与图状态的双向转换 |
-| `src/behaviors` | 边界事件附着、containment 等运行时行为 |
-| `src/shapes`、`src/connections`、`src/config`、`src/utils` | 图形定义、分类、标签、常量 |
+| `src/index.ts` | 公开 API 总入口 |
+| `src/core/dialect` | 方言注册、编译、上下文、绑定 |
+| `src/rules` 与 `src/core/rules` | BPMN 规则与方言规则校验 |
+| `src/import` | XML 解析与图装载 |
+| `src/export` | 图状态导出 XML |
+| `src/behaviors` | 运行时交互行为 |
+| `src/core/data-model` | 字段默认值、规范化、校验 |
+| `src/shapes`、`src/connections`、`src/config`、`src/utils` | 图形、连接、配置和底层工具 |
 
 | Directory | Responsibility |
 |---|---|
-| `src/index.ts` | Public entry point |
-| `src/core/dialect` | Dialect registration, compilation, binding, and runtime entry points |
-| `src/rules` and `src/core/rules` | BPMN rules and dialect-aware rule adapters |
-| `src/import` and `src/export` | Two-way conversion between XML and graph state |
-| `src/behaviors` | Runtime behaviors such as boundary attachment and containment |
-| `src/shapes`, `src/connections`, `src/config`, `src/utils` | Shape definitions, classification, labels, and constants |
+| `src/index.ts` | Public API entry |
+| `src/core/dialect` | Dialect registration, compilation, context, and binding |
+| `src/rules` and `src/core/rules` | BPMN and dialect-aware rule validation |
+| `src/import` | XML parsing and graph loading |
+| `src/export` | Graph-to-XML export |
+| `src/behaviors` | Runtime interaction behaviors |
+| `src/core/data-model` | Field defaults, normalization, and validation |
+| `src/shapes`, `src/connections`, `src/config`, `src/utils` | Shapes, connections, configuration, and low-level utilities |
 
-## 3. 建议阅读顺序 / Recommended Reading Order
+## 5. 常见改动落点 / Common Change Locations
 
-1. `src/index.ts`
-2. `src/core/dialect/types.ts`
-3. `src/core/dialect/registry.ts`
-4. `src/core/dialect/compiler.ts`
-5. `src/core/dialect/context.ts`
-6. `src/core/dialect/index.ts`
-7. `src/rules/validator.ts`
-8. `src/core/rules/validator.ts`
-9. `src/import/index.ts` -> `src/import/xml-parser.ts` -> `src/import/graph-loader.ts`
-10. `src/export/index.ts` -> `src/export/bpmn-mapping.ts` -> `src/export/exporter.ts`
-11. `src/behaviors/boundary-attach.ts` 与 `src/behaviors/pool-containment.ts`
-
-1. `src/index.ts`
-2. `src/core/dialect/types.ts`
-3. `src/core/dialect/registry.ts`
-4. `src/core/dialect/compiler.ts`
-5. `src/core/dialect/context.ts`
-6. `src/core/dialect/index.ts`
-7. `src/rules/validator.ts`
-8. `src/core/rules/validator.ts`
-9. `src/import/index.ts` -> `src/import/xml-parser.ts` -> `src/import/graph-loader.ts`
-10. `src/export/index.ts` -> `src/export/bpmn-mapping.ts` -> `src/export/exporter.ts`
-11. `src/behaviors/boundary-attach.ts` and `src/behaviors/pool-containment.ts`
-
-## 4. 常见改动应该去哪里 / Where Common Changes Usually Belong
-
-| 任务 / Task | 首选目录 / Primary directory |
+| 任务 / Task | 首选目录 / Primary location |
 |---|---|
-| 新增标准图形或调整图形渲染 | `src/shapes`、`src/connections` |
-| 修改连线规则 | `src/rules`、`src/core/rules` |
-| 修改字段默认值、规范化、字段校验 | `src/core/data-model` |
-| 修改方言继承、合并、编译 | `src/core/dialect` |
-| 修改 graph 绑定、自动校验接线 | `src/core/dialect` |
-| 修改 XML 解析 | `src/import` |
-| 修改 XML 导出 | `src/export` |
-| 修改边界事件或 containment 交互 | `src/behaviors` |
-| 修改宿主接入示例 | 对应 demo 包或 `packages/example` |
+| 新增或修改标准图形 | `src/shapes`、`src/connections` |
+| 调整连线规则 | `src/rules`、`src/core/rules` |
+| 调整字段能力或校验 | `src/core/data-model` |
+| 调整方言继承、合并、编译 | `src/core/dialect` |
+| 调整 graph 绑定和运行时上下文 | `src/core/dialect` |
+| 调整 XML 导入 | `src/import` |
+| 调整 XML 导出 | `src/export` |
+| 调整边界事件、containment、swimlane 等行为 | `src/behaviors` |
+| 调整宿主接入示例 | 对应 demo 包 |
 
-| Task | Primary directory |
+| Task | Primary location |
 |---|---|
-| Add a standard shape or adjust shape rendering | `src/shapes`, `src/connections` |
-| Change connection rules | `src/rules`, `src/core/rules` |
-| Change field defaults, normalization, or validation | `src/core/data-model` |
-| Change dialect inheritance, merge, or compilation | `src/core/dialect` |
-| Change graph binding or auto-wired validation | `src/core/dialect` |
-| Change XML parsing | `src/import` |
-| Change XML export | `src/export` |
-| Change boundary or containment interactions | `src/behaviors` |
-| Change host integration examples | the relevant demo package or `packages/example` |
+| Add or modify standard shapes | `src/shapes`, `src/connections` |
+| Adjust connection rules | `src/rules`, `src/core/rules` |
+| Adjust field capabilities or validation | `src/core/data-model` |
+| Adjust dialect inheritance, merge, or compilation | `src/core/dialect` |
+| Adjust graph binding and runtime context | `src/core/dialect` |
+| Adjust XML import | `src/import` |
+| Adjust XML export | `src/export` |
+| Adjust boundary, containment, swimlane, or related behaviors | `src/behaviors` |
+| Adjust host integration examples | the relevant demo package |
 
-## 5. 修改前的三个检查点 / Three Checks Before You Change Anything
+## 6. 改动前检查 / Pre-change Checks
 
-1. 这是主库能力，还是某个 demo 的宿主逻辑？
-2. 这是 BPMN 规范约束，还是业务方自己定义的限制？
-3. 这条链路更接近图形注册、方言绑定、导入，还是导出？
+动手前先确认三件事：
 
-1. Is this a core library capability or host logic inside a demo?
-2. Is this a BPMN specification constraint or a business-defined restriction?
-3. Is the change closer to shape registration, dialect binding, import, or export?
+Confirm three things before changing code:
 
-## 6. 测试与验证 / Tests and Validation
+1. 这是主库通用能力，还是某个宿主项目自己的逻辑。
+2. 这是 BPMN 规范约束，还是业务产品规则。
+3. 这次改动更接近图形、规则、方言、导入、导出还是运行时行为。
 
-主库测试位于 `packages/x6-plugin-bpmn/tests`，目录基本与 `src` 对应。
+1. Whether the change belongs to the reusable library or to a specific host project.
+2. Whether the change is a BPMN specification constraint or a business rule.
+3. Whether the change is mainly about shapes, rules, dialects, import, export, or runtime behavior.
 
-Plugin tests live under `packages/x6-plugin-bpmn/tests` and mostly mirror `src`.
+## 7. 验证顺序 / Validation Order
 
-- `tests/bpmn2`：标准 BPMN2 行为和能力测试。
-- `tests/smart`：SmartEngine 相关测试。
-- `tests/helpers`：共享测试工具，只放工具，不放 `describe` / `it`。
+推荐执行顺序：
 
-- `tests/bpmn2`: standard BPMN2 behavior and capability tests.
-- `tests/smart`: SmartEngine-related tests.
-- `tests/helpers`: shared test helpers only; no `describe` / `it` blocks belong here.
-
-推荐验证顺序：
-
-Recommended validation order:
+Recommended execution order:
 
 ```bash
 pnpm run typecheck
+pnpm --filter @x6-bpmn2/plugin test
 pnpm --filter @x6-bpmn2/plugin test:browser
 pnpm --filter @x6-bpmn2/plugin test:coverage
 ```
 
-工作区里的纯 TypeScript 包使用 `tsc --noEmit`，Vue 示例包使用 `vue-tsc --noEmit`。不要再用 `tsc` 代替 Vue SFC 的类型检查，否则 `.vue` 文件中的问题会被漏掉。
+`pnpm run typecheck` 会覆盖 TypeScript 包和 Vue 包。主库逻辑变更至少跑 `test`，规则、导入导出或运行时行为变更优先补跑 `test:browser` 与 `test:coverage`。
 
-Pure TypeScript packages in this workspace use `tsc --noEmit`, while Vue demo packages use `vue-tsc --noEmit`. Do not use plain `tsc` as a substitute for Vue SFC type-checking, or issues inside `.vue` files will be missed.
+`pnpm run typecheck` covers both TypeScript and Vue packages. Run at least `test` for plugin logic changes, and prefer `test:browser` plus `test:coverage` for rule, import/export, or runtime behavior changes.
 
-如果只改了局部逻辑，至少运行主库测试；涉及规则、导入导出或运行时行为时，按上面的顺序做完整验证。示例项目不再保留独立自动化测试入口。
+## 8. 相关文档 / Related Documents
 
-If you only change a small isolated path, run the plugin tests at minimum. For rule, import/export, or runtime behavior changes, use the full validation order above. The example app no longer keeps a separate automated test entry.
+1. [../README.md](../README.md)
+2. [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md)
+3. [custom-extension-guide.md](custom-extension-guide.md)
+4. [smartengine-xml-extension-reference.md](smartengine-xml-extension-reference.md)
 
-## 7. 相关文档 / Related Documents
-
-- [../README.md](../README.md)：工作区总览。
-- [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md)：主库 API 与模块说明。
-- [custom-extension-guide.md](custom-extension-guide.md)：宿主如何按最小代价扩展标准图形、Profile 与 XML 语义。
-
-- [../README.md](../README.md): workspace overview.
-- [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md): main library API and module guide.
-- [custom-extension-guide.md](custom-extension-guide.md): how host apps extend standard shapes, profiles, and XML semantics with minimal changes.
+1. [../README.md](../README.md)
+2. [../packages/x6-plugin-bpmn/README.md](../packages/x6-plugin-bpmn/README.md)
+3. [custom-extension-guide.md](custom-extension-guide.md)
+4. [smartengine-xml-extension-reference.md](smartengine-xml-extension-reference.md)
