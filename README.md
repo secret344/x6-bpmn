@@ -100,6 +100,7 @@ These reference submodules are read-only in this workspace. Record issues in [ti
 |---|---|
 | [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md) | 新人上手、结构理解、阅读顺序 |
 | [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md) | 主库 API 和模块职责 |
+| [docs/child-laneset-architecture.md](docs/child-laneset-architecture.md) | childLaneSet 的导入导出、BPMNDI 与交互设计 |
 | [docs/custom-extension-guide.md](docs/custom-extension-guide.md) | 宿主如何扩展图形、Profile 和 XML 语义 |
 | [docs/smartengine-xml-extension-reference.md](docs/smartengine-xml-extension-reference.md) | SmartEngine XML 参考页 |
 | [tip.md](tip.md) | 仓库维护备注和需跟踪的问题 |
@@ -108,6 +109,7 @@ These reference submodules are read-only in this workspace. Record issues in [ti
 |---|---|
 | [docs/project-onboarding-guide.md](docs/project-onboarding-guide.md) | Onboarding, structure, and reading order |
 | [packages/x6-plugin-bpmn/README.md](packages/x6-plugin-bpmn/README.md) | Core library API and module responsibilities |
+| [docs/child-laneset-architecture.md](docs/child-laneset-architecture.md) | childLaneSet design for import/export, BPMNDI, and interactions |
 | [docs/custom-extension-guide.md](docs/custom-extension-guide.md) | How host apps extend shapes, profiles, and XML semantics |
 | [docs/smartengine-xml-extension-reference.md](docs/smartengine-xml-extension-reference.md) | SmartEngine XML reference |
 | [tip.md](tip.md) | Repository maintenance notes and tracked issues |

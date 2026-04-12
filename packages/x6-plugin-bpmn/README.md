@@ -140,13 +140,15 @@ Run at least `pnpm run test` for plugin source or test changes. Prefer `test:cov
 
 1. [../../README.md](../../README.md)
 2. [../../docs/project-onboarding-guide.md](../../docs/project-onboarding-guide.md)
-3. [../../docs/custom-extension-guide.md](../../docs/custom-extension-guide.md)
-4. [../../docs/smartengine-xml-extension-reference.md](../../docs/smartengine-xml-extension-reference.md)
+3. [../../docs/child-laneset-architecture.md](../../docs/child-laneset-architecture.md)
+4. [../../docs/custom-extension-guide.md](../../docs/custom-extension-guide.md)
+5. [../../docs/smartengine-xml-extension-reference.md](../../docs/smartengine-xml-extension-reference.md)
 
 1. [../../README.md](../../README.md)
 2. [../../docs/project-onboarding-guide.md](../../docs/project-onboarding-guide.md)
-3. [../../docs/custom-extension-guide.md](../../docs/custom-extension-guide.md)
-4. [../../docs/smartengine-xml-extension-reference.md](../../docs/smartengine-xml-extension-reference.md)
+3. [../../docs/child-laneset-architecture.md](../../docs/child-laneset-architecture.md)
+4. [../../docs/custom-extension-guide.md](../../docs/custom-extension-guide.md)
+5. [../../docs/smartengine-xml-extension-reference.md](../../docs/smartengine-xml-extension-reference.md)
 
 ## 7. 许可 / License
 
