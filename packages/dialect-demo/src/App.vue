@@ -10,6 +10,7 @@
           <a-button size="small" @click="handleExport">导出 XML</a-button>
           <a-button size="small" @click="handleImport">导入 XML</a-button>
           <a-button size="small" @click="handleValidate">验证约束</a-button>
+          <a-button size="small" type="outline" @click="handleCreateSample">创建示例流程</a-button>
           <a-button size="small" type="outline" @click="handleDetect">检测方言</a-button>
         </a-space>
       </div>
@@ -103,12 +104,13 @@ import ConstraintsPanel from './components/ConstraintsPanel.vue'
 import DataModelPanel from './components/DataModelPanel.vue'
 import { useDialectSingleton } from './composables/useDialect'
 
-const { exportXML, importXML, detectDialect, runConstraintValidation } = useDialectSingleton()
+const { exportXML, importXML, detectDialect, runConstraintValidation, createSampleProcess } = useDialectSingleton()
 
 const graph = shallowRef<Graph | null>(null)
 
 function onGraphReady(g: Graph) {
   graph.value = g
+  createSampleProcess()
 }
 
 // ---- XML 弹窗 ----
@@ -166,6 +168,11 @@ const validationResults = ref<Array<{ id: string; description: string; result: t
 function handleValidate() {
   validationResults.value = runConstraintValidation()
   validationModalVisible.value = true
+}
+
+function handleCreateSample() {
+  createSampleProcess()
+  Message.success('已创建当前方言示例流程')
 }
 </script>
 

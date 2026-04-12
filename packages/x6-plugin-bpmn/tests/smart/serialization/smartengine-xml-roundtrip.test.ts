@@ -411,6 +411,69 @@ describe('SmartEngine XML roundtrip', () => {
     })
   })
 
+  it('smartengine-base 的 userTask smartProperties 应导出为 smart:properties 而不是 modeler:properties', async () => {
+    const graph = createGraph()
+    const resolved = createSmartRegistry().compile('smartengine-base')
+
+    graph.addNode({
+      id: 'start_1',
+      shape: BPMN_START_EVENT,
+      x: 80,
+      y: 180,
+      width: 36,
+      height: 36,
+      data: { bpmn: { name: '开始' } },
+    })
+    graph.addNode({
+      id: 'user_1',
+      shape: BPMN_USER_TASK,
+      x: 220,
+      y: 160,
+      width: 140,
+      height: 60,
+      data: {
+        bpmn: {
+          name: '人工复核',
+          smartProperties: '[{"name":"taskType","value":"manual-review"}]',
+          smartExecutionListeners: '[{"event":"ACTIVITY_START","class":"com.example.StartListener"}]',
+        },
+      },
+    })
+    graph.addNode({
+      id: 'end_1',
+      shape: BPMN_END_EVENT,
+      x: 440,
+      y: 180,
+      width: 36,
+      height: 36,
+      data: { bpmn: { name: '结束' } },
+    })
+
+    graph.addEdge({ id: 'flow_1', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'start_1' }, target: { cell: 'user_1' } })
+    graph.addEdge({ id: 'flow_2', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'user_1' }, target: { cell: 'end_1' } })
+
+    const xml = await exportBpmnXml(graph, {
+      processId: 'userTaskSmartExtensions',
+      serialization: resolved.serialization,
+    })
+
+    expect(xml).toContain('<smart:properties>')
+    expect(xml).toContain('name="taskType" value="manual-review"')
+    expect(xml).toContain('<smart:executionListener')
+    expect(xml).toContain('event="ACTIVITY_START"')
+    expect(xml).not.toContain('<modeler:property name="smartProperties"')
+    expect(xml).not.toContain('<modeler:property name="smartExecutionListeners"')
+
+    const imported = await parseBpmnXml(xml, { serialization: resolved.serialization })
+    expect(imported.nodes.find((node) => node.id === 'user_1')?.data).toEqual({
+      bpmn: {
+        name: '人工复核',
+        smartProperties: '[{"name":"taskType","value":"manual-review"}]',
+        smartExecutionListeners: '[{"event":"ACTIVITY_START","class":"com.example.StartListener"}]',
+      },
+    })
+  })
+
   it('smartengine-database 应导出并导入 DataBase 模式的多实例 userTask', async () => {
     const graph = createGraph()
     const resolved = createSmartRegistry().compile('smartengine-database')

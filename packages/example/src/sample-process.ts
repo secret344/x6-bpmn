@@ -17,6 +17,7 @@ import {
   BPMN_TEXT_ANNOTATION,
   BPMN_POOL,
   BPMN_LANE,
+  BPMN_TRANSACTION,
   BPMN_SEQUENCE_FLOW,
   BPMN_CONDITIONAL_FLOW,
   BPMN_DEFAULT_FLOW,
@@ -175,13 +176,39 @@ export function createSampleProcess(graph: Graph) {
     parent: approverLane.id,
   })
 
-  // ========== 更新考勤 ==========
+  // ========== 更新考勤事务 ==========
+  const attendanceTransaction = graph.addNode({
+    shape: BPMN_TRANSACTION,
+    x: 700,
+    y: 85,
+    width: 230,
+    height: 110,
+    attrs: { label: { text: '考勤更新事务' } },
+    parent: applicantLane.id,
+  })
+
+  const transactionStart = graph.addNode({
+    shape: BPMN_START_EVENT,
+    x: 724,
+    y: 122,
+    attrs: { label: { text: '开始' } },
+    parent: attendanceTransaction.id,
+  })
+
   const updateAttendance = graph.addNode({
     shape: BPMN_SERVICE_TASK,
-    x: 730,
-    y: 105,
+    x: 778,
+    y: 110,
     attrs: { label: { text: '更新\n考勤系统' } },
-    parent: applicantLane.id,
+    parent: attendanceTransaction.id,
+  })
+
+  const transactionEnd = graph.addNode({
+    shape: BPMN_END_EVENT,
+    x: 886,
+    y: 122,
+    attrs: { label: { text: '完成' } },
+    parent: attendanceTransaction.id,
   })
 
   // ========== 数据存储 ==========
@@ -241,9 +268,13 @@ export function createSampleProcess(graph: Graph) {
   applicantLane.embed(fillForm)
   applicantLane.embed(leaveForm)
   applicantLane.embed(annotation)
-  applicantLane.embed(updateAttendance)
+  applicantLane.embed(attendanceTransaction)
   applicantLane.embed(attendanceDB)
   applicantLane.embed(endOk)
+
+  attendanceTransaction.embed(transactionStart)
+  attendanceTransaction.embed(updateAttendance)
+  attendanceTransaction.embed(transactionEnd)
 
   approverLane.embed(gw1)
   approverLane.embed(managerApprove)
@@ -293,8 +324,10 @@ export function createSampleProcess(graph: Graph) {
     target: notify,
     labels: [{ attrs: { label: { text: '通过' } } }],
   })
-  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: notify, target: updateAttendance })
-  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: updateAttendance, target: endOk })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: notify, target: attendanceTransaction })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: attendanceTransaction, target: endOk })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: transactionStart, target: updateAttendance })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: updateAttendance, target: transactionEnd })
 
   // 审批驳回
   graph.addEdge({

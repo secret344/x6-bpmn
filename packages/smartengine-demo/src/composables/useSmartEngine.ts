@@ -39,6 +39,7 @@ import {
   type FieldValidateContext,
   BPMN_START_EVENT,
   BPMN_END_EVENT,
+  BPMN_TRANSACTION,
   BPMN_USER_TASK,
   BPMN_SERVICE_TASK,
   BPMN_EXCLUSIVE_GATEWAY,
@@ -78,6 +79,7 @@ function createLabeledNode(graph: Graph, config: {
   y: number
   width?: number
   height?: number
+  parent?: string
   label: string
   data?: Record<string, unknown>
 }) {
@@ -102,6 +104,56 @@ function createLabeledEdge(graph: Graph, config: {
     ...(label ? { labels: [{ attrs: { label: { text: label } } }] } : {}),
     ...(data ? { data } : {}),
   })
+}
+
+function createTransactionActivity(graph: Graph, config: {
+  x: number
+  y: number
+  label: string
+  taskShape: string
+  taskLabel: string
+  taskData?: Record<string, unknown>
+}) {
+  const transaction = createLabeledNode(graph, {
+    shape: BPMN_TRANSACTION,
+    x: config.x,
+    y: config.y,
+    width: 220,
+    height: 110,
+    label: config.label,
+  })
+  const start = createLabeledNode(graph, {
+    shape: BPMN_START_EVENT,
+    x: config.x + 24,
+    y: config.y + 37,
+    parent: transaction.id,
+    label: '开始',
+  })
+  const task = createLabeledNode(graph, {
+    shape: config.taskShape,
+    x: config.x + 78,
+    y: config.y + 25,
+    width: 100,
+    height: 60,
+    parent: transaction.id,
+    label: config.taskLabel,
+    data: config.taskData,
+  })
+  const end = createLabeledNode(graph, {
+    shape: BPMN_END_EVENT,
+    x: config.x + 166,
+    y: config.y + 37,
+    parent: transaction.id,
+    label: '完成',
+  })
+
+  transaction.embed(start)
+  transaction.embed(task)
+  transaction.embed(end)
+  createLabeledEdge(graph, { shape: BPMN_SEQUENCE_FLOW, source: start, target: task })
+  createLabeledEdge(graph, { shape: BPMN_SEQUENCE_FLOW, source: task, target: end })
+
+  return { transaction, start, task, end }
 }
 
 export function useSmartEngine() {
@@ -304,14 +356,28 @@ export function useSmartEngine() {
           },
         },
       })
-      const end = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 820, y: 200, label: '结束' })
+      const settlementTx = createTransactionActivity(g, {
+        x: 800,
+        y: 145,
+        label: '结果落库事务',
+        taskShape: BPMN_SERVICE_TASK,
+        taskLabel: '持久化',
+        taskData: {
+          bpmn: {
+            smartClass: 'com.example.PersistenceDelegation',
+            smartProperties: '[{"name":"target","value":"result-store"}]',
+          },
+        },
+      })
+      const end = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 1080, y: 200, label: '结束' })
 
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: start, target: svc1 })
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: svc1, target: gw })
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: gw, target: svc2, label: '主链路' })
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: gw, target: svc3, label: '降级链路' })
-      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: svc2, target: end })
-      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: svc3, target: end })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: svc2, target: settlementTx.transaction })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: svc3, target: settlementTx.transaction })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: settlementTx.transaction, target: end })
     } else if (selectedMode.value === 'smartengine-database') {
       // 审批流程：Start → Submit → Approve → Gateway → End/Reject
       const start = createLabeledNode(g, { shape: BPMN_START_EVENT, x: 100, y: 200, label: '开始' })
@@ -341,10 +407,23 @@ export function useSmartEngine() {
         },
       })
       const gw = createLabeledNode(g, { shape: BPMN_EXCLUSIVE_GATEWAY, x: 650, y: 195, label: '审批结果' })
-      const endApprove = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 820, y: 140, label: '通过' })
+      const archiveTx = createTransactionActivity(g, {
+        x: 820,
+        y: 95,
+        label: '审批归档事务',
+        taskShape: BPMN_SERVICE_TASK,
+        taskLabel: '归档单据',
+        taskData: {
+          bpmn: {
+            smartClass: 'com.example.ArchiveDelegation',
+            smartProperties: '[{"name":"archiveType","value":"approval"}]',
+          },
+        },
+      })
+      const endApprove = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 1080, y: 140, label: '通过' })
       const reject = createLabeledNode(g, {
         shape: BPMN_USER_TASK,
-        x: 780,
+        x: 860,
         y: 280,
         width: 120,
         height: 60,
@@ -355,7 +434,8 @@ export function useSmartEngine() {
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: start, target: submit })
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: submit, target: approve })
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: approve, target: gw })
-      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: gw, target: endApprove, label: '通过' })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: gw, target: archiveTx.transaction, label: '通过' })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: archiveTx.transaction, target: endApprove })
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: gw, target: reject, label: '驳回' })
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: reject, target: submit, label: '重新提交' })
     } else {
@@ -374,14 +454,13 @@ export function useSmartEngine() {
           },
         },
       })
-      const task2 = createLabeledNode(g, {
-        shape: BPMN_SERVICE_TASK,
+      const autoTx = createTransactionActivity(g, {
         x: 450,
-        y: 180,
-        width: 120,
-        height: 60,
-        label: '自动处理',
-        data: {
+        y: 145,
+        label: '自动处理事务',
+        taskShape: BPMN_SERVICE_TASK,
+        taskLabel: '自动处理',
+        taskData: {
           bpmn: {
             smartClass: 'com.example.AutoTaskDelegation',
             smartProperties: '[{"name":"retry","value":"3"},{"name":"channel","value":"rpc"}]',
@@ -389,11 +468,11 @@ export function useSmartEngine() {
           },
         },
       })
-      const end = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 650, y: 200, label: '结束' })
+      const end = createLabeledNode(g, { shape: BPMN_END_EVENT, x: 760, y: 200, label: '结束' })
 
       createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: start, target: task1 })
-      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: task1, target: task2 })
-      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: task2, target: end })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: task1, target: autoTx.transaction })
+      createLabeledEdge(g, { shape: BPMN_SEQUENCE_FLOW, source: autoTx.transaction, target: end })
     }
   }
 

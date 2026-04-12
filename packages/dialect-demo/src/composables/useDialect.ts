@@ -12,8 +12,15 @@
  */
 
 import { ref, shallowRef, computed, watch, type Ref } from 'vue'
-import type { Graph } from '@antv/x6'
+import type { Graph, Node } from '@antv/x6'
 import {
+  BPMN_END_EVENT,
+  BPMN_SEQUENCE_FLOW,
+  BPMN_SERVICE_TASK,
+  BPMN_START_EVENT,
+  BPMN_TASK,
+  BPMN_TRANSACTION,
+  BPMN_USER_TASK,
   // Registry & Compiler
   ProfileRegistry,
   createProfileRegistry,
@@ -152,6 +159,37 @@ export const AVAILABLE_DIALECTS = [
   { id: 'smartengine-database', name: 'SmartEngine 审批/工单', desc: '增强审批能力，多实例、审批策略' },
   { id: 'simple-approval', name: '精简审批流（自定义）', desc: '自定义 Profile，仅保留审批常用元素' },
 ]
+
+function createLabeledNode(graph: Graph, config: {
+  shape: string
+  x: number
+  y: number
+  width?: number
+  height?: number
+  parent?: string
+  label: string
+  data?: Record<string, unknown>
+}) {
+  const { label, data, ...rest } = config
+  return graph.addNode({
+    ...rest,
+    attrs: { label: { text: label } },
+    data: { ...(data ?? {}), label },
+  })
+}
+
+function createLabeledEdge(graph: Graph, config: {
+  shape: string
+  source: Node | string
+  target: Node | string
+  label?: string
+}) {
+  const { label, ...rest } = config
+  return graph.addEdge({
+    ...rest,
+    ...(label ? { labels: [{ attrs: { label: { text: label } } }] } : {}),
+  })
+}
 
 export function useDialect() {
   // ---------- 核心对象 ----------
@@ -350,6 +388,112 @@ export function useDialect() {
     return validateFields(data, fields, ctx, resolvedProfile.value.dataModel)
   }
 
+  function pickEnabledNode(shapes: string[]): string | null {
+    if (!resolvedProfile.value) return null
+    for (const shape of shapes) {
+      if (resolvedProfile.value.availability.nodes[shape] === 'enabled') {
+        return shape
+      }
+    }
+    return null
+  }
+
+  function createSampleProcess() {
+    if (!graphRef.value) return
+
+    const graph = graphRef.value
+    const taskShape = pickEnabledNode([BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_TASK]) ?? BPMN_TASK
+    const transactionTaskShape = pickEnabledNode([BPMN_SERVICE_TASK, BPMN_USER_TASK, BPMN_TASK]) ?? taskShape
+    const hasTransaction = pickEnabledNode([BPMN_TRANSACTION]) === BPMN_TRANSACTION
+
+    graph.clearCells()
+
+    const start = createLabeledNode(graph, {
+      shape: BPMN_START_EVENT,
+      x: 120,
+      y: 200,
+      label: '开始',
+    })
+    const firstTask = createLabeledNode(graph, {
+      shape: taskShape,
+      x: 260,
+      y: 180,
+      width: 120,
+      height: 60,
+      label: taskShape === BPMN_USER_TASK ? '人工处理' : taskShape === BPMN_SERVICE_TASK ? '服务处理' : '任务处理',
+    })
+
+    createLabeledEdge(graph, { shape: BPMN_SEQUENCE_FLOW, source: start, target: firstTask })
+
+    if (hasTransaction) {
+      const transaction = createLabeledNode(graph, {
+        shape: BPMN_TRANSACTION,
+        x: 470,
+        y: 145,
+        width: 220,
+        height: 110,
+        label: '事务处理',
+      })
+      const transactionStart = createLabeledNode(graph, {
+        shape: BPMN_START_EVENT,
+        x: 494,
+        y: 182,
+        parent: transaction.id,
+        label: '开始',
+      })
+      const transactionTask = createLabeledNode(graph, {
+        shape: transactionTaskShape,
+        x: 548,
+        y: 170,
+        width: 100,
+        height: 60,
+        parent: transaction.id,
+        label: transactionTaskShape === BPMN_USER_TASK ? '事务审批' : transactionTaskShape === BPMN_SERVICE_TASK ? '事务执行' : '事务任务',
+      })
+      const transactionEnd = createLabeledNode(graph, {
+        shape: BPMN_END_EVENT,
+        x: 642,
+        y: 182,
+        parent: transaction.id,
+        label: '完成',
+      })
+      const end = createLabeledNode(graph, {
+        shape: BPMN_END_EVENT,
+        x: 800,
+        y: 200,
+        label: '结束',
+      })
+
+      transaction.embed(transactionStart)
+      transaction.embed(transactionTask)
+      transaction.embed(transactionEnd)
+
+      createLabeledEdge(graph, { shape: BPMN_SEQUENCE_FLOW, source: firstTask, target: transaction })
+      createLabeledEdge(graph, { shape: BPMN_SEQUENCE_FLOW, source: transaction, target: end })
+      createLabeledEdge(graph, { shape: BPMN_SEQUENCE_FLOW, source: transactionStart, target: transactionTask })
+      createLabeledEdge(graph, { shape: BPMN_SEQUENCE_FLOW, source: transactionTask, target: transactionEnd })
+      return
+    }
+
+    const secondTask = createLabeledNode(graph, {
+      shape: transactionTaskShape,
+      x: 470,
+      y: 180,
+      width: 120,
+      height: 60,
+      label: transactionTaskShape === BPMN_USER_TASK ? '继续审批' : transactionTaskShape === BPMN_SERVICE_TASK ? '继续处理' : '继续任务',
+    })
+    const end = createLabeledNode(graph, {
+      shape: BPMN_END_EVENT,
+      x: 680,
+      y: 200,
+      label: '结束',
+    })
+
+    createLabeledEdge(graph, { shape: BPMN_SEQUENCE_FLOW, source: firstTask, target: secondTask })
+    createLabeledEdge(graph, { shape: BPMN_SEQUENCE_FLOW, source: secondTask, target: end })
+  }
+
   return {
     // 核心对象
     registry,
@@ -381,6 +525,7 @@ export function useDialect() {
     getFieldsFor,
     getDefaultData,
     validateNodeFields,
+    createSampleProcess,
   }
 }
 

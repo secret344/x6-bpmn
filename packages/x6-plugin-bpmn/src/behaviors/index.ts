@@ -9,7 +9,13 @@ export { setupBoundaryAttach, attachBoundaryToHost } from './boundary-attach'
 export type { BoundaryAttachOptions } from './boundary-attach'
 
 import type { Cell, Graph, Node } from '@antv/x6'
-import { isLaneShape, isPoolShape } from '../export/bpmn-mapping'
+import { isBoundaryShape, isLaneShape, isPoolShape } from '../export/bpmn-mapping'
+import {
+  BPMN_AD_HOC_SUB_PROCESS,
+  BPMN_EVENT_SUB_PROCESS,
+  BPMN_SUB_PROCESS,
+  BPMN_TRANSACTION,
+} from '../utils/constants'
 import type { BoundaryAttachOptions } from './boundary-attach'
 import { setupBoundaryAttach } from './boundary-attach'
 import {
@@ -97,6 +103,13 @@ export interface BpmnInteractionBehaviorOptions {
   swimlaneDelete?: SwimlaneDeleteOptions
 }
 
+const EMBEDDED_CONTENT_PARENT_SHAPES = new Set([
+  BPMN_SUB_PROCESS,
+  BPMN_EVENT_SUB_PROCESS,
+  BPMN_TRANSACTION,
+  BPMN_AD_HOC_SUB_PROCESS,
+])
+
 /**
  * 安装常用 BPMN 交互行为。
  *
@@ -111,14 +124,40 @@ export function setupBpmnInteractionBehaviors(
   const disposeSwimlaneResize = setupSwimlaneResize(graph, options.swimlaneResize)
   const disposeSwimlaneDelete = setupSwimlaneDelete(graph, options.swimlaneDelete)
   const disposePoolContainment = setupPoolContainment(graph, options.poolContainment)
+  const disposeEmbeddedNodeFronting = setupEmbeddedNodeFronting(graph)
   const disposeSwimlaneDirectSelection = setupSwimlaneDirectSelection(graph)
 
   return () => {
     disposeSwimlaneDirectSelection()
+    disposeEmbeddedNodeFronting()
     disposePoolContainment()
     disposeSwimlaneDelete()
     disposeSwimlaneResize()
     disposeBoundaryAttach()
+  }
+}
+
+function setupEmbeddedNodeFronting(graph: Graph): () => void {
+  if (typeof graph.on !== 'function' || typeof graph.off !== 'function') {
+    return () => undefined
+  }
+
+  const handler = ({ node, currentParent }: { node: Node; currentParent?: Node | null }) => {
+    if (isBoundaryShape(node.shape) || isPoolShape(node.shape) || isLaneShape(node.shape)) {
+      return
+    }
+
+    const parent = currentParent ?? (node.getParent() as Node | null)
+    if (!parent?.isNode?.() || !EMBEDDED_CONTENT_PARENT_SHAPES.has(parent.shape)) {
+      return
+    }
+
+    node.toFront()
+  }
+
+  graph.on('node:embedded', handler)
+  return () => {
+    graph.off('node:embedded', handler)
   }
 }
 

@@ -18,6 +18,7 @@ import {
   BPMN_SEQUENCE_FLOW,
   BPMN_SERVICE_TASK,
   BPMN_START_EVENT,
+  BPMN_TRANSACTION,
   BPMN_USER_TASK,
 } from '../../../src/index'
 
@@ -39,6 +40,11 @@ type ScenarioIds = {
 
 type StandaloneTaskScenarioIds = {
   taskId: string
+}
+
+type TransactionWrapScenarioIds = {
+  transactionId: string
+  startId: string
 }
 
 type FirstPoolWrapScenarioIds = {
@@ -86,6 +92,7 @@ declare global {
       clear: () => void
       setViewportTransform: (tx: number, ty: number, scale?: number) => void
       createStandaloneTaskScenario: () => StandaloneTaskScenarioIds
+      createTransactionWrapScenario: () => TransactionWrapScenarioIds
       addFirstPoolScenario: () => FirstPoolWrapScenarioIds
       createPoolLaneTaskScenario: () => ScenarioIds
       createPoolLaneTaskBoundaryScenario: () => ScenarioIds
@@ -341,6 +348,35 @@ function createStandaloneTaskScenario(): StandaloneTaskScenarioIds {
 
   return {
     taskId: task.id,
+  }
+}
+
+function createTransactionWrapScenario(): TransactionWrapScenarioIds {
+  clear()
+
+  const start = graph.addNode({
+    id: 'transaction-start',
+    shape: BPMN_START_EVENT,
+    x: 160,
+    y: 210,
+    attrs: { label: { text: '开始' } },
+  })
+  emitGraphEvent('node:added', { node: start })
+
+  const transaction = graph.addNode({
+    id: 'transaction-wrap',
+    shape: BPMN_TRANSACTION,
+    x: 420,
+    y: 150,
+    width: 260,
+    height: 160,
+    attrs: { label: { text: '事务' } },
+  })
+  emitGraphEvent('node:added', { node: transaction })
+
+  return {
+    transactionId: transaction.id,
+    startId: start.id,
   }
 }
 
@@ -884,6 +920,7 @@ window.__x6PluginBrowserHarness = {
   clear,
   setViewportTransform,
   createStandaloneTaskScenario,
+  createTransactionWrapScenario,
   addFirstPoolScenario,
   createPoolLaneTaskScenario,
   createPoolLaneTaskBoundaryScenario,

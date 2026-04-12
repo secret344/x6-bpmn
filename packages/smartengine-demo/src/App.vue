@@ -175,6 +175,7 @@ const canvasRef = ref()
 
 function onGraphReady(g: Graph) {
   graph.value = g
+  createSampleProcess()
 }
 
 const modeColor = computed(() => {

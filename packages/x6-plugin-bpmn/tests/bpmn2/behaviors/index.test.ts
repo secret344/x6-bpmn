@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BPMN_LANE, BPMN_POOL, BPMN_USER_TASK } from '../../../src/utils/constants'
+import {
+  BPMN_BOUNDARY_EVENT_TIMER,
+  BPMN_LANE,
+  BPMN_POOL,
+  BPMN_START_EVENT,
+  BPMN_TRANSACTION,
+  BPMN_USER_TASK,
+} from '../../../src/utils/constants'
 
 const behaviorMocks = vi.hoisted(() => ({
   setupBoundaryAttach: vi.fn(),
@@ -151,6 +158,57 @@ describe('setupBpmnInteractionBehaviors', () => {
     requestAnimationFrameSpy.mockRestore()
 
     expect(graph.off).toHaveBeenCalledWith('node:click', handlers['node:click'])
+    expect(graph.off).toHaveBeenCalledWith('node:embedded', handlers['node:embedded'])
+  })
+
+  it('普通节点嵌入事务后应提升到事务上层，边界事件不走该通用置前逻辑', () => {
+    const handlers: Record<string, (args: { node: any; currentParent?: any }) => void> = {}
+    const embeddedStart = {
+      id: 'start-1',
+      shape: BPMN_START_EVENT,
+      getParent: vi.fn(),
+      toFront: vi.fn(),
+    }
+    const embeddedBoundary = {
+      id: 'boundary-1',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      getParent: vi.fn(),
+      toFront: vi.fn(),
+    }
+    const transaction = {
+      id: 'tx-1',
+      shape: BPMN_TRANSACTION,
+      isNode: vi.fn(() => true),
+    }
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: vi.fn(() => true),
+    }
+
+    const graph = {
+      on: vi.fn((event: string, handler: (args: { node: any; currentParent?: any }) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getSelectedCells: vi.fn(() => []),
+      cleanSelection: vi.fn(),
+      select: vi.fn(),
+    } as any
+
+    behaviorMocks.setupBoundaryAttach.mockReturnValue(vi.fn())
+    behaviorMocks.setupPoolContainment.mockReturnValue(vi.fn())
+    behaviorMocks.setupSwimlaneResize.mockReturnValue(vi.fn())
+    behaviorMocks.setupSwimlaneDelete.mockReturnValue(vi.fn())
+
+    setupBpmnInteractionBehaviors(graph)
+
+    handlers['node:embedded']({ node: embeddedStart, currentParent: transaction })
+    handlers['node:embedded']({ node: embeddedStart, currentParent: lane })
+    handlers['node:embedded']({ node: embeddedBoundary, currentParent: transaction })
+
+    expect(embeddedStart.toFront).toHaveBeenCalledTimes(1)
+    expect(embeddedBoundary.toFront).not.toHaveBeenCalled()
   })
 
   it('缺少 on/off 能力时应跳过直接选中策略但仍正常安装其他行为', () => {

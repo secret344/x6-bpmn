@@ -5,6 +5,7 @@ import {
   waitForHarness,
   createPoolLaneTaskScenario,
   createStandaloneTaskScenario,
+  createTransactionWrapScenario,
   addFirstPoolScenario,
   createPoolLaneTaskBoundaryScenario,
   createTwoPoolMessageScenario,
@@ -81,6 +82,30 @@ test.describe('主库浏览器行为回归', () => {
     expect(poolAfter.x + poolAfter.width).toBeGreaterThan(taskAfter.x + taskAfter.width)
     expect(poolAfter.y + poolAfter.height).toBeGreaterThan(taskAfter.y + taskAfter.height)
     expectPositionNear(taskAfter, taskBefore)
+  })
+
+  test('先放开始节点再放事务时，开始节点拖入事务后不应被事务遮住', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createTransactionWrapScenario(page)
+    const startBefore = await getNodeSnapshot(page, scenario.startId)
+    const transactionBefore = await getNodeSnapshot(page, scenario.transactionId)
+    await takeScreenshot(page, '事务创建后开始节点尚未嵌入')
+
+    const delta = {
+      x: transactionBefore.x + transactionBefore.width / 2 - (startBefore.x + startBefore.width / 2),
+      y: transactionBefore.y + transactionBefore.height / 2 - (startBefore.y + startBefore.height / 2),
+    }
+    await dragNodeBy(page, scenario.startId, delta)
+    await expect.poll(async () => (await getNodeSnapshot(page, scenario.startId)).parentId).toBe(scenario.transactionId)
+    await takeScreenshot(page, '开始节点拖入事务后仍显示在事务上层')
+
+    const startAfter = await getNodeSnapshot(page, scenario.startId)
+    const transactionAfter = await getNodeSnapshot(page, scenario.transactionId)
+
+    expect(startAfter.parentId).toBe(scenario.transactionId)
+    expectInsideRect(startAfter, transactionAfter)
   })
 
   test('节点拖向 Pool 外部时，应被钳制在 Pool 内容区并继续随 Pool 联动', async ({ page }, testInfo) => {

@@ -21,6 +21,11 @@ export type StandaloneTaskScenarioIds = {
   taskId: string
 }
 
+export type TransactionWrapScenarioIds = {
+  transactionId: string
+  startId: string
+}
+
 export type FirstPoolWrapScenarioIds = {
   poolId: string
   taskId: string
@@ -121,6 +126,16 @@ export async function createPoolLaneTaskScenario(page: Page): Promise<ScenarioId
       throw new Error('浏览器测试 harness 尚未就绪')
     }
     return harness.createPoolLaneTaskScenario()
+  })
+}
+
+export async function createTransactionWrapScenario(page: Page): Promise<TransactionWrapScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.createTransactionWrapScenario()
   })
 }
 

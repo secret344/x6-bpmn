@@ -579,9 +579,9 @@ onMounted(async () => {
     },
     behaviors: {
       poolContainment: {
-        onViolation(result: { reason?: string }) {
-          if (result.reason) {
-            Message.warning(result.reason);
+        onViolation(_node, reason: string) {
+          if (reason) {
+            Message.warning(reason);
           }
         },
       },

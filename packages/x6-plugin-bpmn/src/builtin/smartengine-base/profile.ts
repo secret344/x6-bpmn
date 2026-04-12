@@ -21,6 +21,7 @@ import {
   BPMN_EXCLUSIVE_GATEWAY,
   BPMN_RECEIVE_TASK,
   BPMN_SERVICE_TASK,
+  BPMN_USER_TASK,
 } from '../../utils/constants'
 
 /**
@@ -62,6 +63,10 @@ export const smartengineBaseProfile: Profile = {
       }),
       [BPMN_EXCLUSIVE_GATEWAY]: createSmartNodeSerializer({
         allowSmartClass: true,
+        readProperties: true,
+        readExecutionListeners: true,
+      }),
+      [BPMN_USER_TASK]: createSmartNodeSerializer({
         readProperties: true,
         readExecutionListeners: true,
       }),
