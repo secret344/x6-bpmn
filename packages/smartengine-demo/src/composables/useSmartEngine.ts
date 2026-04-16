@@ -32,6 +32,7 @@ import {
   buildDefaultData,
   validateFields,
   normalizeFieldValue,
+  buildBpmnNodeDefaults,
   getNodeCategory,
   type ProfileContext,
   type ResolvedProfile,
@@ -86,8 +87,12 @@ function createLabeledNode(graph: Graph, config: {
   const { label, data, ...rest } = config
   return graph.addNode({
     ...rest,
-    attrs: { label: { text: label } },
-    data: { ...(data ?? {}), label },
+    ...buildBpmnNodeDefaults(config.shape, {
+      label,
+      width: config.width,
+      height: config.height,
+      data,
+    }),
   })
 }
 

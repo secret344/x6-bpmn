@@ -3218,6 +3218,95 @@ describe('parseBpmnXml + loadBpmnGraph — conditional sequence flow', () => {
 })
 
 // ============================================================================
+// BPMNDI 自定义属性往返
+// ============================================================================
+
+describe('BPMNDI 自定义属性往返', () => {
+  it('应保留 BPMNShape 与 BPMNEdge 上的自定义 attrs 和命名空间', async () => {
+    const qaNamespace = 'http://x6-bpmn2.example/schema/qa'
+    const { graph, importData, exportedXml } = await bpmnRoundtrip({
+      definitionsAttrs: {
+        'xmlns:qa': qaNamespace,
+      },
+      processes: [{ id: 'Process_1', elements: [
+        { kind: 'startEvent', id: 'StartEvent_1', outgoing: ['Flow_1'] },
+        { kind: 'userTask', id: 'UserTask_1', incoming: ['Flow_1'] },
+        { kind: 'sequenceFlow', id: 'Flow_1', sourceRef: 'StartEvent_1', targetRef: 'UserTask_1' },
+      ] }],
+      shapes: {
+        StartEvent_1: {
+          id: 'StartEvent_1',
+          x: 100,
+          y: 100,
+          width: 36,
+          height: 36,
+          attrs: {
+            'qa:laneSlot': 'entry-anchor',
+          },
+        },
+        UserTask_1: {
+          id: 'UserTask_1',
+          x: 220,
+          y: 88,
+          width: 110,
+          height: 60,
+          attrs: {
+            'qa:renderHint': 'review-card',
+            'qa:laneSlot': 'review-panel',
+          },
+        },
+      },
+      edges: {
+        Flow_1: {
+          id: 'Flow_1',
+          waypoints: [{ x: 136, y: 118 }, { x: 220, y: 118 }],
+          attrs: {
+            'qa:pathHint': 'straight-entry',
+          },
+        },
+      },
+    }, createTestGraph)
+
+    expect((importData.nodes.find((node) => node.id === 'UserTask_1')?.data as {
+      bpmndi?: { $attrs?: Record<string, string>; $namespaces?: Record<string, string> }
+    } | undefined)?.bpmndi).toEqual({
+      $attrs: {
+        'qa:renderHint': 'review-card',
+        'qa:laneSlot': 'review-panel',
+      },
+      $namespaces: {
+        qa: qaNamespace,
+      },
+    })
+
+    expect((importData.edges.find((edge) => edge.id === 'Flow_1')?.data as {
+      bpmndi?: { $attrs?: Record<string, string>; $namespaces?: Record<string, string> }
+    } | undefined)?.bpmndi).toEqual({
+      $attrs: {
+        'qa:pathHint': 'straight-entry',
+      },
+      $namespaces: {
+        qa: qaNamespace,
+      },
+    })
+
+    expect((graph.getCellById('UserTask_1')?.getData() as {
+      bpmndi?: { $attrs?: Record<string, string> }
+    } | undefined)?.bpmndi?.$attrs?.['qa:renderHint']).toBe('review-card')
+    expect((graph.getCellById('Flow_1')?.getData() as {
+      bpmndi?: { $attrs?: Record<string, string> }
+    } | undefined)?.bpmndi?.$attrs?.['qa:pathHint']).toBe('straight-entry')
+
+    expect(exportedXml).toContain('xmlns:qa="http://x6-bpmn2.example/schema/qa"')
+    expect(exportedXml).toContain('qa:renderHint="review-card"')
+    expect(exportedXml).toContain('qa:laneSlot="review-panel"')
+    expect(exportedXml).toContain('qa:pathHint="straight-entry"')
+
+    graph.dispose()
+  })
+})
+
+// ============================================================================
 // 桥接边（bridge edge）导出
 // ============================================================================
 

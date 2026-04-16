@@ -1,7 +1,7 @@
 <template>
   <a-modal
     v-model:visible="visible"
-    title="bpmn-js 流程编辑器"
+    title="bpmn-js BPMN 编辑器"
     :width="1200"
     :mask-closable="false"
     :esc-to-close="false"
@@ -28,7 +28,7 @@
         </a-button>
         <a-button size="mini" @click="onLoadFromX6">
           <template #icon><icon-sync /></template>
-          从X6加载
+          从画布加载
         </a-button>
         <a-button size="mini" @click="onImportXml">
           <template #icon><icon-import /></template>
@@ -227,11 +227,11 @@ async function onNewDiagram() {
 async function onLoadFromX6() {
   if (!modeler || !props.graph) return
   try {
-    const xml = await exportStandardBpmnXml(props.graph, { processName: 'BPMN流程' })
+    const xml = await exportStandardBpmnXml(props.graph, { processName: '示例流程' })
     await modeler.importXML(xml)
     const canvas = modeler.get('canvas')
     canvas.zoom('fit-viewport')
-    Modal.info({ title: '提示', content: '已从 X6 画布加载流程到编辑器' })
+    Modal.info({ title: '提示', content: '已从当前画布加载 BPMN 到编辑器' })
   } catch (err: any) {
     Modal.error({
       title: '加载失败',

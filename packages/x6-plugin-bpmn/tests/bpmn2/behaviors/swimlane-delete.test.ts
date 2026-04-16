@@ -679,6 +679,198 @@ describe('setupSwimlaneDelete', () => {
     expect(originalRemoveCells).toHaveBeenCalledWith([deletedLane.id], {})
   })
 
+  it('删除 Pool 时应强制深删其 Lane 与内部任务', () => {
+    const graph = createBehaviorTestGraph()
+    const disposeDelete = swimlaneDelete.setupSwimlaneDelete(graph)
+
+    const pool = graph.addNode({
+      id: 'pool-force-deep',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 400,
+      height: 240,
+      attrs: { headerLabel: { text: '主泳池' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = graph.addNode({
+      id: 'lane-force-deep',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 370,
+      height: 240,
+      parent: pool.id,
+      attrs: { headerLabel: { text: '泳道 A' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const task = graph.addNode({
+      id: 'task-force-deep',
+      shape: BPMN_USER_TASK,
+      x: 150,
+      y: 110,
+      width: 100,
+      height: 60,
+      parent: lane.id,
+    })
+
+    pool.embed(lane)
+    lane.embed(task)
+
+    graph.removeCell(pool, { deep: false })
+
+    expect(graph.getCellById(pool.id)).toBeNull()
+    expect(graph.getCellById(lane.id)).toBeNull()
+    expect(graph.getCellById(task.id)).toBeNull()
+
+    disposeDelete()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('默认删除 Pool 时也应显式展开其 Lane 与内部任务', () => {
+    const graph = createBehaviorTestGraph()
+    const disposeDelete = swimlaneDelete.setupSwimlaneDelete(graph)
+
+    const pool = graph.addNode({
+      id: 'pool-force-default',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 400,
+      height: 240,
+      attrs: { headerLabel: { text: '主泳池' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = graph.addNode({
+      id: 'lane-force-default',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 370,
+      height: 240,
+      parent: pool.id,
+      attrs: { headerLabel: { text: '泳道 A' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const task = graph.addNode({
+      id: 'task-force-default',
+      shape: BPMN_USER_TASK,
+      x: 150,
+      y: 110,
+      width: 100,
+      height: 60,
+      parent: lane.id,
+    })
+
+    pool.embed(lane)
+    lane.embed(task)
+
+    graph.removeCell(pool)
+
+    expect(graph.getCellById(pool.id)).toBeNull()
+    expect(graph.getCellById(lane.id)).toBeNull()
+    expect(graph.getCellById(task.id)).toBeNull()
+
+    disposeDelete()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('批量删除 Pool 时应强制深删其 Lane 与内部任务', () => {
+    const graph = createBehaviorTestGraph()
+    const disposeDelete = swimlaneDelete.setupSwimlaneDelete(graph)
+
+    const pool = graph.addNode({
+      id: 'pool-force-deep-batch',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 400,
+      height: 240,
+      attrs: { headerLabel: { text: '主泳池' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = graph.addNode({
+      id: 'lane-force-deep-batch',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 370,
+      height: 240,
+      parent: pool.id,
+      attrs: { headerLabel: { text: '泳道 A' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const task = graph.addNode({
+      id: 'task-force-deep-batch',
+      shape: BPMN_USER_TASK,
+      x: 150,
+      y: 110,
+      width: 100,
+      height: 60,
+      parent: lane.id,
+    })
+
+    pool.embed(lane)
+    lane.embed(task)
+
+    graph.removeCells([pool], { deep: false })
+
+    expect(graph.getCellById(pool.id)).toBeNull()
+    expect(graph.getCellById(lane.id)).toBeNull()
+    expect(graph.getCellById(task.id)).toBeNull()
+
+    disposeDelete()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('默认批量删除 Pool 时也应显式展开其 Lane 与内部任务', () => {
+    const graph = createBehaviorTestGraph()
+    const disposeDelete = swimlaneDelete.setupSwimlaneDelete(graph)
+
+    const pool = graph.addNode({
+      id: 'pool-force-default-batch',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 400,
+      height: 240,
+      attrs: { headerLabel: { text: '主泳池' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = graph.addNode({
+      id: 'lane-force-default-batch',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 370,
+      height: 240,
+      parent: pool.id,
+      attrs: { headerLabel: { text: '泳道 A' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const task = graph.addNode({
+      id: 'task-force-default-batch',
+      shape: BPMN_USER_TASK,
+      x: 150,
+      y: 110,
+      width: 100,
+      height: 60,
+      parent: lane.id,
+    })
+
+    pool.embed(lane)
+    lane.embed(task)
+
+    graph.removeCells([pool])
+
+    expect(graph.getCellById(pool.id)).toBeNull()
+    expect(graph.getCellById(lane.id)).toBeNull()
+    expect(graph.getCellById(task.id)).toBeNull()
+
+    disposeDelete()
+    destroyBehaviorTestGraph(graph)
+  })
+
   it('应按前后接收方与兜底容器解析迁移目标', () => {
     const beforeLane = createLaneNode('before', 70, 40, 370, 100)
     const afterLane = createLaneNode('after', 70, 260, 370, 100)

@@ -141,6 +141,28 @@ function readPreservedXmlNamespaces(bpmnData: Record<string, unknown> | undefine
   return Object.fromEntries(entries)
 }
 
+function readBpmndiData(cell: Node | Edge): Record<string, unknown> | undefined {
+  const rawBpmndi = cell.getData<{ bpmndi?: unknown }>()?.bpmndi
+  if (!rawBpmndi || typeof rawBpmndi !== 'object' || Array.isArray(rawBpmndi)) {
+    return undefined
+  }
+
+  return rawBpmndi as Record<string, unknown>
+}
+
+function appendPreservedDiXmlAttributes(element: ModdleElement, cell: Node | Edge): void {
+  const bpmndiData = readBpmndiData(cell)
+  const preservedXmlNamespaces = readPreservedXmlNamespaces(bpmndiData)
+  const preservedXmlAttrs = readPreservedXmlAttributes(bpmndiData)
+
+  if (preservedXmlNamespaces) {
+    appendXmlAttributes(element, preservedXmlNamespaces)
+  }
+  if (preservedXmlAttrs) {
+    appendXmlAttributes(element, preservedXmlAttrs)
+  }
+}
+
 // ============================================================================
 // 辅助函数
 // ============================================================================
@@ -1131,6 +1153,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     shape.bounds = moddle.create('dc:Bounds', {
       x: pos.x, y: pos.y, width: size.width, height: size.height,
     })
+    appendPreservedDiXmlAttributes(shape, pool)
     planeElements.push(shape)
   }
 
@@ -1147,6 +1170,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     shape.bounds = moddle.create('dc:Bounds', {
       x: pos.x, y: pos.y, width: size.width, height: size.height,
     })
+    appendPreservedDiXmlAttributes(shape, lane)
     planeElements.push(shape)
   }
 
@@ -1167,6 +1191,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     shape.bounds = moddle.create('dc:Bounds', {
       x: pos.x, y: pos.y, width: size.width, height: size.height,
     })
+    appendPreservedDiXmlAttributes(shape, node)
     planeElements.push(shape)
   }
 
@@ -1219,6 +1244,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       ...(messageVisibleKind === 'non_initiating' ? { messageVisibleKind } : {}),
     })
     edgeEl.waypoint = waypoints
+    appendPreservedDiXmlAttributes(edgeEl, edge)
     planeElements.push(edgeEl)
   }
 

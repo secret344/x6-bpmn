@@ -91,7 +91,7 @@
         </template>
       </a-button>
     </a-tooltip>
-    <a-tooltip content="加载BPMN示例" position="bottom" mini>
+    <a-tooltip content="加载 XML 示例" position="bottom" mini>
       <a-button size="small" type="text" class="toolbar-btn" @click="onLoadSampleXml">
         <template #icon>
           <icon-file />
@@ -130,7 +130,7 @@
 
     <a-divider direction="vertical" class="toolbar-divider" />
 
-    <a-tooltip content="加载示例流程" position="bottom" mini>
+    <a-tooltip content="重置示例画布" position="bottom" mini>
       <a-button
         size="small"
         type="text"
@@ -312,7 +312,7 @@ function onLoadSampleProcess() {
 
 async function onExportBpmn() {
   if (!props.graph) return
-  const xml = await exportStandardBpmnXml(props.graph, { processName: 'BPMN流程' })
+  const xml = await exportStandardBpmnXml(props.graph, { processName: '示例流程' })
   xmlModalTitle.value = '导出 BPMN XML'
   xmlModalContent.value = xml
   xmlModalReadonly.value = true
@@ -370,7 +370,7 @@ function onValidateDiagram() {
 async function onBpmnPreview() {
   if (!props.graph) return
   try {
-    const xml = await exportStandardBpmnXml(props.graph, { processName: 'BPMN流程' })
+    const xml = await exportStandardBpmnXml(props.graph, { processName: '示例流程' })
     bpmnPreviewRef.value?.open(xml)
   } catch (err: any) {
     Modal.error({ title: '生成 XML 失败', content: err.message || String(err) })
@@ -380,7 +380,7 @@ async function onBpmnPreview() {
 async function onViewRawXml() {
   if (!props.graph) return
   try {
-    const xml = await exportStandardBpmnXml(props.graph, { processName: 'BPMN流程' })
+    const xml = await exportStandardBpmnXml(props.graph, { processName: '示例流程' })
     xmlModalTitle.value = '原始 BPMN XML'
     xmlModalContent.value = xml
     xmlModalReadonly.value = true

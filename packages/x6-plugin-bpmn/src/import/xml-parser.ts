@@ -81,6 +81,7 @@ interface DiShape {
   isHorizontal?: boolean
   isExpanded?: boolean
   isMarkerVisible?: boolean
+  bpmndi?: Record<string, unknown>
 }
 
 /** DI 连接线信息 */
@@ -88,6 +89,7 @@ interface DiEdge {
   bpmnElement: string
   waypoints: DiWaypoint[]
   messageVisibleKind?: 'initiating' | 'non_initiating'
+  bpmndi?: Record<string, unknown>
 }
 
 // ============================================================================
@@ -361,6 +363,7 @@ function resolveNodeShape(
  */
 function parseDiagram(
   diagramEl: ModdleElement,
+  declaredNamespaces: Record<string, string>,
   xmlDiHints?: XmlDiHints,
 ): {
   shapes: Map<string, DiShape>
@@ -384,6 +387,7 @@ function parseDiagram(
 
     if (type === 'bpmndi:BPMNShape') {
       const bounds = child.bounds as ModdleElement | undefined
+      const rawXmlAttrs = parsePreservedXmlAttrs(child, declaredNamespaces)
       /* istanbul ignore else */
       if (bounds) {
         /* istanbul ignore next — moddle 始终提供完整 DI 数值，?? 回退不会触发 */
@@ -398,11 +402,13 @@ function parseDiagram(
           isHorizontal: typeof child.isHorizontal === 'boolean' ? child.isHorizontal : undefined,
           isExpanded: typeof child.isExpanded === 'boolean' ? child.isExpanded : undefined,
           isMarkerVisible: typeof child.isMarkerVisible === 'boolean' ? child.isMarkerVisible : undefined,
+          bpmndi: rawXmlAttrs,
         })
       }
     }
 
     if (type === 'bpmndi:BPMNEdge') {
+      const rawXmlAttrs = parsePreservedXmlAttrs(child, declaredNamespaces)
       /* istanbul ignore next — moddle 始终提供 waypoint 数组及数值 */
       const waypoints: DiWaypoint[] = ((child.waypoint ?? []) as ModdleElement[]).map((wp) => ({
         x: wp.x ?? 0,
@@ -413,6 +419,7 @@ function parseDiagram(
         bpmnElement: bpmnElementId,
         waypoints,
         messageVisibleKind: diEdgeId ? xmlDiHints?.edgeMessageVisibleKinds.get(diEdgeId) : undefined,
+        bpmndi: rawXmlAttrs,
       })
     }
     // 其他 DI 类型（BPMN 2.0 标准中不会出现）静默忽略
@@ -500,7 +507,7 @@ function collectDeclaredNamespaces(xml: string): Record<string, string> {
   return namespaces
 }
 
-function parseRawXmlAttrs(
+function parsePreservedXmlAttrs(
   element: ModdleElement,
   declaredNamespaces: Record<string, string>,
 ): Record<string, unknown> | undefined {
@@ -530,6 +537,16 @@ function parseRawXmlAttrs(
   if (Object.keys(namespaces).length > 0) {
     bpmnData.$namespaces = namespaces
   }
+
+  return bpmnData
+}
+
+function parseRawXmlAttrs(
+  element: ModdleElement,
+  declaredNamespaces: Record<string, string>,
+): Record<string, unknown> | undefined {
+  const bpmnData = parsePreservedXmlAttrs(element, declaredNamespaces)
+  if (!bpmnData) return undefined
 
   return {
     bpmn: bpmnData,
@@ -569,6 +586,42 @@ function mergeEdgeBpmnData(
     bpmn: {
       ...currentBpmn,
       ...bpmnPatch,
+    },
+  }
+}
+
+function mergeNodeBpmndiData(
+  data: Record<string, unknown> | undefined,
+  bpmndiPatch: Record<string, unknown>,
+): Record<string, unknown> {
+  const currentBpmndi =
+    data && typeof data === 'object' && data.bpmndi && typeof data.bpmndi === 'object'
+      ? data.bpmndi as Record<string, unknown>
+      : {}
+
+  return {
+    ...(data ?? {}),
+    bpmndi: {
+      ...currentBpmndi,
+      ...bpmndiPatch,
+    },
+  }
+}
+
+function mergeEdgeBpmndiData(
+  data: Record<string, unknown> | undefined,
+  bpmndiPatch: Record<string, unknown>,
+): Record<string, unknown> {
+  const currentBpmndi =
+    data && typeof data === 'object' && data.bpmndi && typeof data.bpmndi === 'object'
+      ? data.bpmndi as Record<string, unknown>
+      : {}
+
+  return {
+    ...(data ?? {}),
+    bpmndi: {
+      ...currentBpmndi,
+      ...bpmndiPatch,
     },
   }
 }
@@ -625,7 +678,7 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
   const diagrams = (definitions.diagrams || []) as ModdleElement[]
   const di =
     diagrams.length > 0
-      ? parseDiagram(diagrams[0], xmlDiHints)
+      ? parseDiagram(diagrams[0], declaredNamespaces, xmlDiHints)
       : { shapes: new Map<string, DiShape>(), edges: new Map<string, DiEdge>() }
 
   const rootElements = (definitions.rootElements || []) as ModdleElement[]
@@ -658,6 +711,9 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         typeof diShape?.isHorizontal === 'boolean'
           ? mergeNodeBpmnData(undefined, { isHorizontal: diShape.isHorizontal })
           : undefined
+      const mergedData = diShape?.bpmndi
+        ? mergeNodeBpmndiData(data, diShape.bpmndi)
+        : data
       nodes.push({
         shape: BPMN_POOL,
         id: bpmnId,
@@ -666,7 +722,7 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         width: diShape?.bounds.width ?? 800,
         height: diShape?.bounds.height ?? 400,
         attrs: { headerLabel: { text: p.name || '' } },
-        data,
+        data: mergedData,
       })
     }
   }
@@ -689,6 +745,9 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
           typeof diShape?.isHorizontal === 'boolean'
             ? mergeNodeBpmnData(undefined, { isHorizontal: diShape.isHorizontal })
             : undefined
+        const mergedData = diShape?.bpmndi
+          ? mergeNodeBpmndiData(data, diShape.bpmndi)
+          : data
         nodes.push({
           shape: BPMN_LANE,
           id: bpmnId,
@@ -699,7 +758,7 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
           /* istanbul ignore next — laneEl.name 导入时始终有值或 undefined（|| '' 不会触发） */
           attrs: { headerLabel: { text: laneEl.name || '' } },
           ...(poolParent ? { parent: poolParent } : {}),
-          data,
+          data: mergedData,
         })
 
         const refs = (laneEl.flowNodeRef || []) as ModdleElement[]
@@ -854,6 +913,10 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
       nodeData.data = mergeNodeBpmnData(nodeData.data, { isMarkerVisible: diShape.isMarkerVisible })
     }
 
+    if (diShape?.bpmndi) {
+      nodeData.data = mergeNodeBpmndiData(nodeData.data, diShape.bpmndi)
+    }
+
     nodes.push(nodeData)
   }
 
@@ -898,6 +961,9 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
     if (importedEdgeBpmn && Object.keys(importedEdgeBpmn).length > 0) {
       edgeData.data = mergeEdgeBpmnData(edgeData.data, importedEdgeBpmn)
     }
+    if (diEdge?.bpmndi) {
+      edgeData.data = mergeEdgeBpmndiData(edgeData.data, diEdge.bpmndi)
+    }
 
     edges.push(edgeData)
   }
@@ -931,6 +997,9 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
       const mergedData = rawXmlAttrs?.bpmn
         ? mergeEdgeBpmnData(data, rawXmlAttrs.bpmn as Record<string, unknown>)
         : data
+      const finalizedData = diEdge?.bpmndi
+        ? mergeEdgeBpmndiData(mergedData, diEdge.bpmndi)
+        : mergedData
 
       edges.push({
         shape: BPMN_MESSAGE_FLOW,
@@ -939,7 +1008,7 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         target: targetRef,
         labels,
         vertices,
-        data: mergedData,
+        data: finalizedData,
       })
     }
   }

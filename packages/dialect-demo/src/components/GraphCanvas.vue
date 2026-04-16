@@ -15,27 +15,19 @@ import { Keyboard } from '@antv/x6/lib/plugin/keyboard'
 import { Clipboard } from '@antv/x6/lib/plugin/clipboard'
 import {
   getShapeLabel,
+  buildBpmnNodeDefaults,
   setupBpmnGraph,
   isBoundaryShape,
   attachBoundaryToHost,
-  distanceToRectEdge,
+  findBoundaryAttachHost,
+  findContainingBpmnParent,
+  resolveBpmnEmbeddingTargets,
+  isContainedFlowNode,
+  isPoolShape,
   BPMN_POOL,
   BPMN_LANE,
   BPMN_GROUP,
-  BPMN_SUB_PROCESS,
-  BPMN_TRANSACTION,
-  BPMN_EVENT_SUB_PROCESS,
-  BPMN_AD_HOC_SUB_PROCESS,
   BPMN_SEQUENCE_FLOW,
-  BPMN_TASK,
-  BPMN_USER_TASK,
-  BPMN_SERVICE_TASK,
-  BPMN_SCRIPT_TASK,
-  BPMN_BUSINESS_RULE_TASK,
-  BPMN_SEND_TASK,
-  BPMN_RECEIVE_TASK,
-  BPMN_MANUAL_TASK,
-  BPMN_CALL_ACTIVITY,
 } from '@x6-bpmn2/plugin'
 import { useDialectSingleton } from '../composables/useDialect'
 
@@ -49,19 +41,6 @@ const { bindDialect, currentDialectId } = useDialectSingleton()
 let graph: Graph | null = null
 let resizeObserver: ResizeObserver | null = null
 let disposeBpmnBehaviors: (() => void) | null = null
-
-const CONTAINER_SHAPES = new Set([
-  BPMN_POOL, BPMN_LANE, BPMN_GROUP,
-  BPMN_SUB_PROCESS, BPMN_TRANSACTION,
-  BPMN_EVENT_SUB_PROCESS, BPMN_AD_HOC_SUB_PROCESS,
-])
-
-const ACTIVITY_SHAPES = new Set([
-  BPMN_TASK, BPMN_USER_TASK, BPMN_SERVICE_TASK, BPMN_SCRIPT_TASK,
-  BPMN_BUSINESS_RULE_TASK, BPMN_SEND_TASK, BPMN_RECEIVE_TASK,
-  BPMN_MANUAL_TASK, BPMN_SUB_PROCESS, BPMN_TRANSACTION,
-  BPMN_EVENT_SUB_PROCESS, BPMN_AD_HOC_SUB_PROCESS, BPMN_CALL_ACTIVITY,
-])
 
 /** 当前选中的连线类型 */
 const currentEdgeType = ref(BPMN_SEQUENCE_FLOW)
@@ -79,23 +58,6 @@ function parseDroppedShape(event: DragEvent): { shape: string; label?: string; w
 
   const shape = event.dataTransfer?.getData('bpmn/shape')
   return shape ? { shape } : null
-}
-
-function resolveDroppedNodeSize(shape: string, width?: number, height?: number) {
-  if (typeof width === 'number' && typeof height === 'number') {
-    return { width, height }
-  }
-
-  if (shape === BPMN_POOL) return { width: 400, height: 200 }
-  if (shape === BPMN_LANE) return { width: 370, height: 100 }
-  if (shape === BPMN_GROUP) return { width: 160, height: 100 }
-
-  const isGateway = shape.includes('gateway')
-  const isEvent = shape.includes('event') || shape.includes('boundary')
-  return {
-    width: isGateway ? 50 : isEvent ? 36 : 100,
-    height: isGateway ? 50 : isEvent ? 36 : 60,
-  }
 }
 
 /** 边工具配置 */
@@ -161,13 +123,7 @@ onMounted(async () => {
     embedding: {
       enabled: true,
       findParent({ node }) {
-        const bbox = node.getBBox()
-        return this.getNodes().filter((n) => {
-          if (n.id === node.id) return false
-          if (!CONTAINER_SHAPES.has(n.shape as string)) return false
-          const targetBBox = n.getBBox()
-          return targetBBox.containsRect(bbox)
-        })
+        return resolveBpmnEmbeddingTargets(this, node)
       },
     },
     interacting: (view) => {
@@ -238,26 +194,38 @@ onMounted(async () => {
     if (!payload || !graph) return
     const { shape } = payload
     const point = graph.clientToLocal(e.clientX, e.clientY)
-    const { width: nodeW, height: nodeH } = resolveDroppedNodeSize(shape, payload.width, payload.height)
-    const label = payload.label || getShapeLabel(shape)
-    const isSwimlane = shape === BPMN_POOL || shape === BPMN_LANE
-    const newNode = graph.addNode({
+    const { width: nodeW, height: nodeH, attrs, data } = buildBpmnNodeDefaults(shape, {
+      label: payload.label || getShapeLabel(shape),
+      width: payload.width,
+      height: payload.height,
+    })
+    const draftNode = graph.createNode({
       shape,
       x: point.x - nodeW / 2,
       y: point.y - nodeH / 2,
       width: nodeW,
       height: nodeH,
-      attrs: isSwimlane ? { headerLabel: { text: label } } : { label: { text: label } },
-      data: isSwimlane ? { label, bpmn: { isHorizontal: true } } : { label },
+      attrs,
+      data,
     })
-    // 边界事件自动吸附
+    const hasPoolNodes = graph.getNodes().some((candidate) => isPoolShape(candidate.shape))
+
     if (isBoundaryShape(shape)) {
-      const center = { x: point.x, y: point.y }
-      const host = graph.getNodes().find((n) => {
-        if (!ACTIVITY_SHAPES.has(n.shape as string) || n.id === newNode.id) return false
-        return distanceToRectEdge(center, n.getBBox()) < 30
-      })
-      if (host) attachBoundaryToHost(graph, newNode, host)
+      const host = findBoundaryAttachHost(graph, draftNode)
+      if (!host) return
+
+      const newNode = graph.addNode(draftNode)
+      attachBoundaryToHost(graph, newNode, host)
+      return
+    }
+
+    const parent = findContainingBpmnParent(graph, draftNode)
+    if (shape === BPMN_LANE && !parent) return
+    if (isContainedFlowNode(shape) && hasPoolNodes && !parent) return
+
+    const newNode = graph.addNode(draftNode)
+    if (parent) {
+      parent.embed(newNode)
     }
   })
 

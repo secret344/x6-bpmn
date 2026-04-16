@@ -2,7 +2,7 @@
   <a-layout class="bpmn-app">
     <a-layout-header class="bpmn-header">
       <div class="header-left">
-        <h1>BPMN 2.0 流程设计器</h1>
+        <h1>BPMN 2.0 示例编辑器</h1>
       </div>
       <Toolbar :graph="graph" />
     </a-layout-header>

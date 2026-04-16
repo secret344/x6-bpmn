@@ -7,7 +7,13 @@
  */
 
 import type { Cell, Graph, Node } from '@antv/x6'
-import { isLaneShape, isPoolShape, isSwimlaneShape } from '../export/bpmn-mapping'
+import { findContainingSwimlane } from '../core/swimlane-membership'
+import {
+  isBoundaryShape,
+  isLaneShape,
+  isPoolShape,
+  isSwimlaneShape,
+} from '../export/bpmn-mapping'
 import { compactLaneLayout } from './lane-management'
 import {
   LANE_INDENTATION,
@@ -98,7 +104,17 @@ export function setupPoolContainment(
   disposers.push(setupSwimlanePolicy(graph))
 
   if (clampOnMove) {
-    const movedHandler = ({ node }: { node: Node }) => {
+    const movedHandler = ({
+      node,
+      options: eventOptions,
+    }: {
+      node: Node
+      options?: { bpmnContainmentSync?: boolean; silent?: boolean }
+    }) => {
+      if (eventOptions?.bpmnContainmentSync || eventOptions?.silent) {
+        return
+      }
+
       if (isSwimlaneShape(node.shape)) {
         return
       }
@@ -106,10 +122,13 @@ export function setupPoolContainment(
       if (constrainToContainer) {
         clampFlowNodePosition(node)
       }
+      syncFlowNodeSwimlaneParent(graph, node)
       reportContainmentViolation(graph, node, onViolation)
     }
 
+    graph.on('node:change:position', movedHandler)
     graph.on('node:moved', movedHandler)
+    disposers.push(() => graph.off('node:change:position', movedHandler))
     disposers.push(() => graph.off('node:moved', movedHandler))
   }
 
@@ -119,9 +138,9 @@ export function setupPoolContainment(
       options: eventOptions,
     }: {
       node: Node
-      options?: { silent?: boolean }
+      options?: { bpmnContainmentSync?: boolean; silent?: boolean }
     }) => {
-      if (eventOptions?.silent) {
+      if (eventOptions?.silent || eventOptions?.bpmnContainmentSync) {
         return
       }
 
@@ -132,6 +151,7 @@ export function setupPoolContainment(
       if (constrainToContainer) {
         clampFlowNodeBounds(node)
       }
+      syncFlowNodeSwimlaneParent(graph, node)
       reportContainmentViolation(graph, node, onViolation)
     }
 
@@ -167,6 +187,7 @@ export function setupPoolContainment(
       clampFlowNodePosition(node)
       clampFlowNodeBounds(node)
     }
+    syncFlowNodeSwimlaneParent(graph, node)
     reportContainmentViolation(graph, node, onViolation)
   }
 
@@ -325,27 +346,135 @@ function reportContainmentViolation(
 }
 
 function clampFlowNodePosition(node: Node): void {
-  const container = findSwimlaneParent(node)
-  if (!container) {
+  const containerRect = resolveFlowNodeClampRect(node)
+  if (!containerRect) {
     return
   }
 
-  const clamped = clampNodeToContainer(node, getContainmentRect(container))
+  const clamped = clampNodeToContainer(node, containerRect)
   if (clamped) {
-    node.setPosition(clamped.x, clamped.y)
+    node.setPosition(clamped.x, clamped.y, { bpmnContainmentSync: true })
   }
 }
 
 function clampFlowNodeBounds(node: Node): void {
-  const container = findSwimlaneParent(node)
-  if (!container) {
+  const containerRect = resolveFlowNodeClampRect(node)
+  if (!containerRect) {
     return
   }
 
-  const clamped = clampNodeBoundsToContainer(node, getContainmentRect(container))
+  const clamped = clampNodeBoundsToContainer(node, containerRect)
   if (clamped) {
-    node.setPosition(clamped.x, clamped.y)
-    node.setSize(clamped.width, clamped.height)
+    node.setPosition(clamped.x, clamped.y, { bpmnContainmentSync: true })
+    node.setSize(clamped.width, clamped.height, { bpmnContainmentSync: true })
+  }
+}
+
+function resolveFlowNodeClampRect(node: Node): Rect | null {
+  const container = findSwimlaneParent(node)
+  if (!container) {
+    return null
+  }
+
+  const containerRect = getContainmentRect(container)
+  if (!isLaneShape(container.shape) || rectContains(containerRect, nodeRect(node))) {
+    return containerRect
+  }
+
+  const ancestorPool = findAncestorPool(node)
+  if (!ancestorPool) {
+    return containerRect
+  }
+
+  return getContainmentRect(ancestorPool)
+}
+
+function syncFlowNodeSwimlaneParent(graph: Graph, node: Node): void {
+  if (isSwimlaneShape(node.shape) || isBoundaryShape(node.shape)) {
+    return
+  }
+
+  if (shouldSkipFlowNodeParentSyncDuringLaneInteraction(graph, node)) {
+    return
+  }
+
+  const currentParent = node.getParent()
+  if (!currentParent?.isNode?.()) {
+    return
+  }
+
+  const currentParentNode = currentParent as Node
+  if (!isSwimlaneShape(currentParentNode.shape)) {
+    return
+  }
+
+  const targetParent = findContainingSwimlane(graph, node, node.id)
+  if (!targetParent || targetParent.id === currentParentNode.id) {
+    return
+  }
+
+  reparentFlowNode(node, targetParent)
+}
+
+function shouldSkipFlowNodeParentSyncDuringLaneInteraction(graph: Graph, node: Node): boolean {
+  const selectedCells = (graph as Graph & {
+    getSelectedCells?: () => Cell[]
+  }).getSelectedCells?.() ?? []
+
+  for (const selectedCell of selectedCells) {
+    if (!selectedCell.isNode()) {
+      continue
+    }
+
+    const selectedNode = selectedCell as Node
+    if (!isLaneShape(selectedNode.shape)) {
+      continue
+    }
+
+    if (isNodeDescendantOf(node, selectedNode)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function isNodeDescendantOf(node: Node, ancestor: Node): boolean {
+  let current: Cell | null = node.getParent()
+
+  while (current) {
+    if (current.id === ancestor.id) {
+      return true
+    }
+    current = current.getParent()
+  }
+
+  return false
+}
+
+function reparentFlowNode(node: Node, parent: Node): void {
+  try {
+    const currentParent = node.getParent()
+    if (currentParent?.isNode?.() && currentParent.id !== parent.id) {
+      const currentParentNode = currentParent as Node & {
+        unembed?: (child: Node) => void
+      }
+      currentParentNode.unembed?.(node)
+    }
+
+    if (typeof parent.embed === 'function') {
+      parent.embed(node)
+      return
+    }
+
+    const parentWithAddChild = parent as Node & {
+      addChild?: (child: Node) => void
+    }
+    if (typeof parentWithAddChild.addChild === 'function') {
+      parentWithAddChild.addChild(node)
+    }
+  } catch {
+    // 忽略拖拽中间态的重复挂载异常
   }
 }
 
@@ -451,6 +580,11 @@ export const __test__ = {
   reportContainmentViolation,
   clampFlowNodePosition,
   clampFlowNodeBounds,
+  resolveFlowNodeClampRect,
+  syncFlowNodeSwimlaneParent,
+  shouldSkipFlowNodeParentSyncDuringLaneInteraction,
+  isNodeDescendantOf,
+  reparentFlowNode,
   rectContains,
   rectsOverlap,
   clampNodeToContainer,

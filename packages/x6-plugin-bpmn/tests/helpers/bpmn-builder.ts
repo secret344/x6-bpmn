@@ -25,12 +25,14 @@ export interface ShapeSpec {
   isHorizontal?: boolean
   isExpanded?: boolean
   isMarkerVisible?: boolean
+  attrs?: Record<string, string | number | boolean>
 }
 
 export interface EdgeSpec {
   id: string
   waypoints: Array<{ x: number; y: number }>
   messageVisibleKind?: 'initiating' | 'non_initiating'
+  attrs?: Record<string, string | number | boolean>
 }
 
 export interface ProcessSpec {
@@ -217,6 +219,7 @@ export interface MessageFlowSpec {
 export interface BpmnDocumentSpec {
   id?: string
   targetNamespace?: string
+  definitionsAttrs?: Record<string, string | number | boolean>
   processes: ProcessSpec[]
   collaboration?: CollaborationSpec
   /** DI shapes keyed by element id */
@@ -498,6 +501,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
         ...(shapeSpec.isHorizontal !== undefined ? { isHorizontal: shapeSpec.isHorizontal } : {}),
         ...(shapeSpec.isExpanded !== undefined ? { isExpanded: shapeSpec.isExpanded } : {}),
         ...(shapeSpec.isMarkerVisible !== undefined ? { isMarkerVisible: shapeSpec.isMarkerVisible } : {}),
+        ...(shapeSpec.attrs ?? {}),
       })
       shape.bounds = moddle.create('dc:Bounds', {
         x: shapeSpec.x,
@@ -516,6 +520,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
         id: `${edgeId}_di`,
         bpmnElement: bpmnEl ?? { id: edgeId },
         ...(edgeSpec.messageVisibleKind !== undefined ? { messageVisibleKind: edgeSpec.messageVisibleKind } : {}),
+        ...(edgeSpec.attrs ?? {}),
       })
       edgeEl.waypoint = edgeSpec.waypoints.map((wp) =>
         moddle.create('dc:Point', { x: wp.x, y: wp.y }),
@@ -539,6 +544,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
   const definitions = createBpmn(moddle, 'definitions', {
     id: spec.id ?? 'Definitions_1',
     targetNamespace: spec.targetNamespace ?? 'http://bpmn.io/schema/bpmn',
+    ...(spec.definitionsAttrs ?? {}),
   })
 
   const rootElements: ModdleElement[] = []

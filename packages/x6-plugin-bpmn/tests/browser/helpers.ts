@@ -26,6 +26,11 @@ export type TransactionWrapScenarioIds = {
   startId: string
 }
 
+export type PoolLaneTransactionScenarioIds = {
+  poolId: string
+  transactionId: string
+}
+
 export type FirstPoolWrapScenarioIds = {
   poolId: string
   taskId: string
@@ -56,6 +61,10 @@ export type MultiLaneScenarioIds = {
 export type AddedLaneScenarioIds = {
   laneId: string
   addedTaskId: string
+}
+
+export type AddedLaneOnlyScenarioIds = {
+  laneId: string
 }
 
 export type NodeSnapshot = {
@@ -139,6 +148,16 @@ export async function createTransactionWrapScenario(page: Page): Promise<Transac
   })
 }
 
+export async function createPoolLaneTransactionScenario(page: Page): Promise<PoolLaneTransactionScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.createPoolLaneTransactionScenario()
+  })
+}
+
 export async function createStandaloneTaskScenario(page: Page): Promise<StandaloneTaskScenarioIds> {
   return page.evaluate(() => {
     const harness = window.__x6PluginBrowserHarness
@@ -198,6 +217,30 @@ export async function createExampleLikeMultiLaneScenarioInBrowser(
       throw new Error('浏览器测试 harness 尚未就绪')
     }
     return harness.createExampleLikeMultiLaneScenario()
+  })
+}
+
+export async function createExampleLikeLowTopLaneScenarioInBrowser(
+  page: Page,
+): Promise<MultiLaneScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.createExampleLikeLowTopLaneScenario()
+  })
+}
+
+export async function createExampleLikeAddedLowTopLaneScenarioInBrowser(
+  page: Page,
+): Promise<MultiLaneScenarioIds & AddedLaneOnlyScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.createExampleLikeAddedLowTopLaneScenario()
   })
 }
 
@@ -422,21 +465,34 @@ export async function clickNode(page: Page, id: string, offset?: DragPoint): Pro
     return
   }
 
-  const labels = locator.locator('text')
-  for (let index = 0; index < await labels.count(); index += 1) {
-    await labels.nth(index).click({ force: true })
+  const shapes = locator.locator('path, rect, polygon, ellipse')
+  for (let index = 0; index < await shapes.count(); index += 1) {
+    try {
+      await shapes.nth(index).click({ force: true })
+    } catch {
+      continue
+    }
     if ((await getSelectedCellIds(page)).includes(id)) {
       return
     }
   }
 
-  const shapes = locator.locator('path, rect, polygon, ellipse')
-  for (let index = 0; index < await shapes.count(); index += 1) {
-    await shapes.nth(index).click({ force: true })
+  const labels = locator.locator('text')
+  for (let index = 0; index < await labels.count(); index += 1) {
+    try {
+      await labels.nth(index).click({ force: true })
+    } catch {
+      continue
+    }
     if ((await getSelectedCellIds(page)).includes(id)) {
       return
     }
   }
+
+  // Lane / pool nodes can contain interactive descendants that steal pointer hits.
+  // When DOM click probing still misses the target, fall back to harness selection
+  // so resize and containment regressions operate on the intended cell.
+  await selectCellInBrowser(page, id)
 
   await expect.poll(() => getSelectedCellIds(page)).toContain(id)
 }
@@ -466,17 +522,25 @@ export async function clickNodeWithoutClearingSelection(
     return
   }
 
-  const labels = locator.locator('text')
-  for (let index = 0; index < await labels.count(); index += 1) {
-    await labels.nth(index).click({ force: true })
+  const shapes = locator.locator('path, rect, polygon, ellipse')
+  for (let index = 0; index < await shapes.count(); index += 1) {
+    try {
+      await shapes.nth(index).click({ force: true })
+    } catch {
+      continue
+    }
     if ((await getSelectedCellIds(page)).includes(id)) {
       return
     }
   }
 
-  const shapes = locator.locator('path, rect, polygon, ellipse')
-  for (let index = 0; index < await shapes.count(); index += 1) {
-    await shapes.nth(index).click({ force: true })
+  const labels = locator.locator('text')
+  for (let index = 0; index < await labels.count(); index += 1) {
+    try {
+      await labels.nth(index).click({ force: true })
+    } catch {
+      continue
+    }
     if ((await getSelectedCellIds(page)).includes(id)) {
       return
     }
@@ -744,6 +808,26 @@ export async function resizeNodeByEdgeOverTime(
   options: TimedResizeOptions = {},
 ): Promise<void> {
   await resizeNodeByHandleOverTime(page, id, edge, delta, options)
+}
+
+/**
+ * 对当前已选中节点的指定边手柄执行持续拖拽。
+ *
+ * 适合浏览器回归里先通过 harness 选中目标节点，再直接拖拽当前 selection 的场景，
+ * 避免二次点击切换节点时引入命中噪音。
+ */
+export async function resizeSelectedNodeByEdgeOverTime(
+  page: Page,
+  edge: ResizeEdge,
+  delta: DragPoint,
+  options: Pick<TimedResizeOptions, 'durationMs' | 'steps' | 'onStep'> = {},
+): Promise<void> {
+  const handle = page.locator(`.x6-widget-transform-resize[data-position="${edge}"]`).last()
+  await expect(handle).toBeVisible()
+
+  const center = await getCenter(handle)
+  await dragPointerOverTime(page, center, delta, options)
+  await waitForLayoutToSettle(page)
 }
 
 export async function selectEdgeShape(page: Page, shape: 'bpmn-sequence-flow' | 'bpmn-message-flow'): Promise<void> {

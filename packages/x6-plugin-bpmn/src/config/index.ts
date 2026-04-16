@@ -238,6 +238,110 @@ function getDefaultCancelActivity(shape: string): boolean {
   return !shape.includes('-non-interrupting')
 }
 
+function isSwimlaneLabelShape(shape: string): boolean {
+  return shape === 'bpmn-pool' || shape === 'bpmn-lane'
+}
+
+export interface BpmnNodeDefaultsOptions {
+  label?: string
+  width?: number
+  height?: number
+  data?: Record<string, any>
+}
+
+export interface BpmnNodeSize {
+  width: number
+  height: number
+}
+
+/**
+ * 解析 BPMN 节点默认尺寸。
+ *
+ * 示例项目与测试项目统一复用这套尺寸基线，
+ * 避免宿主侧散落重复的默认宽高逻辑。
+ */
+export function resolveBpmnNodeSize(
+  shape: string,
+  width?: number,
+  height?: number,
+): BpmnNodeSize {
+  if (typeof width === 'number' && typeof height === 'number') {
+    return { width, height }
+  }
+
+  if (shape === 'bpmn-pool') return { width: 400, height: 200 }
+  if (shape === 'bpmn-lane') return { width: 370, height: 100 }
+  if (shape === 'bpmn-group') return { width: 160, height: 100 }
+
+  const isGateway = shape.includes('gateway')
+  const isEvent = shape.includes('event') || shape.includes('boundary')
+  return {
+    width: isGateway ? 50 : isEvent ? 36 : 100,
+    height: isGateway ? 50 : isEvent ? 36 : 60,
+  }
+}
+
+/**
+ * 构建 BPMN 节点默认标签 attrs。
+ *
+ * Pool / Lane 默认写入 headerLabel，其他节点写入 label。
+ */
+export function buildBpmnNodeAttrs(shape: string, label: string): Record<string, any> {
+  return isSwimlaneLabelShape(shape)
+    ? { headerLabel: { text: label } }
+    : { label: { text: label } }
+}
+
+function buildBpmnNodeData(
+  shape: string,
+  label?: string,
+  data: Record<string, any> = {},
+): Record<string, any> | undefined {
+  const mergedData: Record<string, any> = { ...data }
+
+  if (typeof label === 'string') {
+    mergedData.label = label
+  }
+
+  const defaultBpmn = isSwimlaneLabelShape(shape) ? { isHorizontal: true } : null
+  const incomingBpmn = data.bpmn && typeof data.bpmn === 'object' ? data.bpmn : null
+
+  if (defaultBpmn || incomingBpmn) {
+    mergedData.bpmn = {
+      ...(defaultBpmn ?? {}),
+      ...(incomingBpmn ?? {}),
+    }
+  }
+
+  return Object.keys(mergedData).length > 0 ? mergedData : undefined
+}
+
+/**
+ * 构建 BPMN 节点默认配置片段。
+ *
+ * 主库统一提供尺寸、标签 attrs 与泳道默认数据，
+ * 宿主若需要自定义，可在返回结果之上继续覆写。
+ */
+export function buildBpmnNodeDefaults(
+  shape: string,
+  options: BpmnNodeDefaultsOptions = {},
+): {
+  width: number
+  height: number
+  attrs?: Record<string, any>
+  data?: Record<string, any>
+} {
+  const { label, width, height, data } = options
+  const resolvedSize = resolveBpmnNodeSize(shape, width, height)
+  const resolvedData = buildBpmnNodeData(shape, label, data)
+
+  return {
+    ...resolvedSize,
+    ...(typeof label === 'string' ? { attrs: buildBpmnNodeAttrs(shape, label) } : {}),
+    ...(resolvedData ? { data: resolvedData } : {}),
+  }
+}
+
 // ============================================================================
 // 单元格标签辅助函数
 // ============================================================================

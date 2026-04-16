@@ -66,6 +66,18 @@ export {
   isConditionalFlow,
 } from './export/bpmn-mapping'
 export type { BpmnNodeMapping, BpmnEdgeMapping } from './export/bpmn-mapping'
+export {
+  findBoundaryAttachHost,
+  findContainingBpmnParent,
+  resolveBpmnEmbeddingTargets,
+} from './behaviors/embedding'
+export type { ResolveBpmnEmbeddingOptions } from './behaviors/embedding'
+export {
+  isContainedFlowNode,
+  patchLaneInteracting,
+  restoreLaneInteracting,
+  setupSwimlanePolicy,
+} from './behaviors/swimlane-policy'
 
 // ============================================================================
 // 方言接口 —— 方言系统核心导出

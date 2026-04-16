@@ -213,7 +213,7 @@ describe('validateDiagram', () => {
     }))
     expect(invalidRuleIssue).toEqual(expect.objectContaining({
       cellId: 'edge-invalid-rule',
-      message: 'endEvent 类型的节点不允许使用 bpmn-sequence-flow 类型的出线',
+      message: '结束事件当前只能创建关联线，不能直接创建顺序流',
     }))
   })
 

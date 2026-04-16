@@ -67,6 +67,17 @@
         </template>
       </div>
 
+      <div v-if="customSemanticSections.length > 0" class="field-section">
+        <div class="section-title">自定义 XML 语义</div>
+        <div v-for="section in customSemanticSections" :key="section.title" class="semantic-section">
+          <div class="semantic-section-title">{{ section.title }}</div>
+          <div v-for="entry in section.entries" :key="`${section.title}-${entry.key}`" class="semantic-row">
+            <div class="semantic-key">{{ entry.key }}</div>
+            <div class="semantic-value">{{ entry.value }}</div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
@@ -87,6 +98,7 @@ import {
   type DataModelSet,
   type ShapeCategory,
 } from '@x6-bpmn2/plugin'
+import { NATIVE_BPMN_FIELD_KEYS, buildNativeBpmnData, filterNativeFieldEditors } from '../native-bpmn'
 
 const bpmn2DataModel = bpmn2Profile.dataModel as DataModelSet
 
@@ -97,9 +109,78 @@ const props = defineProps<{
 const selectedCell = ref<Cell | null>(null)
 const cellPos = ref<{ x: number; y: number } | null>(null)
 const cellSize = ref<{ width: number; height: number } | null>(null)
+const cellDataVersion = ref(0)
 
 const formData = reactive({ label: '' })
 const bpmnForm = reactive<BpmnFormData>({} as BpmnFormData)
+
+type SemanticEntry = {
+  key: string
+  value: string
+}
+
+type SemanticSection = {
+  title: string
+  entries: SemanticEntry[]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function formatSemanticValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return JSON.stringify(value, null, 2) ?? ''
+}
+
+function toSemanticEntries(record: Record<string, unknown> | undefined): SemanticEntry[] {
+  if (!record) return []
+
+  return Object.entries(record)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => ({
+      key,
+      value: formatSemanticValue(value),
+    }))
+}
+
+const customSemanticSections = computed<SemanticSection[]>(() => {
+  void cellDataVersion.value
+  if (!selectedCell.value) return []
+
+  const data = selectedCell.value.getData()
+  if (!isRecord(data)) return []
+
+  const bpmn = isRecord(data.bpmn) ? data.bpmn : undefined
+  const bpmndi = isRecord(data.bpmndi) ? data.bpmndi : undefined
+
+  const customBpmnAttrs = isRecord(bpmn?.$attrs) ? bpmn.$attrs as Record<string, unknown> : undefined
+  const customBpmnNamespaces = isRecord(bpmn?.$namespaces) ? bpmn.$namespaces as Record<string, unknown> : undefined
+  const customBpmndiAttrs = isRecord(bpmndi?.$attrs) ? bpmndi.$attrs as Record<string, unknown> : undefined
+  const customBpmndiNamespaces = isRecord(bpmndi?.$namespaces) ? bpmndi.$namespaces as Record<string, unknown> : undefined
+
+  const customExtensionProps = bpmn
+    ? Object.fromEntries(
+        Object.entries(bpmn).filter(([key, value]) => {
+          return !NATIVE_BPMN_FIELD_KEYS.has(key)
+            && key !== '$attrs'
+            && key !== '$namespaces'
+            && value !== undefined
+            && value !== null
+            && value !== ''
+        }),
+      )
+    : undefined
+
+  return [
+    { title: 'BPMN 行内属性', entries: toSemanticEntries(customBpmnAttrs) },
+    { title: 'BPMN 扩展属性', entries: toSemanticEntries(customExtensionProps) },
+    { title: 'BPMN 命名空间', entries: toSemanticEntries(customBpmnNamespaces) },
+    { title: 'BPMNDI 行内属性', entries: toSemanticEntries(customBpmndiAttrs) },
+    { title: 'BPMNDI 命名空间', entries: toSemanticEntries(customBpmndiNamespaces) },
+  ].filter((section) => section.entries.length > 0)
+})
 
 // 当前元素的分类
 const category = computed<ShapeCategory>(() => {
@@ -110,10 +191,12 @@ const category = computed<ShapeCategory>(() => {
 // 根据分类动态计算字段列表
 const categoryFields = computed(() => {
   if (!selectedCell.value) return []
-  return getFieldEditorsForShape(
-    selectedCell.value.shape,
-    category.value,
-    bpmn2DataModel,
+  return filterNativeFieldEditors(
+    getFieldEditorsForShape(
+      selectedCell.value.shape,
+      category.value,
+      bpmn2DataModel,
+    ),
   )
 })
 
@@ -132,6 +215,7 @@ function onCellClick({ cell }: { cell: Cell }) {
   // 加载 BPMN 表单数据
   const loaded = loadBpmnFormData(cell)
   Object.assign(bpmnForm, loaded)
+  cellDataVersion.value += 1
 }
 
 function onBlankClick() {
@@ -139,6 +223,7 @@ function onBlankClick() {
   cellPos.value = null
   cellSize.value = null
   formData.label = ''
+  cellDataVersion.value += 1
 }
 
 function onLabelChange() {
@@ -146,6 +231,7 @@ function onLabelChange() {
   const cell = selectedCell.value
   const data = cell.getData() || {}
   cell.setData({ ...data, label: formData.label })
+  cellDataVersion.value += 1
   // 同步到图形标签
   if (cell.isNode()) {
     cell.setAttrByPath('label/text', formData.label)
@@ -163,10 +249,15 @@ function onBpmnFieldChange() {
   if (!selectedCell.value) return
   const cell = selectedCell.value
   const data = (cell.getData() || {}) as Record<string, unknown>
+  const saved = saveBpmnFormData(category.value, bpmnForm, cell.shape) as Record<string, unknown>
   cell.setData({
     ...data,
-    bpmn: saveBpmnFormData(category.value, bpmnForm, cell.shape),
+    bpmn: buildNativeBpmnData(
+      data.bpmn as Record<string, unknown> | undefined,
+      saved,
+    ),
   })
+  cellDataVersion.value += 1
 }
 
 let prevGraph: Graph | null = null
@@ -278,5 +369,46 @@ onBeforeUnmount(() => bindEvents(null))
 .field-value {
   font-size: 12px;
   color: var(--color-text-3);
+}
+
+.semantic-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.semantic-section:first-of-type {
+  margin-top: 0;
+}
+
+.semantic-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-2);
+}
+
+.semantic-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--color-fill-1);
+  border: 1px solid var(--color-border-1);
+  border-radius: 6px;
+}
+
+.semantic-key {
+  font-size: 11px;
+  color: var(--color-text-3);
+  font-family: monospace;
+}
+
+.semantic-value {
+  font-size: 12px;
+  color: var(--color-text-1);
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

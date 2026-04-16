@@ -4,6 +4,7 @@ import { createBrowserScreenshotTaker } from './screenshot-taker'
 import {
   waitForHarness,
   createPoolLaneTaskScenario,
+  createPoolLaneTransactionScenario,
   createStandaloneTaskScenario,
   createTransactionWrapScenario,
   addFirstPoolScenario,
@@ -108,6 +109,33 @@ test.describe('主库浏览器行为回归', () => {
     expectInsideRect(startAfter, transactionAfter)
   })
 
+  test('新增 Lane 后，Pool 内事务节点不应被新增 Lane 遮住', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolLaneTransactionScenario(page)
+    const transactionBefore = await getNodeSnapshot(page, scenario.transactionId)
+    await takeScreenshot(page, '新增-Lane-前事务位于-Pool-空白区')
+
+    const added = await addLaneToPoolInBrowser(page, scenario.poolId)
+    expect(added).not.toBeNull()
+    await takeScreenshot(page, '新增-Lane-后事务仍应显示在-Lane-上层')
+
+    const addedLane = await getNodeSnapshot(page, added!.laneId)
+    const transactionAfter = await getNodeSnapshot(page, scenario.transactionId)
+    const poolAfter = await getNodeSnapshot(page, scenario.poolId)
+
+    expect(transactionAfter.parentId).toBe(scenario.poolId)
+    expect(addedLane.parentId).toBe(scenario.poolId)
+    expect(addedLane.y).toBeCloseTo(poolAfter.y, 0)
+    expect(transactionAfter.y).toBeGreaterThanOrEqual(addedLane.y)
+    expect(transactionAfter.y + transactionAfter.height).toBeLessThanOrEqual(addedLane.y + addedLane.height)
+
+    await clickNode(page, scenario.transactionId, { x: 20, y: 20 })
+    await expect.poll(() => getSelectedCellIds(page)).toEqual([scenario.transactionId])
+    expect(transactionAfter).toEqual(transactionBefore)
+  })
+
   test('节点拖向 Pool 外部时，应被钳制在 Pool 内容区并继续随 Pool 联动', async ({ page }, testInfo) => {
     await waitForHarness(page)
     const takeScreenshot = createBrowserScreenshotTaker(testInfo)
@@ -195,6 +223,23 @@ test.describe('主库浏览器行为回归', () => {
       width: poolAfter.width - ((laneBefore.x + actualPoolDelta.x) - poolAfter.x),
       height: poolAfter.height,
     })
+  })
+
+  test('删除 Pool 时，应同时删除其 Lane 与内部任务', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolLaneTaskScenario(page)
+    await clickNode(page, scenario.poolId, { x: 12, y: 40 })
+    await expect.poll(() => getSelectedCellIds(page)).toEqual([scenario.poolId])
+    await takeScreenshot(page, '删除 Pool 前的单泳池布局')
+
+    await page.keyboard.press('Delete')
+    await takeScreenshot(page, '删除 Pool 后泳道与任务一并移除')
+
+    await expect(getNodeLocator(page, scenario.poolId)).toHaveCount(0)
+    await expect(getNodeLocator(page, scenario.laneId)).toHaveCount(0)
+    await expect(getNodeLocator(page, scenario.taskId)).toHaveCount(0)
   })
 
   test('选中后拖动选框越界时，应被钳制在 Pool 内容区', async ({ page }, testInfo) => {
@@ -672,16 +717,36 @@ test.describe('主库浏览器行为回归', () => {
     await takeScreenshot(page, '边界事件直拖前状态')
 
     await dragNodeBy(page, scenario.boundaryId!, { x: 760, y: 520 })
-    await takeScreenshot(page, '边界事件直拖越界后仍附着宿主')
+    await takeScreenshot(page, '边界事件直拖越界后解除附着')
 
     const taskAfter = await getNodeSnapshot(page, scenario.taskId)
     const boundaryAfter = await getNodeSnapshot(page, scenario.boundaryId!)
 
     expect(taskAfter.parentId).toBe(scenario.laneId)
     expectPositionNear(taskAfter, taskBefore)
+    expect(boundaryAfter.parentId).toBeNull()
+    expect(Math.abs(boundaryAfter.x - boundaryBefore.x) + Math.abs(boundaryAfter.y - boundaryBefore.y)).toBeGreaterThan(0)
+  })
+
+  test('选中后的边界事件拖动选框时，仍应沿宿主边框滑动而不是直接脱离', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolLaneTaskBoundaryScenario(page)
+    const taskBefore = await getNodeSnapshot(page, scenario.taskId)
+
+    await clickNode(page, scenario.boundaryId!)
+    await takeScreenshot(page, '边界事件选中后的初始状态')
+
+    await dragSelectionBoxBy(page, { x: 18, y: 12 })
+    await takeScreenshot(page, '边界事件选中拖动后仍保持附着')
+
+    const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+    const boundaryAfter = await getNodeSnapshot(page, scenario.boundaryId!)
+
+    expectPositionNear(taskAfter, taskBefore)
     expect(boundaryAfter.parentId).toBe(taskAfter.id)
     expect(distanceToRectEdge(getNodeCenter(boundaryAfter), taskAfter)).toBeCloseTo(0, 1)
-    expect(Math.abs(boundaryAfter.x - boundaryBefore.x) + Math.abs(boundaryAfter.y - boundaryBefore.y)).toBeGreaterThan(0)
   })
 
   test('导入后的任务首次直接拖拽越界时，也应被钳制在导入后的 Pool 内容区', async ({ page }, testInfo) => {
@@ -727,17 +792,17 @@ test.describe('主库浏览器行为回归', () => {
     expect(Math.max(Math.abs(taskBoxAfter.x - taskBoxBefore.x), Math.abs(taskBoxAfter.y - taskBoxBefore.y))).toBeGreaterThan(10)
   })
 
-  test('Lane 拖入另一 Pool 时，应回到原 Pool 并保持原父链', async ({ page }, testInfo) => {
+  test('Lane 尝试拖向另一 Pool 时，应保持原位并维持原父链', async ({ page }, testInfo) => {
     await waitForHarness(page)
     const takeScreenshot = createBrowserScreenshotTaker(testInfo)
 
     const scenario = await createTwoPoolMessageScenario(page)
     const laneBefore = await getNodeSnapshot(page, scenario.leftLaneId)
     const taskBefore = await getNodeSnapshot(page, scenario.sourceTaskId)
-    await takeScreenshot(page, '跨 Pool 拖拽 Lane 前的初始布局')
+    await takeScreenshot(page, '跨-Pool-尝试拖拽-Lane-前的初始布局')
 
     await dragNodeBy(page, scenario.leftLaneId, { x: 440, y: 0 }, { startOffset: { x: 250, y: 80 } })
-    await takeScreenshot(page, 'Lane 试图拖入另一 Pool 后自动恢复')
+    await takeScreenshot(page, '跨-Pool-尝试拖拽-Lane-后保持原位')
 
     const laneAfter = await getNodeSnapshot(page, scenario.leftLaneId)
     const taskAfter = await getNodeSnapshot(page, scenario.sourceTaskId)
@@ -748,27 +813,28 @@ test.describe('主库浏览器行为回归', () => {
     expectPositionNear(taskAfter, taskBefore)
   })
 
-  test('Lane 直接拖拽时，应被禁止且不影响内部任务', async ({ page }, testInfo) => {
+  test('Lane 直接拖拽时，应保持原位且不影响内部任务', async ({ page }, testInfo) => {
     await waitForHarness(page)
     const takeScreenshot = createBrowserScreenshotTaker(testInfo)
 
     const scenario = await createPoolLaneTaskScenario(page)
     const laneBefore = await getNodeSnapshot(page, scenario.laneId)
     const taskBefore = await getNodeSnapshot(page, scenario.taskId)
-    await takeScreenshot(page, 'Lane 平移前内部任务保持初始位置')
+    await takeScreenshot(page, 'Lane-直接拖拽前内部任务保持初始位置')
 
     await dragNodeBy(page, scenario.laneId, { x: -20, y: 0 }, { startOffset: { x: 250, y: 80 } })
-    await takeScreenshot(page, 'Lane 平移后内部任务保持原位')
+    await takeScreenshot(page, 'Lane-直接拖拽后仍保持原位')
 
     const laneAfter = await getNodeSnapshot(page, scenario.laneId)
     const taskAfter = await getNodeSnapshot(page, scenario.taskId)
 
     expectPositionNear(laneAfter, laneBefore)
+    expect(laneAfter.parentId).toBe(scenario.poolId)
     expect(taskAfter.parentId).toBe(laneAfter.id)
     expectPositionNear(taskAfter, taskBefore)
   })
 
-  test('三 Lane 场景中直接拖拽中间 Lane 超过相邻极限时，应保持原位且不覆盖兄弟 Lane', async ({ page }, testInfo) => {
+  test('三 Lane 场景中直接拖拽中间 Lane 时，应保持原位且不覆盖兄弟 Lane', async ({ page }, testInfo) => {
     await waitForHarness(page)
     const takeScreenshot = createBrowserScreenshotTaker(testInfo)
 
@@ -785,7 +851,7 @@ test.describe('主库浏览器行为回归', () => {
     await takeScreenshot(page, '三-Lane-中间-Lane-直接拖拽前状态')
 
     await dragNodeBy(page, scenario.lane2Id, { x: 0, y: -260 }, { startOffset: { x: 240, y: 80 } })
-    await takeScreenshot(page, '三-Lane-中间-Lane-直接拖拽越界后状态')
+    await takeScreenshot(page, '三-Lane-中间-Lane-直接拖拽后仍保持原位')
 
     const lane1After = await getNodeSnapshot(page, scenario.lane1Id)
     const middleLaneAfter = await getNodeSnapshot(page, scenario.lane2Id)
@@ -805,7 +871,7 @@ test.describe('主库浏览器行为回归', () => {
     expect(lane3After.y).toBeGreaterThanOrEqual(middleLaneAfter.y + middleLaneAfter.height - 1)
   })
 
-  test('三 Lane 场景中选区拖拽中间 Lane 超过相邻极限时，应保持原位且不覆盖兄弟 Lane', async ({ page }, testInfo) => {
+  test('三 Lane 场景中选区拖拽中间 Lane 时，应保持原位且不覆盖兄弟 Lane', async ({ page }, testInfo) => {
     await waitForHarness(page)
     const takeScreenshot = createBrowserScreenshotTaker(testInfo)
 
@@ -824,7 +890,7 @@ test.describe('主库浏览器行为回归', () => {
     await takeScreenshot(page, '三-Lane-中间-Lane-选中后准备拖拽')
 
     await dragSelectionBoxBy(page, { x: 0, y: -260 })
-    await takeScreenshot(page, '三-Lane-中间-Lane-选区拖拽越界后状态')
+    await takeScreenshot(page, '三-Lane-中间-Lane-选区拖拽后仍保持原位')
 
     const lane1After = await getNodeSnapshot(page, scenario.lane1Id)
     const middleLaneAfter = await getNodeSnapshot(page, scenario.lane2Id)

@@ -14,6 +14,9 @@ import {
   registerShapeCategory,
   emptyBpmnFormData,
   getCellLabel,
+  resolveBpmnNodeSize,
+  buildBpmnNodeAttrs,
+  buildBpmnNodeDefaults,
   loadBpmnFormData,
   saveBpmnFormData,
   type ShapeCategory,
@@ -379,6 +382,70 @@ describe('emptyBpmnFormData', () => {
     const b = emptyBpmnFormData()
     expect(a).not.toBe(b)
     expect(a).toEqual(b)
+  })
+})
+
+// ============================================================================
+// 默认节点外观辅助函数
+// ============================================================================
+
+describe('默认节点外观辅助函数', () => {
+  it('应返回 BPMN 节点默认尺寸', () => {
+    expect(resolveBpmnNodeSize('bpmn-pool')).toEqual({ width: 400, height: 200 })
+    expect(resolveBpmnNodeSize('bpmn-lane')).toEqual({ width: 370, height: 100 })
+    expect(resolveBpmnNodeSize('bpmn-exclusive-gateway')).toEqual({ width: 50, height: 50 })
+    expect(resolveBpmnNodeSize('bpmn-start-event')).toEqual({ width: 36, height: 36 })
+    expect(resolveBpmnNodeSize('bpmn-user-task')).toEqual({ width: 100, height: 60 })
+  })
+
+  it('显式传入宽高时应优先使用宿主值', () => {
+    expect(resolveBpmnNodeSize('bpmn-user-task', 180, 72)).toEqual({ width: 180, height: 72 })
+  })
+
+  it('应为 Pool 和 Lane 生成 headerLabel attrs', () => {
+    expect(buildBpmnNodeAttrs('bpmn-pool', '审批流程')).toEqual({
+      headerLabel: { text: '审批流程' },
+    })
+    expect(buildBpmnNodeAttrs('bpmn-lane', '申请人')).toEqual({
+      headerLabel: { text: '申请人' },
+    })
+  })
+
+  it('应为普通节点生成 label attrs', () => {
+    expect(buildBpmnNodeAttrs('bpmn-user-task', '审批')).toEqual({
+      label: { text: '审批' },
+    })
+  })
+
+  it('应统一构建默认节点配置，并为泳道补齐默认数据', () => {
+    expect(buildBpmnNodeDefaults('bpmn-lane', { label: '泳道 A' })).toEqual({
+      width: 370,
+      height: 100,
+      attrs: { headerLabel: { text: '泳道 A' } },
+      data: {
+        label: '泳道 A',
+        bpmn: { isHorizontal: true },
+      },
+    })
+  })
+
+  it('应保留宿主自定义 data，并与主库默认值合并', () => {
+    expect(buildBpmnNodeDefaults('bpmn-pool', {
+      label: '主泳池',
+      data: { owner: 'demo', bpmn: { processRef: 'Process_1' } },
+    })).toEqual({
+      width: 400,
+      height: 200,
+      attrs: { headerLabel: { text: '主泳池' } },
+      data: {
+        owner: 'demo',
+        label: '主泳池',
+        bpmn: {
+          isHorizontal: true,
+          processRef: 'Process_1',
+        },
+      },
+    })
   })
 })
 

@@ -14,6 +14,7 @@ import {
 import {
   BPMN_LANE,
   BPMN_POOL,
+  BPMN_TRANSACTION,
   BPMN_USER_TASK,
 } from '../../../src/utils/constants'
 
@@ -52,6 +53,8 @@ function createMockNode(
     }),
     getParent: () => parent,
     getBBox: () => ({ x: position.x, y: position.y, width: size.width, height: size.height }),
+    setZIndex: vi.fn(),
+    toFront: vi.fn(),
     embed: vi.fn((child: any) => {
       if (!children.includes(child)) {
         children.push(child)
@@ -272,6 +275,26 @@ describe('addLaneToPool', () => {
     expect(addedConfig.y).toBe(40)
     expect(addedConfig.width).toBe(570)
     expect(addedConfig.height).toBe(250)
+  })
+
+  it('新增 Lane 后应重新归一化图层，并保持 Pool 内事务节点位于 Lane 上层', () => {
+    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 320)
+    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 160)
+    const transaction = createMockNode('transaction1', BPMN_TRANSACTION, 180, 220, 220, 80)
+    lane1.__setParent(pool)
+    transaction.__setParent(pool)
+    pool.embed(lane1)
+    pool.embed(transaction)
+    const graph = createMockGraph([pool, lane1, transaction])
+
+    const lane2 = addLaneToPool(graph as any, pool, { label: '新泳道' })
+
+    expect(lane2).not.toBeNull()
+    expect(pool.setZIndex).toHaveBeenCalledWith(-2)
+    expect(lane1.setZIndex).toHaveBeenCalledWith(-1)
+    expect(lane2?.setZIndex).toHaveBeenCalledWith(-1)
+    expect(transaction.setZIndex).toHaveBeenCalledWith(1)
+    expect(transaction.toFront).toHaveBeenCalled()
   })
 
 })

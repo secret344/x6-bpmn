@@ -325,7 +325,7 @@ describe('attachBoundaryToHost', () => {
     let data: Record<string, any> = {}
     let parent: any = null
     const children: any[] = []
-    return {
+    const node = {
       id,
       shape,
       getPosition: () => ({ ...pos }),
@@ -335,16 +335,19 @@ describe('attachBoundaryToHost', () => {
       setData: (d: any) => { data = d },
       getParent: () => parent,
       setParent: (p: any) => { parent = p },
-      embed: (child: any) => { child.setParent({ id }); children.push(child) },
+      embed: (child: any) => { child.setParent(nodeRef); children.push(child) },
       getChildren: () => children.length > 0 ? children : null,
       toFront: vi.fn(),
       isNode: () => true,
     } as any
+    const nodeRef = node
+    return node
   }
 
   function mockGraph(nodes: any[] = []) {
     const handlers: Record<string, Function[]> = {}
     return {
+      getCellById: (id: string) => nodes.find((node) => node.id === id) ?? null,
       on: (event: string, fn: Function) => {
         handlers[event] = handlers[event] || []
         handlers[event].push(fn)
@@ -424,7 +427,7 @@ describe('boundary attach real graph interactions', () => {
     destroyBehaviorTestGraph(graph)
   })
 
-  it('默认配置下线性拖离宿主时仍应保持附着并沿边框滑动', () => {
+  it('默认配置下线性拖离宿主超过阈值时应解除附着', () => {
     registerBehaviorTestShapes([BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
 
     const graph = createBehaviorTestGraph()
@@ -448,6 +451,39 @@ describe('boundary attach real graph interactions', () => {
 
     attachBoundaryToHost(graph, boundary, host)
     dragNodeLinearly(graph, boundary, { x: 320, y: 240 }, 8)
+
+    expect(boundary.getParent()).toBeNull()
+    expect(boundary.getData<{ bpmn?: { boundaryPosition?: BoundaryPosition } }>()?.bpmn?.boundaryPosition).toBeUndefined()
+
+    dispose()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('选区拖拽导致的 position 变化也应重新吸附到宿主边框', () => {
+    registerBehaviorTestShapes([BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
+
+    const graph = createBehaviorTestGraph()
+    const dispose = setupBoundaryAttach(graph)
+    const host = graph.addNode({
+      id: 'host',
+      shape: BPMN_USER_TASK,
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 100,
+    })
+    const boundary = graph.addNode({
+      id: 'boundary',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      x: 182,
+      y: 82,
+      width: 36,
+      height: 36,
+    })
+
+    attachBoundaryToHost(graph, boundary, host)
+    boundary.translate(16, 12, { ui: true })
+    emitGraphEvent(graph, 'node:change:position', { node: boundary, options: { ui: true } })
 
     expect(boundary.getParent()?.id).toBe(host.id)
     expect(distanceToRectEdge(getNodeCenter(boundary), getNodeRect(host))).toBeCloseTo(0, 5)
@@ -674,7 +710,7 @@ describe('setupBoundaryAttach', () => {
     expect(data.bpmn?.boundaryPosition).toBeDefined()
   })
 
-  it('node:moving — 默认配置下拖到宿主外侧仍应保持附着', () => {
+  it('node:moving — 默认配置下拖到宿主外侧应解除附着', () => {
     const graph = mockGraph()
     const host = mockNode('host', 'bpmn-user-task', 100, 100, 200, 100)
     const boundary = mockNode('b1', 'bpmn-boundary-event', 150, 80, 36, 36)
@@ -687,9 +723,9 @@ describe('setupBoundaryAttach', () => {
     boundary.setPosition(500, 500)
     graph.emit('node:moving', { node: boundary })
 
-    expect(boundary.getParent()?.id).toBe(host.id)
+    expect(boundary.getParent()).toBeNull()
     const data = boundary.getData()
-    expect(data.bpmn?.boundaryPosition).toBeDefined()
+    expect(data.bpmn?.boundaryPosition).toBeUndefined()
   })
 
   it('node:moving — 显式配置有限 detachDistance 后拖离应解除绑定', () => {
@@ -811,7 +847,7 @@ describe('setupBoundaryAttach', () => {
 
     setupBoundaryAttach(graph)
 
-    boundary.setPosition(500, 500)
+    boundary.setPosition(182, 84)
     graph.emit('node:moving', { node: boundary })
 
     expect(boundary.getParent()?.id).toBe(host.id)
@@ -828,7 +864,7 @@ describe('setupBoundaryAttach', () => {
 
     setupBoundaryAttach(graph)
 
-    boundary.setPosition(500, 500)
+    boundary.setPosition(182, 84)
     graph.emit('node:change:parent', { node: boundary, current: null, previous: host })
 
     expect(boundary.getParent()?.id).toBe(host.id)

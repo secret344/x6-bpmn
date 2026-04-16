@@ -16,6 +16,7 @@ import { buildSwimlaneAttrs } from '../shapes/swimlane-presentation'
 import {
   LANE_INDENTATION,
   LANE_MIN_DIMENSIONS,
+  normalizeSwimlaneLayers,
 } from './swimlane-layout'
 
 // ============================================================================
@@ -95,12 +96,15 @@ export function addLaneToPool(
 
   if (existingLanes.length === 0) {
     // 空 Pool：创建一条占满整个内容区的 Lane
-    return createLaneInPool(graph, pool, {
+    const lane = createLaneInPool(graph, pool, {
       x: poolPos.x + LANE_INDENTATION,
       y: poolPos.y,
       width: poolSize.width - LANE_INDENTATION,
       height: poolSize.height,
     }, true, label)
+
+    compactLaneLayout(graph, pool)
+    return lane
   }
 
   // 已有 Lane：只支持纵向堆叠，始终在底部追加
@@ -286,6 +290,8 @@ export function compactLaneLayout(
       lastLane.setSize(contentWidth, lastLaneSize.height + remaining)
     }
   }
+
+  normalizePoolSubtreeLayers(graph, pool)
 }
 
 // ============================================================================
@@ -328,4 +334,30 @@ function createLaneInPool(
   } catch { /* 忽略重复 embed */ }
 
   return node
+}
+
+function normalizePoolSubtreeLayers(graph: Graph, pool: Node): void {
+  try {
+    normalizeSwimlaneLayers(graph)
+  } catch {
+    // 测试桩图节点可能未实现完整的图层 API，此时跳过 zIndex 归一化。
+  }
+  frontEmbeddedContent(pool)
+}
+
+function frontEmbeddedContent(container: Node): void {
+  const children = container.getChildren?.() ?? []
+
+  for (const child of children) {
+    if (!child?.isNode?.()) {
+      continue
+    }
+
+    const childNode = child as Node & { toFront?: () => void }
+    if (!isPoolShape(childNode.shape) && !isLaneShape(childNode.shape)) {
+      childNode.toFront?.()
+    }
+
+    frontEmbeddedContent(childNode)
+  }
 }

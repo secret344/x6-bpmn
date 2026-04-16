@@ -83,6 +83,96 @@ describe('setupPoolContainment', () => {
     dispose()
     destroyBehaviorTestGraph(graph)
   })
+
+  it('普通流程节点移入 Pool 空白区后应在 Pool 与 Lane 之间切换父链', () => {
+    const graph = createBehaviorTestGraph()
+    const pool = graph.addNode({
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 420,
+      height: 260,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = graph.addNode({
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 390,
+      height: 120,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const task = graph.addNode({
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      x: 120,
+      y: 70,
+      width: 100,
+      height: 60,
+    })
+    pool.embed(lane)
+    lane.embed(task)
+
+    const dispose = setupPoolContainment(graph)
+
+    task.setPosition(220, 190)
+    emitGraphEvent(graph, 'node:moved', { node: task })
+    expect(task.getParent()?.id).toBe(pool.id)
+
+    task.setPosition(120, 70)
+    emitGraphEvent(graph, 'node:moved', { node: task })
+    expect(task.getParent()?.id).toBe(lane.id)
+
+    dispose()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('Lane 处于选中交互态时不应重挂其内部流程节点', () => {
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 420, height: 260 }),
+    } as unknown as Node
+    const lane1 = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => pool,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 390, height: 120 }),
+    } as unknown as Node
+    const lane2 = {
+      id: 'lane-2',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => pool,
+      getPosition: () => ({ x: 70, y: 160 }),
+      getSize: () => ({ width: 390, height: 140 }),
+      embed: vi.fn(),
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => lane2,
+      getPosition: () => ({ x: 120, y: 80 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    } as unknown as Node
+    const graph = {
+      getSelectedCells: () => [lane2],
+      getNodes: () => [pool, lane1, lane2, task],
+    } as unknown as Graph
+
+    containmentTest.syncFlowNodeSwimlaneParent(graph, task)
+
+    expect(containmentTest.shouldSkipFlowNodeParentSyncDuringLaneInteraction(graph, task)).toBe(true)
+    expect((lane2 as unknown as { embed: ReturnType<typeof vi.fn> }).embed).not.toHaveBeenCalled()
+  })
 })
 
 describe('validatePoolContainment', () => {
@@ -410,6 +500,51 @@ describe('pool containment helpers', () => {
     expect((freeTask as any).setSize).not.toHaveBeenCalled()
     expect(containmentTest.safeGetNodes({ getNodes: () => { throw new Error('boom') } } as unknown as Graph)).toEqual([])
     expect(containmentTest.hasPoolNodes({ getNodes: () => { throw new Error('boom') } } as unknown as Graph)).toBe(false)
+  })
+
+  it('应在泳道父节点变化后同步普通流程节点父链，并忽略边界事件', () => {
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 420, height: 260 }),
+      embed: vi.fn(),
+    } as unknown as Node
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => pool,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 390, height: 120 }),
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => lane,
+      getPosition: () => ({ x: 220, y: 190 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    } as unknown as Node
+    const boundary = {
+      id: 'boundary-1',
+      shape: 'bpmn-boundary-event-timer',
+      isNode: () => true,
+      getParent: () => task,
+      getPosition: () => ({ x: 210, y: 180 }),
+      getSize: () => ({ width: 36, height: 36 }),
+    } as unknown as Node
+    const graph = {
+      getNodes: () => [pool, lane],
+    } as unknown as Graph
+
+    containmentTest.syncFlowNodeSwimlaneParent(graph, task)
+    containmentTest.syncFlowNodeSwimlaneParent(graph, boundary)
+
+    expect((pool.embed as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(task)
+    expect((pool.embed as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1)
   })
 
   it('应只在普通流程节点违规时触发违规回调', () => {

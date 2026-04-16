@@ -8,86 +8,25 @@
 export { setupBoundaryAttach, attachBoundaryToHost } from './boundary-attach'
 export type { BoundaryAttachOptions } from './boundary-attach'
 
-import type { Cell, Graph, Node } from '@antv/x6'
+import type { Graph } from '@antv/x6'
 import { isBoundaryShape, isLaneShape, isPoolShape } from '../export/bpmn-mapping'
-import {
-  BPMN_AD_HOC_SUB_PROCESS,
-  BPMN_EVENT_SUB_PROCESS,
-  BPMN_SUB_PROCESS,
-  BPMN_TRANSACTION,
-} from '../utils/constants'
+import { BPMN_TRANSACTION } from '../utils/constants'
 import type { BoundaryAttachOptions } from './boundary-attach'
+import type { PoolContainmentOptions } from './pool-containment'
 import { setupBoundaryAttach } from './boundary-attach'
-import {
-  setupPoolContainment,
-  type PoolContainmentOptions,
-} from './pool-containment'
+import { setupPoolContainment } from './pool-containment'
+import { setupSwimlaneDelete } from './swimlane-delete'
 import { setupSwimlaneResize, type SwimlaneResizeOptions } from './swimlane-resize'
-import { setupSwimlaneDelete, type SwimlaneDeleteOptions } from './swimlane-delete'
 
 export {
-  findContainingSwimlane,
-  getAncestorSwimlane as getSwimlaneAncestor,
-  getAncestorPool,
-  resolveLaneMemberNodes,
-} from '../core/swimlane-membership'
-
-// 泳道布局核心工具导出
-export {
-  nodeRect,
-  asTRBL,
-  trblToRect,
-  subtractTRBL,
-  resizeTRBL,
-  getChildLanes,
-  collectLanes,
-  getLanesRoot,
-  isSwimlaneHorizontal,
-  computeLaneContentMinSize,
-  computeLaneMinSize,
-  computePoolMinSize,
-  computeResizeConstraints,
-  computeLanesResize,
-  collectFirstPoolWrapTargets,
-  computeAutoWrapPoolRect,
-  autoWrapFirstPool,
-  computeRequiredSwimlaneRect,
-  clampSwimlaneToContent,
-  normalizeSwimlaneLayers,
-  LANE_INDENTATION,
-  LANE_MIN_DIMENSIONS,
-  VERTICAL_LANE_MIN_DIMENSIONS,
-  PARTICIPANT_MIN_DIMENSIONS,
-  VERTICAL_PARTICIPANT_MIN_DIMENSIONS,
-  LANE_PADDING,
-  VERTICAL_LANE_PADDING,
-  DEFAULT_LANE_SIZE,
-} from './swimlane-layout'
+  setupPoolContainment,
+  validatePoolContainment,
+} from './pool-containment'
 export type {
-  TRBL,
-  ResizeConstraints,
-  ResizeDirection,
-  LaneResizeAdjustment,
-} from './swimlane-layout'
+  ContainmentValidationResult,
+} from './pool-containment'
+export type { PoolContainmentOptions } from './pool-containment'
 
-// Pool 容器约束导出
-export { setupPoolContainment, validatePoolContainment } from './pool-containment'
-export type { PoolContainmentOptions, ContainmentValidationResult } from './pool-containment'
-
-// 泳道 Resize 行为导出
-export {
-  setupSwimlaneResize,
-  clampLanePreviewRect,
-  patchTransformResizing,
-  restoreTransformResizing,
-} from './swimlane-resize'
-export type { SwimlaneResizeOptions, TransformResizingSaved } from './swimlane-resize'
-
-// 泳道删除行为导出
-export { setupSwimlaneDelete, compensateLaneDelete } from './swimlane-delete'
-export type { SwimlaneDeleteOptions } from './swimlane-delete'
-
-// Lane 管理行为导出（高级 API）
 export {
   addLaneToPool,
   addLaneAbove,
@@ -96,105 +35,101 @@ export {
 } from './lane-management'
 export type { AddLaneOptions } from './lane-management'
 
+export {
+  setupSwimlaneResize,
+  clampLanePreviewRect,
+} from './swimlane-resize'
+export type { SwimlaneResizeOptions } from './swimlane-resize'
+
+export {
+  setupSwimlaneDelete,
+  compensateLaneDelete,
+} from './swimlane-delete'
+
 export interface BpmnInteractionBehaviorOptions {
   boundaryAttach?: BoundaryAttachOptions
   poolContainment?: PoolContainmentOptions
   swimlaneResize?: SwimlaneResizeOptions
-  swimlaneDelete?: SwimlaneDeleteOptions
 }
-
-const EMBEDDED_CONTENT_PARENT_SHAPES = new Set([
-  BPMN_SUB_PROCESS,
-  BPMN_EVENT_SUB_PROCESS,
-  BPMN_TRANSACTION,
-  BPMN_AD_HOC_SUB_PROCESS,
-])
 
 /**
  * 安装常用 BPMN 交互行为。
  *
- * 统一收敛边界事件吸附、Pool/Lane 容器约束、Resize 联动与 Lane 删除补偿，
- * 减少宿主侧重复 wiring。
+ * 统一收敛边界事件吸附、Pool/Lane 容器约束与 Lane 管理行为，减少宿主侧重复 wiring。
  */
 export function setupBpmnInteractionBehaviors(
   graph: Graph,
   options: BpmnInteractionBehaviorOptions = {},
 ): () => void {
   const disposeBoundaryAttach = setupBoundaryAttach(graph, options.boundaryAttach)
-  const disposeSwimlaneResize = setupSwimlaneResize(graph, options.swimlaneResize)
-  const disposeSwimlaneDelete = setupSwimlaneDelete(graph, options.swimlaneDelete)
   const disposePoolContainment = setupPoolContainment(graph, options.poolContainment)
-  const disposeEmbeddedNodeFronting = setupEmbeddedNodeFronting(graph)
-  const disposeSwimlaneDirectSelection = setupSwimlaneDirectSelection(graph)
+  const disposeSwimlaneResize = setupSwimlaneResize(graph, options.swimlaneResize)
+  const disposeSwimlaneDelete = setupSwimlaneDelete(graph)
 
-  return () => {
-    disposeSwimlaneDirectSelection()
-    disposeEmbeddedNodeFronting()
-    disposePoolContainment()
-    disposeSwimlaneDelete()
-    disposeSwimlaneResize()
-    disposeBoundaryAttach()
-  }
-}
-
-function setupEmbeddedNodeFronting(graph: Graph): () => void {
-  if (typeof graph.on !== 'function' || typeof graph.off !== 'function') {
-    return () => undefined
+  const graphWithSelection = graph as Graph & {
+    on?: (event: string, handler: (...args: any[]) => void) => void
+    off?: (event: string, handler: (...args: any[]) => void) => void
+    getSelectedCells?: () => Array<{ id?: string }>
+    cleanSelection?: () => void
+    select?: (cell: unknown) => void
   }
 
-  const handler = ({ node, currentParent }: { node: Node; currentParent?: Node | null }) => {
-    if (isBoundaryShape(node.shape) || isPoolShape(node.shape) || isLaneShape(node.shape)) {
+  const canWireGraphEvents = typeof graphWithSelection.on === 'function'
+    && typeof graphWithSelection.off === 'function'
+
+  const handleNodeClick = ({ node }: { node: any }) => {
+    if (!isLaneShape(node?.shape)) {
       return
     }
 
-    const parent = currentParent ?? (node.getParent() as Node | null)
-    if (!parent?.isNode?.() || !EMBEDDED_CONTENT_PARENT_SHAPES.has(parent.shape)) {
+    const parent = node.getParent?.()
+    if (!parent?.isNode?.() || !isPoolShape(parent.shape)) {
       return
     }
 
-    node.toFront()
-  }
-
-  graph.on('node:embedded', handler)
-  return () => {
-    graph.off('node:embedded', handler)
-  }
-}
-
-function setupSwimlaneDirectSelection(graph: Graph): () => void {
-  if (typeof graph.on !== 'function' || typeof graph.off !== 'function') {
-    return () => undefined
-  }
-
-  const handler = ({ node }: { node: Node }) => {
-    if (!isLaneShape(node.shape)) {
-      return
-    }
-
-    const parent = node.getParent()
-    if (!parent?.isNode() || !isPoolShape((parent as Node).shape)) {
-      return
-    }
-
-    const selectionGraph = graph as Graph & {
-      getSelectedCells?: () => Cell[]
-      cleanSelection?: () => void
-      select?: (cell: Cell) => void
-    }
-    const selectedCells = selectionGraph.getSelectedCells?.() ?? []
-    if (!selectedCells.some((cell) => cell.id === parent.id)) {
+    const selectedCells = graphWithSelection.getSelectedCells?.() ?? []
+    if (!selectedCells.some((cell) => cell?.id === parent.id)) {
       return
     }
 
     window.requestAnimationFrame(() => {
-      selectionGraph.cleanSelection?.()
-      selectionGraph.select?.(node)
+      graphWithSelection.cleanSelection?.()
+      graphWithSelection.select?.(node)
     })
   }
 
-  graph.on('node:click', handler)
+  const handleNodeEmbedded = ({
+    node,
+    currentParent,
+  }: {
+    node: any
+    currentParent?: any
+  }) => {
+    if (!currentParent?.isNode?.() || currentParent.shape !== BPMN_TRANSACTION) {
+      return
+    }
+
+    if (isBoundaryShape(node?.shape)) {
+      return
+    }
+
+    node?.toFront?.()
+  }
+
+  if (canWireGraphEvents) {
+    graphWithSelection.on?.('node:click', handleNodeClick)
+    graphWithSelection.on?.('node:embedded', handleNodeEmbedded)
+  }
+
   return () => {
-    graph.off('node:click', handler)
+    if (canWireGraphEvents) {
+      graphWithSelection.off?.('node:embedded', handleNodeEmbedded)
+      graphWithSelection.off?.('node:click', handleNodeClick)
+    }
+    disposeSwimlaneDelete()
+    disposeSwimlaneResize()
+    disposePoolContainment()
+    disposeBoundaryAttach()
   }
 }
 

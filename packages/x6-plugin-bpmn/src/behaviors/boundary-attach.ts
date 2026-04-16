@@ -50,9 +50,9 @@ export interface BoundaryAttachOptions {
   /**
    * 脱离距离阈值 (px)。
    * 已吸附的边界事件中心到宿主边框距离 > 此值时解除绑定。
-   * 设为 Infinity 禁止脱离（只能通过边框滑动）。
-    * 默认禁止脱离，只有显式传入有限阈值时才允许拖离宿主。
-    * @default Infinity
+    * 设为 Infinity 禁止脱离（只能通过边框滑动）。
+    * 默认允许在明显拖离宿主时断开附着关系。
+    * @default 48
    */
   detachDistance?: number
 
@@ -88,7 +88,7 @@ export interface BoundaryAttachOptions {
 // ============================================================================
 
 /** 当前实现中可作为边界事件宿主的 Activity 图形集合 */
-const DEFAULT_HOST_SHAPES = new Set([
+export const DEFAULT_HOST_SHAPES = new Set([
   BPMN_TASK,
   BPMN_USER_TASK,
   BPMN_SERVICE_TASK,
@@ -171,7 +171,10 @@ function nodeCenter(node: Node): { x: number; y: number } {
 /** 将节点中心点设置到指定坐标 */
 function setNodeCenter(node: Node, cx: number, cy: number): void {
   const size = node.getSize()
-  node.setPosition(cx - size.width / 2, cy - size.height / 2, { silent: false })
+  node.setPosition(cx - size.width / 2, cy - size.height / 2, {
+    silent: false,
+    bpmnBoundarySync: true,
+  })
 }
 
 /** 获取节点的矩形 */
@@ -234,7 +237,7 @@ export function setupBoundaryAttach(
 ): () => void {
   const {
     snapDistance = 30,
-    detachDistance = Number.POSITIVE_INFINITY,
+    detachDistance = 48,
     constrainToEdge = true,
     isBoundaryEvent: isBE = isBoundaryShape,
   } = options
@@ -292,7 +295,17 @@ export function setupBoundaryAttach(
   //
   // X6 在用户拖拽节点时、拖拽结束后或父链变化时都会触发这些事件。
   // ------------------------------------------------------------------
-  function onNodeMoving({ node }: { node: Node }) {
+  function onNodeMoving({
+    node,
+    options: eventOptions,
+  }: {
+    node: Node
+    options?: { bpmnBoundarySync?: boolean }
+  }) {
+    if (eventOptions?.bpmnBoundarySync) {
+      return
+    }
+
     if (!isBE(node.shape)) return
     const host = resolveAttachedHost(node)
     if (!host) return
@@ -348,6 +361,7 @@ export function setupBoundaryAttach(
   graph.on('node:embedded', onNodeEmbedded)
   graph.on('node:moving', onNodeMoving)
   graph.on('node:moved', onNodeMoving)
+  graph.on('node:change:position', onNodeMoving)
   graph.on('node:change:parent', onNodeMoving)
   graph.on('node:change:size', onNodeChangeSize)
 
@@ -358,6 +372,7 @@ export function setupBoundaryAttach(
     graph.off('node:embedded', onNodeEmbedded)
     graph.off('node:moving', onNodeMoving)
     graph.off('node:moved', onNodeMoving)
+    graph.off('node:change:position', onNodeMoving)
     graph.off('node:change:parent', onNodeMoving)
     graph.off('node:change:size', onNodeChangeSize)
   }

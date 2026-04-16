@@ -19,7 +19,7 @@ function createTestGraph(): Graph {
 }
 
 describe('example demo XML wrapper', () => {
-  it('exportStandardBpmnXml 应注入 example 序列化配置', async () => {
+  it('exportStandardBpmnXml 应直接透传主库导出参数', async () => {
     vi.resetModules()
     const exportBpmnXml = vi.fn().mockResolvedValue('<bpmn:definitions />')
     const importBpmnXml = vi.fn()
@@ -39,32 +39,33 @@ describe('example demo XML wrapper', () => {
       },
     })
 
-    expect(exportBpmnXml).toHaveBeenCalledWith({} as never, expect.objectContaining({
+    expect(exportBpmnXml).toHaveBeenCalledWith({} as never, {
       processName: 'BPMN流程',
-      serialization: expect.objectContaining({
-        extensionProperties: {
-          prefix: 'camunda',
-          namespaceUri: 'http://camunda.org/schema/1.0/bpmn',
-          containerLocalName: 'properties',
-          propertyLocalName: 'property',
-        },
-        namespaces: expect.objectContaining({
-          custom: 'http://example.com/custom',
-          camunda: 'http://camunda.org/schema/1.0/bpmn',
-          example: 'http://x6-bpmn2.io/schema/example',
-        }),
-        nodeSerializers: expect.any(Object),
-        edgeSerializers: expect.any(Object),
-      }),
-    }))
+      serialization: {
+        namespaces: { custom: 'http://example.com/custom' },
+      },
+    })
 
     vi.doUnmock('@x6-bpmn2/plugin')
     vi.resetModules()
   })
 
-  it('应仅将显式配置的字段导出为内联属性，其余字段回落到扩展属性并可导回', async () => {
+  it('应使用主库默认扩展属性序列化未知字段并可导回', async () => {
     vi.resetModules()
-    vi.doMock('@x6-bpmn2/plugin', async () => import('../../src'))
+    vi.doMock('@x6-bpmn2/plugin', async () => {
+      const [{ exportBpmnXml }, { importBpmnXml }, { NODE_MAPPING, EDGE_MAPPING }] = await Promise.all([
+        import('../../src/export/exporter'),
+        import('../../src/import'),
+        import('../../src/export/bpmn-mapping'),
+      ])
+
+      return {
+        exportBpmnXml,
+        importBpmnXml,
+        NODE_MAPPING,
+        EDGE_MAPPING,
+      }
+    })
 
     const moduleUrl = pathToFileURL(resolve(import.meta.dirname, '../../../example/src/bpmn-xml.ts')).href
     const mod = await import(moduleUrl)
@@ -110,20 +111,20 @@ describe('example demo XML wrapper', () => {
 
     const xml = await mod.exportStandardBpmnXml(graph)
 
-    expect(xml).toContain('xmlns:camunda="http://camunda.org/schema/1.0/bpmn"')
-    expect(xml).toContain('xmlns:example="http://x6-bpmn2.io/schema/example"')
-    expect(xml).toContain('camunda:assignee="#{userId}"')
-    expect(xml).toContain('camunda:dueDate="${dueDate}"')
+    expect(xml).toContain('xmlns:modeler="http://x6-bpmn2.io/schema"')
     expect(xml).toContain('<bpmn:extensionElements>')
+    expect(xml).toContain('<modeler:properties>')
+    expect(xml).toContain('name="assignee" value="#{userId}"')
+    expect(xml).toContain('name="dueDate" value="${dueDate}"')
     expect(xml).toContain('name="priority" value="50"')
-    expect(xml).not.toContain('camunda:priority="50"')
-    expect(xml).toContain('camunda:delegateExpression="${notifyDelegate}"')
-    expect(xml).toContain('camunda:resultVariable="notifyResult"')
-    expect(xml).toContain('camunda:async="true"')
-    expect(xml).toContain('example:messageRef="Message_1"')
-    expect(xml).toContain('example:messageName="审批通知"')
-    expect(xml).toContain('<camunda:properties>')
-    expect(xml).toContain('<camunda:property name="priority" value="50"')
+    expect(xml).toContain('name="implementationType" value="delegateExpression"')
+    expect(xml).toContain('name="implementation" value="${notifyDelegate}"')
+    expect(xml).toContain('name="resultVariable" value="notifyResult"')
+    expect(xml).toContain('name="isAsync" value="true"')
+    expect(xml).toContain('name="messageRef" value="Message_1"')
+    expect(xml).toContain('name="messageName" value="审批通知"')
+    expect(xml).not.toContain('camunda:')
+    expect(xml).not.toContain('example:')
 
     const importedGraph = createTestGraph()
     await mod.importExampleBpmnXml(importedGraph, xml, { zoomToFit: false })

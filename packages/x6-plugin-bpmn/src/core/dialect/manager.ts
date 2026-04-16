@@ -263,7 +263,7 @@ export class DialectManager {
     const edgeShape = typeof args?.edge?.getShape === 'function'
       ? args.edge.getShape()
       : args?.edge?.shape
-    if (typeof edgeShape === 'string' && edgeShape.length > 0) return edgeShape
+    if (this.isRuntimeEdgeShape(edgeShape)) return edgeShape
 
     const explicitEdgeShape = this.edgeShapeGetter?.(graph, args, context)
     if (explicitEdgeShape) return explicitEdgeShape
@@ -298,10 +298,14 @@ export class DialectManager {
 
       edge?.dispose?.()
 
-      return typeof shape === 'string' && shape.length > 0 ? shape : undefined
+      return this.isRuntimeEdgeShape(shape) ? shape : undefined
     } catch {
       return undefined
     }
+  }
+
+  private isRuntimeEdgeShape(shape: unknown): shape is string {
+    return typeof shape === 'string' && shape.length > 0 && shape !== 'edge'
   }
 
   private resolveDefaultEdgeShape(context: ProfileContext): string {

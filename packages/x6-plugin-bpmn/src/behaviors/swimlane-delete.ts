@@ -31,6 +31,8 @@ export interface SwimlaneDeleteOptions {
   autoRedistribute?: boolean
 }
 
+type RemoveOptions = Record<string, unknown>
+
 interface DeleteMigrationPlan {
   deletedLaneId: string
   deletedBounds: { x: number; y: number; width: number; height: number }
@@ -281,24 +283,34 @@ export function setupSwimlaneDelete(
     }
 
     const prepareCandidateLane = (candidate: Cell | string) => {
-      const cell = typeof candidate === 'string' ? graph.getCellById(candidate) : candidate
-      if (!cell?.isNode?.() || !isLaneShape((cell as Node).shape)) {
+      const node = resolveCandidateNode(graph, candidate)
+      if (!node || !isLaneShape(node.shape)) {
         return
       }
 
-      if (preparedLaneIds.has(cell.id)) {
+      if (preparedLaneIds.has(node.id)) {
         return
       }
 
-      preparedLaneIds.add(cell.id)
-      prepareLaneDelete(graph, cell as Node)
+      preparedLaneIds.add(node.id)
+      prepareLaneDelete(graph, node)
     }
 
     graph.removeCell = ((obj: Cell | string, removeOptions = {}) => {
       beginDelete()
       try {
         prepareCandidateLane(obj)
-        return originalRemoveCell(obj as string & Cell, removeOptions)
+        const expandedCandidates = expandPoolDeleteCandidates(graph, [obj], removeOptions as RemoveOptions)
+        const normalizedRemoveOptions = expandedCandidates.length > 1
+          ? { ...(removeOptions as RemoveOptions), deep: false }
+          : (removeOptions as RemoveOptions)
+
+        if (expandedCandidates.length === 1) {
+          return originalRemoveCell(obj as string & Cell, normalizedRemoveOptions)
+        }
+
+        const removed = originalRemoveCells(expandedCandidates, normalizedRemoveOptions)
+        return removed[removed.length - 1] ?? null
       } finally {
         endDelete()
       }
@@ -311,7 +323,12 @@ export function setupSwimlaneDelete(
           prepareCandidateLane(candidate)
         }
 
-        return originalRemoveCells(cells, removeOptions)
+        const expandedCandidates = expandPoolDeleteCandidates(graph, cells, removeOptions as RemoveOptions)
+        const normalizedRemoveOptions = expandedCandidates.length > cells.length
+          ? { ...(removeOptions as RemoveOptions), deep: false }
+          : (removeOptions as RemoveOptions)
+
+        return originalRemoveCells(expandedCandidates, normalizedRemoveOptions)
       } finally {
         endDelete()
       }
@@ -328,6 +345,52 @@ export function setupSwimlaneDelete(
       dispose()
     }
   }
+}
+
+function resolveCandidateNode(graph: Graph, candidate: Cell | string): Node | null {
+  const cell = typeof candidate === 'string' ? graph.getCellById(candidate) : candidate
+  return cell?.isNode?.() ? cell as Node : null
+}
+
+function expandPoolDeleteCandidates(
+  graph: Graph,
+  candidates: Array<Cell | string>,
+  _removeOptions: RemoveOptions,
+): Array<Cell | string> {
+  const expandedCandidates: Array<Cell | string> = []
+  const appendedIds = new Set<string>()
+
+  const appendCandidate = (candidate: Cell | string) => {
+    const id = typeof candidate === 'string' ? candidate : candidate.id
+    if (!appendedIds.has(id)) {
+      appendedIds.add(id)
+      expandedCandidates.push(candidate)
+    }
+  }
+
+  let containsPool = false
+
+  for (const candidate of candidates) {
+    const node = resolveCandidateNode(graph, candidate)
+    if (node && isPoolShape(node.shape)) {
+      containsPool = true
+
+      const descendants = node.getDescendants({ deep: true, breadthFirst: true })
+      for (const descendant of descendants.reverse()) {
+        appendCandidate(descendant)
+      }
+    }
+
+    appendCandidate(candidate)
+  }
+
+  if (!containsPool) {
+    return candidates
+  }
+
+  // X6 在不同删除入口上对 Pool 子树的递归移除并不稳定，
+  // 这里统一显式展开 Pool 子树，由外层调用改用 deep:false 做扁平删除。
+  return expandedCandidates
 }
 
 function prepareLaneDelete(graph: Graph, deletedLane: Node): void {
@@ -464,6 +527,14 @@ function resolveRecipientNode(graph: Graph, recipientId: string | null): Node | 
 
 function reparentNodeToContainer(node: Node, parent: Node): void {
   try {
+    const currentParent = node.getParent()
+    if (currentParent?.isNode?.() && currentParent.id !== parent.id) {
+      const currentParentNode = currentParent as Node & {
+        unembed?: (child: Node) => void
+      }
+      currentParentNode.unembed?.(node)
+    }
+
     if (typeof parent.embed === 'function') {
       parent.embed(node)
       return
@@ -521,6 +592,8 @@ function containsDeletedLane(pool: Node, deletedBounds: { x: number; y: number; 
 }
 
 export const __test__ = {
+  resolveCandidateNode,
+  expandPoolDeleteCandidates,
   compensateSide,
   expandLaneEdge,
   findEdgeLane,

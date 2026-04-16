@@ -8,6 +8,7 @@ import {
   exportBpmnXml,
   importBpmnXml,
   addLaneToPool,
+  resolveBpmnEmbeddingTargets,
   BPMN_BOUNDARY_EVENT_TIMER,
   BPMN_END_EVENT,
   BPMN_EXCLUSIVE_GATEWAY,
@@ -47,6 +48,11 @@ type TransactionWrapScenarioIds = {
   startId: string
 }
 
+type PoolLaneTransactionScenarioIds = {
+  poolId: string
+  transactionId: string
+}
+
 type FirstPoolWrapScenarioIds = {
   poolId: string
   taskId: string
@@ -79,6 +85,10 @@ type AddedLaneScenarioIds = {
   addedTaskId: string
 }
 
+type AddedLaneOnlyScenarioIds = {
+  laneId: string
+}
+
 type EdgeSnapshot = {
   id: string
   shape: string
@@ -93,12 +103,15 @@ declare global {
       setViewportTransform: (tx: number, ty: number, scale?: number) => void
       createStandaloneTaskScenario: () => StandaloneTaskScenarioIds
       createTransactionWrapScenario: () => TransactionWrapScenarioIds
+      createPoolLaneTransactionScenario: () => PoolLaneTransactionScenarioIds
       addFirstPoolScenario: () => FirstPoolWrapScenarioIds
       createPoolLaneTaskScenario: () => ScenarioIds
       createPoolLaneTaskBoundaryScenario: () => ScenarioIds
       createTwoPoolMessageScenario: () => MessageScenarioIds
       createMultiLaneScenario: () => MultiLaneScenarioIds
       createExampleLikeMultiLaneScenario: () => MultiLaneScenarioIds
+      createExampleLikeLowTopLaneScenario: () => MultiLaneScenarioIds
+      createExampleLikeAddedLowTopLaneScenario: () => MultiLaneScenarioIds & AddedLaneOnlyScenarioIds
       addLaneToPoolScenario: (poolId: string) => AddedLaneScenarioIds | null
       removeNode: (id: string) => boolean
       selectCell: (id: string) => string[]
@@ -126,7 +139,12 @@ graph = new Graph({
   container,
   width: 1200,
   height: 800,
-  embedding: { enabled: true },
+  embedding: {
+    enabled: true,
+    findParent({ node }) {
+      return resolveBpmnEmbeddingTargets(this, node)
+    },
+  },
   connecting: {},
 })
 
@@ -377,6 +395,41 @@ function createTransactionWrapScenario(): TransactionWrapScenarioIds {
   return {
     transactionId: transaction.id,
     startId: start.id,
+  }
+}
+
+function createPoolLaneTransactionScenario(): PoolLaneTransactionScenarioIds {
+  clear()
+
+  const pool = graph.addNode({
+    id: 'pool-transaction',
+    shape: BPMN_POOL,
+    x: 40,
+    y: 40,
+    width: 420,
+    height: 300,
+    attrs: { headerLabel: { text: 'Pool' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+
+  const transaction = graph.addNode({
+    id: 'transaction-in-pool',
+    shape: BPMN_TRANSACTION,
+    x: 180,
+    y: 185,
+    width: 180,
+    height: 90,
+    parent: pool.id,
+    attrs: { label: { text: '事务' } },
+  })
+  pool.embed(transaction)
+
+  emitGraphEvent('node:added', { node: pool })
+  emitGraphEvent('node:added', { node: transaction })
+
+  return {
+    poolId: pool.id,
+    transactionId: transaction.id,
   }
 }
 
@@ -816,6 +869,195 @@ function createExampleLikeMultiLaneScenario(): MultiLaneScenarioIds {
   }
 }
 
+function createExampleLikeLowTopLaneScenario(): MultiLaneScenarioIds {
+  clear()
+
+  const pool = graph.addNode({
+    id: 'pool-example-like-low-top',
+    shape: BPMN_POOL,
+    x: 40,
+    y: 40,
+    width: 1100,
+    height: 460,
+    attrs: { headerLabel: { text: '员工请假审批流程' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+
+  const lane1 = graph.addNode({
+    id: 'lane-example-like-low-top-1',
+    shape: BPMN_LANE,
+    x: 70,
+    y: 40,
+    width: 1070,
+    height: 140,
+    parent: pool.id,
+    attrs: { headerLabel: { text: '申请人' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+
+  const lane2 = graph.addNode({
+    id: 'lane-example-like-low-top-2',
+    shape: BPMN_LANE,
+    x: 70,
+    y: 180,
+    width: 1070,
+    height: 320,
+    parent: pool.id,
+    attrs: { headerLabel: { text: '审批人' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+
+  pool.embed(lane1)
+  pool.embed(lane2)
+  emitGraphEvent('node:added', { node: pool })
+  emitGraphEvent('node:added', { node: lane1 })
+  emitGraphEvent('node:added', { node: lane2 })
+
+  const start = graph.addNode({
+    id: 'start-example-like-low-top',
+    shape: BPMN_START_EVENT,
+    x: 120,
+    y: 100,
+    parent: lane1.id,
+    attrs: { label: { text: '发起' } },
+  })
+  lane1.embed(start)
+  emitGraphEvent('node:added', { node: start })
+
+  const task = graph.addNode({
+    id: 'task-example-like-low-top',
+    shape: BPMN_USER_TASK,
+    x: 210,
+    y: 85,
+    width: 100,
+    height: 60,
+    parent: lane1.id,
+    attrs: { label: { text: '填写\n请假单' } },
+  })
+  lane1.embed(task)
+  emitGraphEvent('node:added', { node: task })
+
+  const serviceTask = graph.addNode({
+    id: 'service-example-like-low-top',
+    shape: BPMN_SERVICE_TASK,
+    x: 820,
+    y: 85,
+    width: 100,
+    height: 60,
+    parent: lane1.id,
+    attrs: { label: { text: '更新\n考勤' } },
+  })
+  lane1.embed(serviceTask)
+  emitGraphEvent('node:added', { node: serviceTask })
+
+  const end = graph.addNode({
+    id: 'end-example-like-low-top',
+    shape: BPMN_END_EVENT,
+    x: 980,
+    y: 100,
+    parent: lane1.id,
+    attrs: { label: { text: '完成' } },
+  })
+  lane1.embed(end)
+  emitGraphEvent('node:added', { node: end })
+
+  const gateway = graph.addNode({
+    id: 'gw-example-like-low-top',
+    shape: BPMN_EXCLUSIVE_GATEWAY,
+    x: 370,
+    y: 270,
+    parent: lane2.id,
+    attrs: { label: { text: '天数?' } },
+  })
+  lane2.embed(gateway)
+  emitGraphEvent('node:added', { node: gateway })
+
+  const task2 = graph.addNode({
+    id: 'task2-example-like-low-top',
+    shape: BPMN_USER_TASK,
+    x: 470,
+    y: 230,
+    width: 100,
+    height: 60,
+    parent: lane2.id,
+    attrs: { label: { text: '主管\n审批' } },
+  })
+  lane2.embed(task2)
+  emitGraphEvent('node:added', { node: task2 })
+
+  const sendTask = graph.addNode({
+    id: 'send-example-like-low-top',
+    shape: BPMN_SEND_TASK,
+    x: 730,
+    y: 255,
+    width: 100,
+    height: 60,
+    parent: lane2.id,
+    attrs: { label: { text: '发送\n通知' } },
+  })
+  lane2.embed(sendTask)
+  emitGraphEvent('node:added', { node: sendTask })
+
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: start, target: task })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: task, target: gateway })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: gateway, target: task2 })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: task2, target: sendTask })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: sendTask, target: serviceTask })
+  graph.addEdge({ shape: BPMN_SEQUENCE_FLOW, source: serviceTask, target: end })
+
+  return {
+    poolId: pool.id,
+    lane1Id: lane1.id,
+    lane2Id: lane2.id,
+    taskId: task.id,
+    startId: start.id,
+    endId: end.id,
+    gatewayId: gateway.id,
+    task2Id: task2.id,
+    sendTaskId: sendTask.id,
+    serviceTaskId: serviceTask.id,
+  }
+}
+
+function createExampleLikeAddedLowTopLaneScenario(): MultiLaneScenarioIds & AddedLaneOnlyScenarioIds {
+  const scenario = createExampleLikeLowTopLaneScenario()
+  const added = addLaneToPoolScenario(scenario.poolId)
+
+  if (!added) {
+    throw new Error('创建低首 Lane 三泳道场景失败')
+  }
+
+  const pool = graph.getCellById(scenario.poolId)
+  const lane1 = graph.getCellById(scenario.lane1Id)
+  const lane2 = graph.getCellById(scenario.lane2Id)
+  const lane3 = graph.getCellById(added.laneId)
+
+  if (!pool?.isNode?.() || !lane1?.isNode?.() || !lane2?.isNode?.() || !lane3?.isNode?.()) {
+    throw new Error('创建低首 Lane 三泳道场景时未找到必要节点')
+  }
+
+  if (!removeNode(added.addedTaskId)) {
+    throw new Error('创建低首 Lane 三泳道场景时移除默认新增任务失败')
+  }
+
+  ;(pool as Node).setPosition({ x: 40, y: 40 })
+  ;(pool as Node).setSize({ width: 1100, height: 585 })
+
+  ;(lane1 as Node).setPosition({ x: 70, y: 40 })
+  ;(lane1 as Node).setSize({ width: 1070, height: 140 })
+
+  ;(lane2 as Node).setPosition({ x: 70, y: 180 })
+  ;(lane2 as Node).setSize({ width: 1070, height: 260 })
+
+  ;(lane3 as Node).setPosition({ x: 70, y: 440 })
+  ;(lane3 as Node).setSize({ width: 1070, height: 185 })
+
+  return {
+    ...scenario,
+    laneId: added.laneId,
+  }
+}
+
 function addLaneToPoolScenario(poolId: string): AddedLaneScenarioIds | null {
   const cell = graph.getCellById(poolId)
   if (!cell?.isNode?.()) return null
@@ -873,7 +1115,7 @@ function removeNode(id: string): boolean {
     return false
   }
 
-  cell.remove()
+  graph.removeCell(cell)
   return !graph.getCellById(id)
 }
 
@@ -921,12 +1163,15 @@ window.__x6PluginBrowserHarness = {
   setViewportTransform,
   createStandaloneTaskScenario,
   createTransactionWrapScenario,
+  createPoolLaneTransactionScenario,
   addFirstPoolScenario,
   createPoolLaneTaskScenario,
   createPoolLaneTaskBoundaryScenario,
   createTwoPoolMessageScenario,
   createMultiLaneScenario,
   createExampleLikeMultiLaneScenario,
+  createExampleLikeLowTopLaneScenario,
+  createExampleLikeAddedLowTopLaneScenario,
   addLaneToPoolScenario,
   removeNode,
   selectCell,
