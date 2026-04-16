@@ -333,10 +333,10 @@ const poolCornerCases: Array<HandleResizeCase<MultiLaneScenarioIds>> = HANDLE_CA
   }))
 
 const laneCornerCases: Array<HandleResizeCase<MultiLaneScenarioIds>> = [
-  { title: 'Lane-top-left-拖拽应同时收敛-Pool-左上边界', position: 'top-left', delta: { x: -60, y: -40 }, targetId: (scenario) => scenario.lane1Id, selectOffset: { x: 140, y: 80 } },
-  { title: 'Lane-top-right-拖拽应同时收敛-Pool-上边与右边', position: 'top-right', delta: { x: 60, y: -40 }, targetId: (scenario) => scenario.lane1Id, selectOffset: { x: 140, y: 80 } },
-  { title: 'Lane-bottom-left-拖拽应同时收敛-Pool-左边与底边', position: 'bottom-left', delta: { x: -60, y: 40 }, targetId: (scenario) => scenario.lane2Id, selectOffset: { x: 140, y: 80 } },
-  { title: 'Lane-bottom-right-拖拽应同时收敛-Pool-右下边界', position: 'bottom-right', delta: { x: 60, y: 40 }, targetId: (scenario) => scenario.lane2Id, selectOffset: { x: 140, y: 80 } },
+  { title: 'Lane-top-left-拖拽应同时收敛-Pool-左上边界', position: 'top-left', delta: { x: -60, y: -40 }, targetId: (scenario) => scenario.lane1Id, selectOffset: { x: 250, y: 80 } },
+  { title: 'Lane-top-right-拖拽应同时收敛-Pool-上边与右边', position: 'top-right', delta: { x: 260, y: -160 }, targetId: (scenario) => scenario.lane1Id, selectOffset: { x: 250, y: 80 } },
+  { title: 'Lane-bottom-left-拖拽应同时收敛-Pool-左边与底边', position: 'bottom-left', delta: { x: -60, y: 40 }, targetId: (scenario) => scenario.lane2Id, selectOffset: { x: 250, y: 80 } },
+  { title: 'Lane-bottom-right-拖拽应同时收敛-Pool-右下边界', position: 'bottom-right', delta: { x: 60, y: 40 }, targetId: (scenario) => scenario.lane2Id, selectOffset: { x: 250, y: 80 } },
 ]
 
 const addedLaneHandleCases: Array<HandleResizeCase<AddedLaneMatrixScenario>> = HANDLE_CASES.map((handle) => ({

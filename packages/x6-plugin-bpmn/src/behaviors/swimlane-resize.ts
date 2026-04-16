@@ -39,8 +39,16 @@ interface ResizePreviewState {
   originalRect: Rect
   previewRect: Rect
   childLaneRects: Map<Node, Rect>
+  descendantNodeRects: Map<Node, Rect>
+  poolPreviewConstraintSnapshot: PoolPreviewConstraintSnapshot | null
   previewElement: HTMLDivElement | null
   originalResize: ((width: number, height: number, options?: object) => unknown) | undefined
+}
+
+interface PoolPreviewConstraintSnapshot {
+  poolMin: { width: number; height: number }
+  poolContent: Rect | null
+  contentInsetLeft: number
 }
 
 export interface SwimlaneResizeOptions {
@@ -49,6 +57,21 @@ export interface SwimlaneResizeOptions {
 }
 
 const RESIZE_AXIS_CHANGE_EPSILON = 8
+
+/**
+ * 选择下一个可提交的 preview 矩形。
+ *
+ * resize 过程中如果只发生了平移而没有尺寸变化，说明这是异常噪声，
+ * 不应覆盖当前已经计算出的合法 ghost。
+ */
+function mergePreviewRect(
+  currentPreviewRect: Rect,
+  nextPreviewRect: Rect,
+): Rect {
+  return isTranslationOnlyPreviewUpdate(currentPreviewRect, nextPreviewRect)
+    ? currentPreviewRect
+    : nextPreviewRect
+}
 
 /**
  * 将 Lane 的 preview 矩形限制在合法分隔线约束内。
@@ -138,6 +161,8 @@ export function setupSwimlaneResize(
       originalRect: nodeRect(node),
       previewRect: nodeRect(node),
       childLaneRects: captureChildLaneRects(node),
+      descendantNodeRects: captureDescendantNodeRects(node),
+      poolPreviewConstraintSnapshot: capturePoolPreviewConstraintSnapshot(node),
       previewElement: null,
       originalResize: typeof node.resize === 'function' ? node.resize.bind(node) : undefined,
     }
@@ -161,6 +186,8 @@ export function setupSwimlaneResize(
       originalRect,
       previewRect: originalRect,
       childLaneRects: captureChildLaneRects(node),
+      descendantNodeRects: captureDescendantNodeRects(node),
+      poolPreviewConstraintSnapshot: capturePoolPreviewConstraintSnapshot(node),
       previewElement: null,
       originalResize: typeof node.resize === 'function' ? node.resize.bind(node) : undefined,
     }
@@ -190,15 +217,24 @@ export function setupSwimlaneResize(
     }
 
     const state = ensurePreviewState(node, direction)
-    state.originalRect = nodeRect(node)
-    state.previewRect = nodeRect(node)
+    state.originalRect = captureStablePreviewOriginalRect(node)
+    state.previewRect = state.originalRect
     state.childLaneRects = captureChildLaneRects(node)
+    state.descendantNodeRects = captureDescendantNodeRects(node)
+    state.poolPreviewConstraintSnapshot = capturePoolPreviewConstraintSnapshot(node)
     state.previewElement = null
     state.originalResize = typeof node.resize === 'function' ? node.resize.bind(node) : undefined
 
     ;(node as any).resize = (nextWidth: number, nextHeight: number, resizeOptions?: ResizeEventOptions) => {
       const requestedRect = buildResizeRect(state.originalRect, nextWidth, nextHeight, state.direction)
-      state.previewRect = clampPreviewRect(node, requestedRect, state.direction, state.originalRect)
+      const nextPreviewRect = clampPreviewRect(
+        node,
+        requestedRect,
+        state.direction,
+        state.originalRect,
+        state.poolPreviewConstraintSnapshot,
+      )
+      state.previewRect = mergePreviewRect(state.previewRect, nextPreviewRect)
       state.previewElement = renderPreviewElement(graph, node.id, state.previewRect, state.previewElement)
       return node
     }
@@ -231,15 +267,14 @@ export function setupSwimlaneResize(
     if (eventOptions?.ui && state) {
       node.setPosition(originalRect.x, originalRect.y, { silent: true, bpmnPreview: true })
       node.setSize(originalRect.width, originalRect.height, { silent: true, bpmnPreview: true })
-      if (isPoolShape(state.node.shape)) {
-        restoreChildLaneRects(state.childLaneRects)
-      }
+      restoreDescendantNodeRects(state.descendantNodeRects)
       return
     }
 
-    if (state && isPoolShape(state.node.shape)) {
-      restoreChildLaneRects(state.childLaneRects)
+    if (state) {
+      restoreDescendantNodeRects(state.descendantNodeRects)
     }
+
     clearPreviewState(node.id)
 
     commitResize(graph, node, previewRect, direction, originalRect)
@@ -256,13 +291,18 @@ export function setupSwimlaneResize(
       ? ensurePreviewStateFromRect(node, direction, initialOriginalRect)
       : ensurePreviewState(node, direction)
     const requestedRect = buildRequestedRect(state, nodeRect(node))
-    state.previewRect = clampPreviewRect(node, requestedRect, state.direction, state.originalRect)
+    const nextPreviewRect = clampPreviewRect(
+      node,
+      requestedRect,
+      state.direction,
+      state.originalRect,
+      state.poolPreviewConstraintSnapshot,
+    )
+    state.previewRect = mergePreviewRect(state.previewRect, nextPreviewRect)
     state.previewElement = renderPreviewElement(graph, node.id, state.previewRect, state.previewElement)
     node.setPosition(state.originalRect.x, state.originalRect.y, { silent: true, bpmnPreview: true })
     node.setSize(state.originalRect.width, state.originalRect.height, { silent: true, bpmnPreview: true })
-    if (isPoolShape(node.shape)) {
-      restoreChildLaneRects(state.childLaneRects)
-    }
+    restoreDescendantNodeRects(state.descendantNodeRects)
   }
 
   const isStaleLivePositionUpdate = (
@@ -308,6 +348,63 @@ export function setupSwimlaneResize(
     return false
   }
 
+  const isStaleLiveSizeUpdate = (
+    state: ResizePreviewState,
+    liveRect: Rect,
+  ) => {
+    const originalTrbl = asTRBL(state.originalRect)
+    const previewTrbl = asTRBL(state.previewRect)
+    const liveTrbl = asTRBL(liveRect)
+
+    if (
+      state.direction.includes('s')
+      && Math.abs(liveTrbl.top - originalTrbl.top) > RESIZE_AXIS_CHANGE_EPSILON
+    ) {
+      return true
+    }
+
+    if (
+      state.direction.includes('e')
+      && Math.abs(liveTrbl.left - originalTrbl.left) > RESIZE_AXIS_CHANGE_EPSILON
+    ) {
+      return true
+    }
+
+    if (
+      state.direction.includes('n')
+      && previewTrbl.top > originalTrbl.top + RESIZE_AXIS_CHANGE_EPSILON
+      && liveTrbl.top < originalTrbl.top - RESIZE_AXIS_CHANGE_EPSILON
+    ) {
+      return true
+    }
+
+    if (
+      state.direction.includes('s')
+      && previewTrbl.bottom < originalTrbl.bottom - RESIZE_AXIS_CHANGE_EPSILON
+      && liveTrbl.bottom > originalTrbl.bottom + RESIZE_AXIS_CHANGE_EPSILON
+    ) {
+      return true
+    }
+
+    if (
+      state.direction.includes('w')
+      && previewTrbl.left > originalTrbl.left + RESIZE_AXIS_CHANGE_EPSILON
+      && liveTrbl.left < originalTrbl.left - RESIZE_AXIS_CHANGE_EPSILON
+    ) {
+      return true
+    }
+
+    if (
+      state.direction.includes('e')
+      && previewTrbl.right < originalTrbl.right - RESIZE_AXIS_CHANGE_EPSILON
+      && liveTrbl.right > originalTrbl.right + RESIZE_AXIS_CHANGE_EPSILON
+    ) {
+      return true
+    }
+
+    return false
+  }
+
   const liveSizeHandler = ({
     node,
     previous,
@@ -327,14 +424,26 @@ export function setupSwimlaneResize(
     }
 
     const liveRect = nodeRect(node)
+    const existingState = previewStates.get(node.id)
     const initialOriginalRect = previewStates.has(node.id)
       ? null
-      : {
-        x: liveRect.x,
-        y: liveRect.y,
-        width: previous?.width ?? liveRect.width,
-          height: previous?.height ?? liveRect.height,
+      : isLaneShape(node.shape)
+        ? captureStablePreviewOriginalRect(node)
+        : buildOriginalRectFromLiveSizeChange(liveRect, previous, direction)
+
+    if (existingState) {
+      existingState.originalRect = reconcileOriginalRectWithLiveSizeChange(existingState.originalRect, previous)
+    }
+
+    if (existingState && isStaleLiveSizeUpdate(existingState, liveRect)) {
+      node.setPosition(existingState.originalRect.x, existingState.originalRect.y, { silent: true, bpmnPreview: true })
+      node.setSize(existingState.originalRect.width, existingState.originalRect.height, { silent: true, bpmnPreview: true })
+      if (isPoolShape(node.shape)) {
+        restoreChildLaneRects(existingState.childLaneRects)
       }
+      restoreDescendantNodeRects(existingState.descendantNodeRects)
+      return
+    }
 
     void eventOptions
     updateLivePreviewState(node, direction, initialOriginalRect, (state, liveRect) => ({
@@ -363,16 +472,12 @@ export function setupSwimlaneResize(
     }
 
     const liveRect = nodeRect(node)
-    const initialOriginalRect = previewStates.has(node.id)
-      ? null
-      : {
-        x: previous?.x ?? liveRect.x,
-        y: previous?.y ?? liveRect.y,
-        width: liveRect.width,
-        height: liveRect.height,
-      }
-
     const existingState = previewStates.get(node.id)
+
+    if (existingState) {
+      existingState.originalRect = reconcileOriginalRectWithLivePositionChange(existingState.originalRect, previous)
+    }
+
     if (existingState && isStaleLivePositionUpdate(existingState, liveRect)) {
       node.setPosition(existingState.originalRect.x, existingState.originalRect.y, { silent: true, bpmnPreview: true })
       node.setSize(existingState.originalRect.width, existingState.originalRect.height, { silent: true, bpmnPreview: true })
@@ -382,9 +487,13 @@ export function setupSwimlaneResize(
       return
     }
 
+    if (!existingState) {
+      return
+    }
+
     void eventOptions
-    updateLivePreviewState(node, direction, initialOriginalRect, (state, nextLiveRect) => buildResizeRectFromLivePosition(
-      state.originalRect,
+    updateLivePreviewState(node, direction, null, (state, nextLiveRect) => buildResizeRectFromLivePosition(
+      state.previewRect,
       nextLiveRect,
       state.direction,
     ))
@@ -392,9 +501,7 @@ export function setupSwimlaneResize(
 
   const commitLivePreviewStates = () => {
     for (const state of Array.from(previewStates.values())) {
-      if (isPoolShape(state.node.shape)) {
-        restoreChildLaneRects(state.childLaneRects)
-      }
+      restoreDescendantNodeRects(state.descendantNodeRects)
       clearPreviewState(state.node.id)
       commitResize(graph, state.node, state.previewRect, state.direction, state.originalRect)
       onSwimlaneResized?.(state.node, state.node)
@@ -537,13 +644,14 @@ function commitResize(
   try {
     if (pool && nextPoolRect) {
       applyBounds(pool, nextPoolRect)
+      syncPoolLaneFrame(pool)
     }
     applyBounds(node, clampedPreviewRect)
     for (const adjustment of siblingAdjustments) {
       applyBounds(adjustment.node, adjustment.newBounds)
     }
     if (pool) {
-      compactLaneLayout(graph, pool)
+      restackCommittedPoolLanes(pool)
     }
   } finally {
     graph.stopBatch('bpmn-lane-resize-commit')
@@ -659,18 +767,63 @@ function syncPoolLanes(pool: Node, previousRect: Rect, nextRect: Rect): void {
   )
 }
 
+function syncPoolLaneFrame(pool: Node): void {
+  const lanes = safeGetChildren(pool)
+    .filter((child): child is Node => child.isNode())
+    .filter((child) => isLaneShape(child.shape))
+
+  if (lanes.length === 0) {
+    return
+  }
+
+  const poolRect = nodeRect(pool)
+  const contentX = poolRect.x + LANE_INDENTATION
+  const contentWidth = Math.max(0, poolRect.width - LANE_INDENTATION)
+
+  for (const lane of lanes) {
+    lane.setPosition(contentX, lane.getPosition().y)
+    lane.setSize(contentWidth, lane.getSize().height)
+  }
+}
+
+function restackCommittedPoolLanes(pool: Node): void {
+  const lanes = safeGetChildren(pool)
+    .filter((child): child is Node => child.isNode())
+    .filter((child) => isLaneShape(child.shape))
+    .sort((left, right) => left.getPosition().y - right.getPosition().y)
+
+  if (lanes.length === 0) {
+    return
+  }
+
+  const poolRect = nodeRect(pool)
+  const contentX = poolRect.x + LANE_INDENTATION
+  const contentWidth = Math.max(0, poolRect.width - LANE_INDENTATION)
+  let cursorY = poolRect.y
+
+  // Lane resize commit should only move the involved divider/boundary.
+  // Re-stack positions and widths, but keep committed heights unchanged.
+  for (const lane of lanes) {
+    const size = lane.getSize()
+    lane.setPosition(contentX, cursorY)
+    lane.setSize(contentWidth, size.height)
+    cursorY += size.height
+  }
+}
+
 function clampPreviewRect(
   node: Node,
   previewRect: Rect,
   direction: ResizeDirection,
   currentRect: Rect = nodeRect(node),
+  poolPreviewConstraintSnapshot: PoolPreviewConstraintSnapshot | null = null,
 ): Rect {
   if (isLaneShape(node.shape)) {
     return clampLanePreviewRect(node, previewRect, direction, currentRect)
   }
 
   if (isPoolShape(node.shape)) {
-    return clampPoolPreviewRect(node, previewRect, direction, currentRect)
+    return clampPoolPreviewRect(node, previewRect, direction, currentRect, poolPreviewConstraintSnapshot)
   }
 
   return previewRect
@@ -681,11 +834,13 @@ function clampPoolPreviewRect(
   previewRect: Rect,
   direction: ResizeDirection,
   currentRect: Rect = nodeRect(pool),
+  poolPreviewConstraintSnapshot: PoolPreviewConstraintSnapshot | null = null,
 ): Rect {
   const currentTrbl = asTRBL(currentRect)
   const previewTrbl = asTRBL(previewRect)
-  const poolMin = computePoolMinSize(pool)
-  const poolContent = computePoolContentRect(pool)
+  const poolMin = poolPreviewConstraintSnapshot?.poolMin ?? computePoolMinSize(pool)
+  const poolContent = poolPreviewConstraintSnapshot?.poolContent ?? computePoolContentRect(pool)
+  const contentInsetLeft = poolPreviewConstraintSnapshot?.contentInsetLeft ?? computePoolContentInsetLeft(pool, currentRect)
 
   if (direction.includes('n')) {
     previewTrbl.top = Math.min(previewTrbl.top, currentTrbl.bottom - poolMin.height)
@@ -698,6 +853,9 @@ function clampPoolPreviewRect(
   }
   if (direction.includes('w')) {
     previewTrbl.left = Math.min(previewTrbl.left, currentTrbl.right - poolMin.width)
+    if (poolContent) {
+      previewTrbl.left = Math.min(previewTrbl.left, poolContent.x - contentInsetLeft)
+    }
   }
   if (direction.includes('e')) {
     previewTrbl.right = Math.max(previewTrbl.right, currentTrbl.left + poolMin.width)
@@ -736,33 +894,98 @@ function buildResizeRect(
 }
 
 function buildResizeRectFromLivePosition(
-  originalRect: Rect,
+  baseRect: Rect,
   liveRect: Rect,
   direction: ResizeDirection,
 ): Rect {
-  const originalTrbl = asTRBL(originalRect)
+  const baseTrbl = asTRBL(baseRect)
   const liveTrbl = asTRBL(liveRect)
   const nextTrbl: TRBL = {
-    top: originalTrbl.top,
-    right: originalTrbl.right,
-    bottom: originalTrbl.bottom,
-    left: originalTrbl.left,
+    top: baseTrbl.top,
+    right: baseTrbl.right,
+    bottom: baseTrbl.bottom,
+    left: baseTrbl.left,
   }
 
+  // position 事件只可信会直接随坐标变化的边：top / left。
+  // 右边和下边的真实变化来自 size 事件；若在这里用 liveRect.right / bottom
+  // 回写，会把 corner resize 中已经累计出的 east / south 尺寸增长冲掉。
   if (direction.includes('n')) {
     nextTrbl.top = liveTrbl.top
-  }
-  if (direction.includes('s')) {
-    nextTrbl.bottom = liveTrbl.bottom
   }
   if (direction.includes('w')) {
     nextTrbl.left = liveTrbl.left
   }
-  if (direction.includes('e')) {
-    nextTrbl.right = liveTrbl.right
-  }
 
   return trblToRect(nextTrbl)
+}
+
+function buildOriginalRectFromLiveSizeChange(
+  liveRect: Rect,
+  previous: { width?: number; height?: number } | undefined,
+  direction: ResizeDirection,
+): Rect {
+  const originalRect: Rect = {
+    x: liveRect.x,
+    y: liveRect.y,
+    width: previous?.width ?? liveRect.width,
+    height: previous?.height ?? liveRect.height,
+  }
+
+  if (direction.includes('n') && previous?.height !== undefined) {
+    originalRect.y = liveRect.y + liveRect.height - previous.height
+  }
+
+  if (direction.includes('w') && previous?.width !== undefined) {
+    originalRect.x = liveRect.x + liveRect.width - previous.width
+  }
+
+  return originalRect
+}
+
+function buildOriginalRectFromLivePositionChange(
+  liveRect: Rect,
+  previous: { x?: number; y?: number } | undefined,
+  direction: ResizeDirection,
+): Rect {
+  const originalRect: Rect = {
+    x: previous?.x ?? liveRect.x,
+    y: previous?.y ?? liveRect.y,
+    width: liveRect.width,
+    height: liveRect.height,
+  }
+
+  if (direction.includes('n') && previous?.y !== undefined) {
+    originalRect.height = liveRect.y + liveRect.height - previous.y
+  }
+
+  if (direction.includes('w') && previous?.x !== undefined) {
+    originalRect.width = liveRect.x + liveRect.width - previous.x
+  }
+
+  return originalRect
+}
+
+function reconcileOriginalRectWithLiveSizeChange(
+  originalRect: Rect,
+  previous: { width?: number; height?: number } | undefined,
+): Rect {
+  return {
+    ...originalRect,
+    width: previous?.width ?? originalRect.width,
+    height: previous?.height ?? originalRect.height,
+  }
+}
+
+function reconcileOriginalRectWithLivePositionChange(
+  originalRect: Rect,
+  previous: { x?: number; y?: number } | undefined,
+): Rect {
+  return {
+    ...originalRect,
+    x: previous?.x ?? originalRect.x,
+    y: previous?.y ?? originalRect.y,
+  }
 }
 
 function renderPreviewElement(
@@ -903,6 +1126,18 @@ function hasVerticalResizeChange(originalRect: Rect, previewRect: Rect): boolean
     || Math.abs(previewRect.height - originalRect.height) > RESIZE_AXIS_CHANGE_EPSILON
 }
 
+function isTranslationOnlyPreviewUpdate(
+  currentPreviewRect: Rect,
+  nextPreviewRect: Rect,
+): boolean {
+  const movedX = Math.abs(nextPreviewRect.x - currentPreviewRect.x) > RESIZE_AXIS_CHANGE_EPSILON
+  const movedY = Math.abs(nextPreviewRect.y - currentPreviewRect.y) > RESIZE_AXIS_CHANGE_EPSILON
+  const resizedWidth = Math.abs(nextPreviewRect.width - currentPreviewRect.width) > RESIZE_AXIS_CHANGE_EPSILON
+  const resizedHeight = Math.abs(nextPreviewRect.height - currentPreviewRect.height) > RESIZE_AXIS_CHANGE_EPSILON
+
+  return (movedX || movedY) && !resizedWidth && !resizedHeight
+}
+
 function pickHorizontalDirection(direction: ResizeDirection): 'e' | 'w' | null {
   if (direction.includes('w')) {
     return 'w'
@@ -966,10 +1201,7 @@ function isBoundaryLane(lane: Node, edge: 'top' | 'bottom'): boolean {
     return false
   }
 
-  const siblingLanes = safeGetChildren(parent as Node)
-    .filter((child): child is Node => child.isNode())
-    .filter((child) => isLaneShape(child.shape))
-    .sort((left, right) => left.getPosition().y - right.getPosition().y)
+  const siblingLanes = getLaneSiblingsSorted(parent as Node)
 
   if (siblingLanes.length === 0) {
     return false
@@ -992,10 +1224,7 @@ function computeSiblingResizeAdjustments(
     return computeLanesResize(shape, newBounds)
   }
 
-  const siblings = safeGetChildren(parent as Node)
-    .filter((child): child is Node => child.isNode())
-    .filter((child) => isLaneShape(child.shape))
-    .sort((left, right) => left.getPosition().y - right.getPosition().y)
+  const siblings = getLaneSiblingsSorted(parent as Node)
   const currentIndex = siblings.findIndex((lane) => lane.id === shape.id)
   if (currentIndex < 0) {
     return []
@@ -1044,16 +1273,57 @@ function sameRect(left: Rect, right: Rect): boolean {
     && left.height === right.height
 }
 
+function getLaneSiblingsSorted(container: Node): Node[] {
+  return safeGetChildren(container)
+    .filter((child): child is Node => child.isNode())
+    .filter((child) => isLaneShape(child.shape))
+    .sort((left, right) => left.getPosition().y - right.getPosition().y)
+}
+
+function captureStablePreviewOriginalRect(node: Node): Rect {
+  const rect = nodeRect(node)
+  const parent = node.getParent()
+  if (!parent?.isNode() || !isLaneShape(node.shape)) {
+    return rect
+  }
+
+  const siblings = getLaneSiblingsSorted(parent as Node)
+  const currentIndex = siblings.findIndex((lane) => lane.id === node.id)
+  if (currentIndex < 0) {
+    return rect
+  }
+
+  const parentRect = nodeRect(parent as Node)
+  const stableTop = currentIndex > 0
+    ? nodeRect(siblings[currentIndex - 1]).y + nodeRect(siblings[currentIndex - 1]).height
+    : parentRect.y
+  const stableBottom = currentIndex < siblings.length - 1
+    ? nodeRect(siblings[currentIndex + 1]).y
+    : parentRect.y + parentRect.height
+
+  return {
+    x: rect.x,
+    y: stableTop,
+    width: rect.width,
+    height: stableBottom - stableTop,
+  }
+}
+
 function normalizeResizeRect(
   originalRect: Rect,
   previewRect: Rect,
   direction: ResizeDirection,
 ): Rect {
+  const movesTopEdge = direction.includes('n')
+  const movesBottomEdge = direction.includes('s')
+  const movesLeftEdge = direction.includes('w')
+  const movesRightEdge = direction.includes('e')
+
   return {
-    x: direction.includes('e') || direction.includes('w') ? previewRect.x : originalRect.x,
-    y: direction.includes('n') || direction.includes('s') ? previewRect.y : originalRect.y,
-    width: direction.includes('e') || direction.includes('w') ? previewRect.width : originalRect.width,
-    height: direction.includes('n') || direction.includes('s') ? previewRect.height : originalRect.height,
+    x: movesLeftEdge ? previewRect.x : originalRect.x,
+    y: movesTopEdge ? previewRect.y : originalRect.y,
+    width: movesLeftEdge || movesRightEdge ? previewRect.width : originalRect.width,
+    height: movesTopEdge || movesBottomEdge ? previewRect.height : originalRect.height,
   }
 }
 
@@ -1075,6 +1345,67 @@ function restoreChildLaneRects(childLaneRects: Map<Node, Rect>): void {
     lane.setPosition(rect.x, rect.y, { silent: true, bpmnPreview: true })
     lane.setSize(rect.width, rect.height, { silent: true, bpmnPreview: true })
   }
+}
+
+function captureDescendantNodeRects(node: Node): Map<Node, Rect> {
+  const descendantNodeRects = new Map<Node, Rect>()
+
+  const visit = (current: Node): void => {
+    for (const child of safeGetChildren(current)) {
+      if (!child?.isNode?.()) {
+        continue
+      }
+
+      const childNode = child as Node
+      descendantNodeRects.set(childNode, nodeRect(childNode))
+      visit(childNode)
+    }
+  }
+
+  visit(node)
+
+  return descendantNodeRects
+}
+
+function restoreDescendantNodeRects(descendantNodeRects: Map<Node, Rect>): void {
+  for (const [node, rect] of descendantNodeRects) {
+    node.setPosition(rect.x, rect.y, { silent: true, bpmnPreview: true })
+    node.setSize(rect.width, rect.height, { silent: true, bpmnPreview: true })
+  }
+}
+
+function capturePoolPreviewConstraintSnapshot(node: Node): PoolPreviewConstraintSnapshot | null {
+  if (!isPoolShape(node.shape)) {
+    return null
+  }
+
+  return {
+    poolMin: computePoolMinSize(node),
+    poolContent: computePoolContentRect(node),
+    contentInsetLeft: computePoolContentInsetLeft(node),
+  }
+}
+
+function computePoolContentInsetLeft(pool: Node, poolRect: Rect = nodeRect(pool)): number {
+  const laneChildren = safeGetChildren(pool)
+    .filter((child): child is Node => child.isNode())
+    .filter((child) => isLaneShape(child.shape))
+
+  if (laneChildren.length === 0) {
+    return 0
+  }
+
+  let minInsetLeft = Infinity
+
+  for (const lane of laneChildren) {
+    minInsetLeft = Math.min(minInsetLeft, lane.getPosition().x - poolRect.x)
+  }
+
+  if (!Number.isFinite(minInsetLeft)) {
+    return 0
+  }
+
+  return Math.max(0, minInsetLeft)
 }
 
 function applyBounds(node: Node, rect: Rect): void {
@@ -1108,14 +1439,22 @@ export const __test__ = {
   commitPoolResize,
   stabilizePoolTopByContent,
   syncPoolLanes,
+  syncPoolLaneFrame,
+  restackCommittedPoolLanes,
   clampPoolPreviewRect,
   buildResizeRect,
   buildResizeRectFromLivePosition,
+  buildOriginalRectFromLiveSizeChange,
+  buildOriginalRectFromLivePositionChange,
+  reconcileOriginalRectWithLiveSizeChange,
+  reconcileOriginalRectWithLivePositionChange,
   resolveResizeDirection,
   resolveRawResizeDirection,
   projectPreviewRectToContainer,
   hasHorizontalResizeChange,
   hasVerticalResizeChange,
+  isTranslationOnlyPreviewUpdate,
+  mergePreviewRect,
   pickHorizontalDirection,
   pickVerticalDirection,
   isVerticalLaneResize,
@@ -1123,9 +1462,13 @@ export const __test__ = {
   isBoundaryLane,
   computeSiblingResizeAdjustments,
   sameRect,
+  getLaneSiblingsSorted,
+  captureStablePreviewOriginalRect,
   normalizeResizeRect,
   captureChildLaneRects,
   restoreChildLaneRects,
+  captureDescendantNodeRects,
+  restoreDescendantNodeRects,
   applyBounds,
   findAncestorPool,
   safeGetChildren,
