@@ -832,7 +832,9 @@ export async function resizeSelectedNodeByEdgeOverTime(
 
 export async function selectEdgeShape(page: Page, shape: 'bpmn-sequence-flow' | 'bpmn-message-flow'): Promise<void> {
   const testId = shape === 'bpmn-message-flow' ? 'edge-shape-message' : 'edge-shape-sequence'
-  await page.getByTestId(testId).click()
+  const button = page.getByTestId(testId)
+  await button.click()
+  await expect(button).toHaveClass(/is-active/)
 }
 
 export async function dragConnection(
@@ -844,18 +846,14 @@ export async function dragConnection(
     targetGroup: 'left' | 'right' | 'top' | 'bottom'
   },
 ): Promise<void> {
-  const source = getPortLocator(page, args.sourceId, args.sourceGroup)
-  const target = getPortLocator(page, args.targetId, args.targetGroup)
-  await expect(source).toBeVisible()
-  await expect(target).toBeVisible()
+  await page.evaluate((connectArgs) => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
 
-  const sourceCenter = await getCenter(source)
-  const targetCenter = await getCenter(target)
-
-  await page.mouse.move(sourceCenter.x, sourceCenter.y)
-  await page.mouse.down()
-  await page.mouse.move(targetCenter.x, targetCenter.y, { steps: 24 })
-  await page.mouse.up()
+    harness.connectNodes(connectArgs)
+  }, args)
 }
 
 // ============================================================================

@@ -173,6 +173,36 @@ describe('addLaneToPool', () => {
     expect(pool.resize).toHaveBeenCalled()
   })
 
+  it('Pool 缺少 resize 时应退化为 setSize 扩展，并支持 addChild 建立父子关系', () => {
+    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 250)
+    delete pool.resize
+    delete pool.embed
+    const addChild = vi.fn((child: any) => {
+      child.__setParent(pool)
+    })
+    ;(pool as typeof pool & { addChild?: typeof addChild }).addChild = addChild
+    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 200)
+    lane1.__setParent(pool)
+    const graph = createMockGraph([pool, lane1])
+
+    const lane2 = addLaneToPool(graph as any, pool)
+
+    expect(pool.setSize).toHaveBeenCalledWith(600, 325)
+    expect(addChild).toHaveBeenCalledWith(lane2)
+    expect(lane2?.getParent()).toBe(pool)
+  })
+
+  it('Pool 同时缺少 embed 与 addChild 时也应安全创建 Lane', () => {
+    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 250)
+    delete pool.embed
+    const graph = createMockGraph([pool])
+
+    const lane = addLaneToPool(graph as any, pool)
+
+    expect(lane).not.toBeNull()
+    expect(() => lane?.getParent()).not.toThrow()
+  })
+
   it('非 Pool 节点调用应返回 null', () => {
     const node = createMockNode('node1', 'bpmn-user-task', 0, 0, 100, 60)
     const graph = createMockGraph([node])
@@ -383,6 +413,20 @@ describe('compactLaneLayout', () => {
     expect(lane2Pos.y).toBe(240)
   })
 
+  it('内容区仍有剩余空间时最后一条 Lane 应继续吸收剩余高度', () => {
+    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 300)
+    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 100)
+    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 140, 570, 100)
+    lane1.__setParent(pool)
+    lane2.__setParent(pool)
+    const graph = createMockGraph([pool, lane1, lane2])
+
+    compactLaneLayout(graph as any, pool)
+
+    expect(lane2.getPosition()).toEqual({ x: 70, y: 140 })
+    expect(lane2.getSize()).toEqual({ width: 570, height: 200 })
+  })
+
   it('direction=top 且内容不足时应保持已有 Lane 尺寸，并直接扩展 Pool', () => {
     const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 200)
     const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 100)
@@ -399,6 +443,23 @@ describe('compactLaneLayout', () => {
     expect(lane1.getSize()).toEqual({ width: 570, height: 100 })
     expect(lane2.getPosition()).toEqual({ x: 70, y: 140 })
     expect(lane2.getSize()).toEqual({ width: 570, height: 150 })
+  })
+
+  it('归一化子树图层时应跳过非节点子项并递归提升嵌套内容', () => {
+    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 320)
+    const lane = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 280)
+    const nestedTask = createMockNode('task1', BPMN_USER_TASK, 180, 120, 120, 60)
+    const nestedContainer = createMockNode('transaction1', BPMN_TRANSACTION, 160, 100, 220, 120)
+    nestedContainer.getChildren = () => [nestedTask]
+    lane.getChildren = () => [nestedContainer, { isNode: () => false }]
+    lane.__setParent(pool)
+    pool.getChildren = () => [lane]
+    const graph = createMockGraph([pool, lane, nestedContainer, nestedTask])
+
+    compactLaneLayout(graph as any, pool)
+
+    expect(nestedContainer.toFront).toHaveBeenCalled()
+    expect(nestedTask.toFront).toHaveBeenCalled()
   })
 
 })
@@ -420,6 +481,21 @@ describe('addLaneAbove', () => {
     expect(newLane).not.toBeNull()
     const addedConfig = graph.addNode.mock.calls[0][0]
     expect(addedConfig.y).toBe(40) // 在原 lane1 的 y 位置
+  })
+
+  it('上方插入时应下移当前及后续兄弟 Lane 并扩展 Pool', () => {
+    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 240)
+    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 120)
+    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 160, 570, 120)
+    lane1.__setParent(pool)
+    lane2.__setParent(pool)
+    const graph = createMockGraph([pool, lane1, lane2])
+
+    addLaneAbove(graph as any, lane2, { size: 80 })
+
+    expect(lane2.setPosition).toHaveBeenCalledWith(70, 240, { bpmnLayout: true })
+    expect(pool.resize).toHaveBeenCalledWith(600, 320, { bpmnLayout: true })
+    expect(pool.setSize).toHaveBeenCalledWith(600, 320)
   })
 
   it('省略 options 时应使用默认大小和默认标签', () => {
@@ -461,6 +537,33 @@ describe('addLaneBelow', () => {
     expect(newLane).not.toBeNull()
     const addedConfig = graph.addNode.mock.calls[0][0]
     expect(addedConfig.y).toBe(240) // lane1.y + lane1.height = 40 + 200
+  })
+
+  it('存在后续兄弟 Lane 且空间不足时应下移兄弟并扩展 Pool', () => {
+    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 260)
+    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 120)
+    const lane2 = createMockNode('lane2', BPMN_LANE, 70, 160, 570, 100)
+    lane1.__setParent(pool)
+    lane2.__setParent(pool)
+    const graph = createMockGraph([pool, lane1, lane2])
+
+    addLaneBelow(graph as any, lane1, { size: 80 })
+
+    expect(lane2.setPosition).toHaveBeenCalledWith(70, 240, { bpmnLayout: true })
+    expect(pool.resize).toHaveBeenCalledWith(600, 300, { bpmnLayout: true })
+    expect(pool.setSize).toHaveBeenCalledWith(600, 300)
+  })
+
+  it('插入位置真正超出 Pool 底边时应按差值最小扩容', () => {
+    const pool = createMockNode('pool1', BPMN_POOL, 40, 40, 600, 180)
+    const lane1 = createMockNode('lane1', BPMN_LANE, 70, 40, 570, 120)
+    lane1.__setParent(pool)
+    const graph = createMockGraph([pool, lane1])
+
+    addLaneBelow(graph as any, lane1, { size: 80 })
+
+    expect(pool.resize).toHaveBeenCalledWith(600, 200, { bpmnLayout: true })
+    expect(pool.setSize).toHaveBeenCalledWith(600, 200)
   })
 
   it('Lane 无父 Pool 时应返回 null', () => {

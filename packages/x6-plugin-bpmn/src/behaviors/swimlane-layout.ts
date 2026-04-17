@@ -487,10 +487,12 @@ function applyLaneTopResizeConstraints(
 
   if (
     context.poolTrbl
-    && context.poolMin
     && Math.abs(context.laneTrbl.top - context.poolTrbl.top) <= SAME_EDGE_TOLERANCE
   ) {
-    maxTrbl.top = Math.min(maxTrbl.top, context.poolTrbl.bottom - context.poolMin.height)
+    maxTrbl.top = Math.min(
+      maxTrbl.top,
+      context.poolTrbl.bottom - computePoolVerticalMinHeight(context),
+    )
   }
 
   if (context.poolContent && context.laneIndex === 0) {
@@ -513,15 +515,27 @@ function applyLaneBottomResizeConstraints(
 
   if (
     context.poolTrbl
-    && context.poolMin
     && Math.abs(context.laneTrbl.bottom - context.poolTrbl.bottom) <= SAME_EDGE_TOLERANCE
   ) {
-    minTrbl.bottom = Math.max(minTrbl.bottom, context.poolTrbl.top + context.poolMin.height)
+    minTrbl.bottom = Math.max(
+      minTrbl.bottom,
+      context.poolTrbl.top + computePoolVerticalMinHeight(context),
+    )
   }
 
   if (context.poolContent && context.laneIndex === context.siblingLanes.length - 1) {
     minTrbl.bottom = Math.max(minTrbl.bottom, context.poolContent.y + context.poolContent.height)
   }
+}
+
+function computePoolVerticalMinHeight(context: LaneResizeConstraintContext): number {
+  const laneMinHeight = context.laneResizeMinHeight
+  if (!context.poolContent) {
+    return laneMinHeight
+  }
+
+  const contentBottom = context.poolContent.y + context.poolContent.height
+  return Math.max(laneMinHeight, contentBottom - context.laneTrbl.top)
 }
 
 function applyLaneLeftResizeConstraints(
@@ -544,7 +558,7 @@ function applyLaneRightResizeConstraints(
   }
   if (context.poolContent) {
     minTrbl.right = Math.max(
-      minTrbl.right ?? context.poolContent.x + context.poolContent.width,
+      minTrbl.right as number,
       context.poolContent.x + context.poolContent.width,
     )
   }
@@ -717,7 +731,6 @@ export function collectFirstPoolWrapTargets(graph: Graph, pool: Node): Node[] {
   const targets: Node[] = []
   for (const node of allNodes) {
     if (node === pool) continue
-    if (isPoolShape(node.shape)) continue
 
     // 检查是否为顶层节点（无父）
     let parent: any = null

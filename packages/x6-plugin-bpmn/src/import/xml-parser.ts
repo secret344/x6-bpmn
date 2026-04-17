@@ -1075,3 +1075,8 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
 
   return { nodes, edges, metadata }
 }
+
+export const __test__ = {
+  mergeNodeBpmndiData,
+  mergeEdgeBpmndiData,
+}

@@ -89,6 +89,224 @@ describe('setupPoolContainment', () => {
     destroyBehaviorTestGraph(graph)
   })
 
+  it('Pool 移动与另一 Pool 重叠时应被钳回到合法位置', () => {
+    const handlers: Record<string, (args: { node: Node; options?: object }) => void> = {}
+    const leftPool = {
+      id: 'pool-left',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 260, y: 40 }),
+      getSize: () => ({ width: 200, height: 160 }),
+      setPosition: vi.fn(),
+    } as unknown as Node
+    const rightPool = {
+      id: 'pool-right',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 420, y: 40 }),
+      getSize: () => ({ width: 200, height: 160 }),
+    } as unknown as Node
+    const graph = {
+      options: {},
+      on: vi.fn((event: string, handler: (args: { node: Node; options?: object }) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getNodes: vi.fn(() => [leftPool, rightPool]),
+    } as unknown as Graph
+
+    const dispose = setupPoolContainment(graph, { constrainToContainer: true })
+
+    handlers['node:moved']({ node: leftPool })
+
+    expect((leftPool.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(219, 40, {
+      bpmnContainmentSync: true,
+      silent: true,
+    })
+
+    dispose()
+  })
+
+  it('带同步标记或泳道节点的 move/resize 事件应被忽略', () => {
+    const handlers: Record<string, (args: { node: Node; options?: object }) => void> = {}
+    const graph = {
+      options: {},
+      on: vi.fn((event: string, handler: (args: { node: Node; options?: object }) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getNodes: vi.fn(() => []),
+    } as unknown as Graph
+    const onViolation = vi.fn()
+    const swimlane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      getParent: vi.fn(() => null),
+      isNode: vi.fn(() => true),
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      getParent: vi.fn(() => null),
+      isNode: vi.fn(() => true),
+      getPosition: vi.fn(() => ({ x: 100, y: 100 })),
+      getSize: vi.fn(() => ({ width: 100, height: 60 })),
+      setPosition: vi.fn(),
+      setSize: vi.fn(),
+    } as unknown as Node
+
+    const dispose = setupPoolContainment(graph, { onViolation })
+
+    handlers['node:moved']({ node: task, options: { bpmnContainmentSync: true } })
+    handlers['node:moved']({ node: swimlane, options: {} })
+    handlers['node:resized']({ node: task, options: { bpmnContainmentSync: true } })
+    handlers['node:resized']({ node: swimlane, options: {} })
+
+    expect(onViolation).not.toHaveBeenCalled()
+    expect((task as unknown as { setPosition: ReturnType<typeof vi.fn> }).setPosition).not.toHaveBeenCalled()
+    expect((task as unknown as { setSize: ReturnType<typeof vi.fn> }).setSize).not.toHaveBeenCalled()
+
+    dispose()
+  })
+
+  it('新增普通节点时应在 constrainToContainer 打开时立即执行位置与尺寸钳制', () => {
+    const handlers: Record<string, (args: { node: Node; options?: object }) => void> = {}
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 400, height: 240 }),
+    } as unknown as Node
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => pool,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 370, height: 240 }),
+      embed: vi.fn(),
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => lane,
+      getPosition: () => ({ x: 460, y: 260 }),
+      getSize: () => ({ width: 120, height: 80 }),
+      setPosition: vi.fn(),
+      setSize: vi.fn(),
+    } as unknown as Node
+    const graph = {
+      options: {},
+      on: vi.fn((event: string, handler: (args: { node: Node; options?: object }) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getNodes: vi.fn(() => [pool, lane, task]),
+    } as unknown as Graph
+
+    const dispose = setupPoolContainment(graph, { constrainToContainer: true })
+
+    handlers['node:added']({ node: task })
+
+    expect((task.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
+    expect((task.setSize as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
+
+    dispose()
+  })
+
+  it('开启 constrainToContainer 时 resize 应钳制普通节点，删除非 Lane 应忽略', () => {
+    const handlers: Record<string, (args: { node: Node; options?: object }) => void> = {}
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 400, height: 240 }),
+    } as unknown as Node
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => pool,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 370, height: 240 }),
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => lane,
+      getPosition: () => ({ x: 460, y: 260 }),
+      getSize: () => ({ width: 120, height: 80 }),
+      setPosition: vi.fn(),
+      setSize: vi.fn(),
+    } as unknown as Node
+    const graph = {
+      options: {},
+      on: vi.fn((event: string, handler: (args: { node: Node; options?: object }) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getNodes: vi.fn(() => [pool, lane, task]),
+    } as unknown as Graph
+
+    const dispose = setupPoolContainment(graph, { constrainToContainer: true })
+
+    handlers['node:resized']({ node: task })
+    handlers['node:removed']({ node: task })
+
+    expect((task.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
+    expect((task.setSize as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
+
+    dispose()
+  })
+
+  it('关闭 move/resize clamp 或缺少祖先 Pool 时应跳过对应分支', () => {
+    const handlers: Record<string, (args: { node: Node; options?: object }) => void> = {}
+    const detachedLane = {
+      id: 'lane-detached',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 200, height: 120 }),
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 120, y: 100 }),
+      getSize: () => ({ width: 100, height: 60 }),
+      setPosition: vi.fn(),
+      setSize: vi.fn(),
+    } as unknown as Node
+    const graph = {
+      options: {},
+      on: vi.fn((event: string, handler: (args: { node: Node; options?: object }) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getNodes: vi.fn(() => [task, detachedLane]),
+    } as unknown as Graph
+
+    const dispose = setupPoolContainment(graph, { clampOnMove: false, clampOnResize: false, constrainToContainer: false })
+
+    handlers['node:added']({ node: detachedLane })
+    handlers['node:added']({ node: task })
+
+    expect((task.setPosition as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect((task.setSize as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+
+    dispose()
+  })
+
   it('普通流程节点移入 Pool 空白区后应在 Pool 与 Lane 之间切换父链', () => {
     const graph = createBehaviorTestGraph()
     const pool = graph.addNode({
@@ -178,6 +396,52 @@ describe('setupPoolContainment', () => {
     expect(containmentTest.shouldSkipFlowNodeParentSyncDuringLaneInteraction(graph, task)).toBe(true)
     expect((lane2 as unknown as { embed: ReturnType<typeof vi.fn> }).embed).not.toHaveBeenCalled()
   })
+
+  it('当前 Lane 仍合法包含节点时，不应被更小的重叠 Lane 抢挂', () => {
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 420, height: 260 }),
+    } as unknown as Node
+    const lane1 = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => pool,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 370, height: 120 }),
+      embed: vi.fn(),
+    } as unknown as Node
+    const lane2 = {
+      id: 'lane-2',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => pool,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 370, height: 220 }),
+      embed: vi.fn(),
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => lane2,
+      getPosition: () => ({ x: 180, y: 80 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    } as unknown as Node
+    const graph = {
+      getSelectedCells: () => [],
+      getNodes: () => [pool, lane1, lane2, task],
+    } as unknown as Graph
+
+    containmentTest.syncFlowNodeSwimlaneParent(graph, task)
+
+    expect((lane1 as unknown as { embed: ReturnType<typeof vi.fn> }).embed).not.toHaveBeenCalled()
+    expect((lane2 as unknown as { embed: ReturnType<typeof vi.fn> }).embed).not.toHaveBeenCalled()
+  })
 })
 
 describe('validatePoolContainment', () => {
@@ -193,6 +457,33 @@ describe('validatePoolContainment', () => {
     } as unknown as Node
 
     expect(validatePoolContainment(graph, task)).toEqual({ valid: true })
+  })
+
+  it('Pool 与 Lane 形状应分别走各自的静态校验入口', () => {
+    const graph = {
+      getNodes: () => [],
+    } as unknown as Graph
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 300, height: 200 }),
+    } as unknown as Node
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      getParent: () => ({
+        isNode: () => true,
+        shape: BPMN_POOL,
+        getPosition: () => ({ x: 40, y: 40 }),
+        getSize: () => ({ width: 300, height: 200 }),
+      }),
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 270, height: 200 }),
+    } as unknown as Node
+
+    expect(validatePoolContainment(graph, pool)).toEqual({ valid: true })
+    expect(validatePoolContainment(graph, lane)).toEqual({ valid: true })
   })
 
   it('存在 Pool 时，未处于任何泳道容器内的流程节点应判为非法', () => {
@@ -505,6 +796,238 @@ describe('pool containment helpers', () => {
     expect((freeTask as any).setSize).not.toHaveBeenCalled()
     expect(containmentTest.safeGetNodes({ getNodes: () => { throw new Error('boom') } } as unknown as Graph)).toEqual([])
     expect(containmentTest.hasPoolNodes({ getNodes: () => { throw new Error('boom') } } as unknown as Graph)).toBe(false)
+  })
+
+  it('Lane 缺少父节点时应视为非法，Pool 几何重入时应直接返回', () => {
+    const detachedLane = {
+      shape: BPMN_LANE,
+      getParent: () => null,
+    } as unknown as Node
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getChildren: () => [],
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 400, height: 240 }),
+      resize: vi.fn(),
+      setSize: vi.fn(),
+    } as unknown as Node
+
+    expect(containmentTest.validateLaneBounds(detachedLane)).toEqual({
+      valid: false,
+      reason: 'Lane 必须直接属于 Pool',
+    })
+
+    containmentTest.reconcilePoolGeometry({ getNodes: () => [] } as unknown as Graph, pool, new Set(['pool-1']))
+
+    expect((pool.resize as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect((pool.setSize as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+  })
+
+  it('图中不存在 Pool 时顶层普通节点应被视为合法', () => {
+    const task = {
+      shape: BPMN_USER_TASK,
+      getParent: () => null,
+      isNode: () => true,
+      getPosition: () => ({ x: 100, y: 100 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    } as unknown as Node
+
+    expect(containmentTest.validatePoolBounds({ getNodes: () => [task] } as unknown as Graph, task)).toEqual({ valid: true })
+  })
+
+  it('containment 违规、后代选区跳过与 addChild 重挂应命中对应分支', () => {
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 200, height: 120 }),
+    } as unknown as Node
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 230, height: 120 }),
+      getChildren: () => [lane],
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => lane,
+      getPosition: () => ({ x: 240, y: 120 }),
+      getSize: () => ({ width: 80, height: 60 }),
+      setPosition: vi.fn(),
+      setSize: vi.fn(),
+    } as unknown as Node
+    const onViolation = vi.fn()
+
+    containmentTest.reportContainmentViolation({ getNodes: () => [pool, lane, task] } as unknown as Graph, task, onViolation)
+    containmentTest.clampFlowNodeBounds(task)
+    containmentTest.reportContainmentViolation({ getNodes: () => [pool, lane, task] } as unknown as Graph, {
+      ...task,
+      getPosition: () => ({ x: 260, y: 150 }),
+      getSize: () => ({ width: 120, height: 90 }),
+    } as unknown as Node)
+
+    expect(onViolation).toHaveBeenCalled()
+    expect((task.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
+    expect((task.setSize as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
+
+    const alreadyInside = {
+      ...task,
+      getPosition: () => ({ x: 120, y: 100 }),
+      getSize: () => ({ width: 80, height: 40 }),
+      setPosition: vi.fn(),
+      setSize: vi.fn(),
+    } as unknown as Node
+    containmentTest.clampFlowNodeBounds(alreadyInside)
+    expect((alreadyInside.setPosition as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+
+    const selectedLane = {
+      id: 'selected-lane',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => pool,
+    } as unknown as Node
+    const descendantTask = {
+      id: 'descendant',
+      shape: BPMN_USER_TASK,
+      getParent: () => selectedLane,
+    } as unknown as Node
+    expect(containmentTest.shouldSkipFlowNodeParentSyncDuringLaneInteraction({ getSelectedCells: () => [selectedLane] } as unknown as Graph, descendantTask)).toBe(true)
+    expect(containmentTest.shouldSkipFlowNodeParentSyncDuringLaneInteraction({ getSelectedCells: () => [selectedLane] } as unknown as Graph, task)).toBe(false)
+
+    const staleParent = { id: 'stale', isNode: () => true, unembed: vi.fn() }
+    const addChild = vi.fn()
+    const reparentTarget = {
+      id: 'task-2',
+      shape: BPMN_USER_TASK,
+      getParent: () => staleParent,
+    } as unknown as Node
+    const nextParent = { id: 'lane-2', addChild, isNode: () => true } as unknown as Node
+    containmentTest.reparentFlowNode(reparentTarget, nextParent)
+    expect(staleParent.unembed).toHaveBeenCalledWith(reparentTarget)
+    expect(addChild).toHaveBeenCalledWith(reparentTarget)
+
+    containmentTest.reparentFlowNode(reparentTarget, { id: 'lane-3', isNode: () => true } as unknown as Node)
+  })
+
+  it('ensurePoolMinSize 在缺少 resize 时应仅回退为 setSize', () => {
+    const task = {
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getPosition: () => ({ x: 220, y: 180 }),
+      getSize: () => ({ width: 120, height: 80 }),
+      getChildren: () => [],
+    }
+    const pool = {
+      shape: BPMN_POOL,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 120, height: 80 }),
+      setSize: vi.fn(),
+      getChildren: () => [task],
+      isNode: () => true,
+    } as unknown as Node
+
+    containmentTest.ensurePoolMinSize(pool)
+
+    expect((pool.setSize as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
+  })
+
+  it('重挂普通流程节点时应支持 addChild 回退并吞掉中间态异常', () => {
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      getParent: () => null,
+      getPosition: () => ({ x: 0, y: 0 }),
+      getSize: () => ({ width: 100, height: 60 }),
+      __setParent: vi.fn(),
+    } as unknown as Node
+    const parentWithAddChild = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      addChild: vi.fn((child: typeof task & { __setParent?: (parent: unknown) => void }) => {
+        child.__setParent?.(parentWithAddChild)
+      }),
+    } as unknown as Node
+
+    containmentTest.reparentFlowNode(task, parentWithAddChild)
+
+    expect((parentWithAddChild as unknown as { addChild: ReturnType<typeof vi.fn> }).addChild).toHaveBeenCalledWith(task)
+    expect((task as unknown as { __setParent: ReturnType<typeof vi.fn> }).__setParent).toHaveBeenCalledWith(parentWithAddChild)
+
+    const taskWithParent = {
+      id: 'task-2',
+      shape: BPMN_USER_TASK,
+      getParent: () => ({
+        id: 'lane-old',
+        isNode: () => true,
+        unembed: () => {
+          throw new Error('transient cleanup error')
+        },
+      }),
+      getPosition: () => ({ x: 0, y: 0 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    } as unknown as Node
+
+    expect(() => containmentTest.reparentFlowNode(taskWithParent, parentWithAddChild)).not.toThrow()
+  })
+
+  it('后代判定和无变化钳制应走到 while 迭代与 null 返回分支', () => {
+    const ancestor = {
+      id: 'lane-root',
+      getParent: () => null,
+    }
+    const middle = {
+      id: 'task-middle',
+      getParent: () => ancestor,
+    }
+    const node = {
+      id: 'task-leaf',
+      getParent: () => middle,
+      getPosition: () => ({ x: 120, y: 80 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    } as unknown as Node
+
+    expect(containmentTest.isNodeDescendantOf(node, ancestor as unknown as Node)).toBe(true)
+    expect(containmentTest.clampNodeBoundsToContainer(node, { x: 100, y: 60, width: 200, height: 120 })).toBeNull()
+  })
+
+  it('父链同步应覆盖无目标父节点、非节点选区、非泳道选区与非后代分支', () => {
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 370, height: 120 }),
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 500, y: 500 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    } as unknown as Node
+    const graph = {
+      getNodes: () => [task],
+      getSelectedCells: () => [
+        { isNode: () => false },
+        { isNode: () => true, shape: BPMN_USER_TASK, id: 'task-2', getParent: () => null },
+      ],
+    } as unknown as Graph
+
+    containmentTest.syncFlowNodeSwimlaneParent(graph, task)
+
+    expect(containmentTest.shouldSkipFlowNodeParentSyncDuringLaneInteraction(graph, task)).toBe(false)
+    expect(containmentTest.isNodeDescendantOf(task, lane)).toBe(false)
   })
 
   it('脱离宿主后的边界事件重新挂到 Lane 后，越出 Lane 时应按 Pool 内容区钳制', () => {

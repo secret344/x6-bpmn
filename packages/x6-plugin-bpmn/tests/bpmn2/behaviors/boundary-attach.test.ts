@@ -26,6 +26,7 @@ import {
 import {
   BPMN_BOUNDARY_EVENT_CANCEL,
   BPMN_EVENT_SUB_PROCESS,
+  BPMN_LANE,
   BPMN_BOUNDARY_EVENT_TIMER,
   BPMN_TRANSACTION,
   BPMN_USER_TASK,
@@ -726,6 +727,26 @@ describe('setupBoundaryAttach', () => {
     expect(boundary.getParent()).toBeNull()
     const data = boundary.getData()
     expect(data.bpmn?.boundaryPosition).toBeUndefined()
+  })
+
+  it('node:moving — 拖离宿主时若存在祖先泳道应回挂到泳道并置前', () => {
+    const graph = mockGraph()
+    const lane = mockNode('lane-1', BPMN_LANE, 70, 40, 370, 200)
+    const host = mockNode('host', 'bpmn-user-task', 100, 100, 200, 100)
+    const boundary = mockNode('b1', 'bpmn-boundary-event', 150, 80, 36, 36)
+
+    lane.embed(host)
+    host.embed(boundary)
+    boundary.setData({ bpmn: { boundaryPosition: { side: 'top', ratio: 0.5 } } })
+
+    setupBoundaryAttach(graph, { detachDistance: 30 })
+
+    boundary.setPosition(500, 500)
+    graph.emit('node:moving', { node: boundary })
+
+    expect(boundary.getParent()?.id).toBe(lane.id)
+    expect(boundary.toFront).toHaveBeenCalled()
+    expect(boundary.getData().bpmn?.boundaryPosition).toBeUndefined()
   })
 
   it('node:moving — 显式配置有限 detachDistance 后拖离应解除绑定', () => {

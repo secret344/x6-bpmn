@@ -246,16 +246,45 @@ describe('setupSwimlaneDelete', () => {
     const dispose = swimlaneDelete.setupSwimlaneDelete(graph)
 
     graph.removeCells([{ id: 'task-1', shape: BPMN_USER_TASK, isNode: () => true }])
+    graph.removeCells([{ id: 'task-1', shape: BPMN_USER_TASK, isNode: () => true }])
     graph.removeCells([createLaneNode('orphan', 0, 0, 10, 10, { parent: null })])
     graph.removeCells([deletedLane])
 
     expect(remainingLane.getPosition()).toEqual({ x: 70, y: 40 })
     expect(remainingLane.getSize()).toEqual({ width: 370, height: 300 })
-    expect(originalRemoveCells).toHaveBeenCalledTimes(3)
+    expect(originalRemoveCells).toHaveBeenCalledTimes(4)
 
     dispose()
 
     expect(typeof graph.removeCells).toBe('function')
+  })
+
+  it('同一批次重复删除同一 Lane 时应只预处理一次', () => {
+    const pool = createLaneNode('pool', 40, 40, 400, 300)
+    const deletedLane = createLaneNode('deleted', 70, 40, 370, 100, {
+      parent: pool,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const graph = {
+      removeCell: vi.fn(),
+      removeCells: vi.fn(() => []),
+      startBatch: vi.fn(),
+      stopBatch: vi.fn(),
+      getNodes: vi.fn(() => []),
+      getCellById: vi.fn((id: string) => {
+        if (id === deletedLane.id) return deletedLane
+        if (id === pool.id) return pool
+        return null
+      }),
+    } as any
+    pool.getChildren = () => [deletedLane]
+    const originalRemoveCells = graph.removeCells
+
+    swimlaneDelete.setupSwimlaneDelete(graph)
+
+    graph.removeCells([deletedLane, deletedLane])
+
+    expect(originalRemoveCells).toHaveBeenCalledTimes(1)
   })
 
   it('关闭自动补偿时不应注册删除监听', () => {
@@ -286,6 +315,10 @@ describe('setupSwimlaneDelete', () => {
     expect(swimlaneDelete.__test__.findEdgeLane([left, middle, right], false, 'before')?.id).toBe('left')
     expect(swimlaneDelete.__test__.findEdgeLane([left, middle, right], false, 'after')?.id).toBe('right')
 
+    const top = createLaneNode('top', 70, 40, 120, 100)
+    const bottom = createLaneNode('bottom', 70, 200, 120, 160)
+    expect(swimlaneDelete.__test__.findEdgeLane([top, bottom], true, 'after')?.id).toBe('bottom')
+
     swimlaneDelete.__test__.expandLaneEdge(left, false, 'before', 30)
     expect(left.getPosition()).toEqual({ x: 40, y: 40 })
     expect(left.getSize()).toEqual({ width: 150, height: 200 })
@@ -295,12 +328,273 @@ describe('setupSwimlaneDelete', () => {
     const parent = createLaneNode('parent', 70, 40, 120, 200, {
       children: [nestedLeft, nestedRight],
     })
+    const nestedTopOnly = createLaneNode('nested-top-only', 70, 40, 120, 80)
+    const beforeParent = createLaneNode('before-parent', 70, 40, 120, 200, {
+      children: [nestedTopOnly],
+    })
+    const nestedTop = createLaneNode('nested-top', 70, 40, 120, 80)
+    const nestedBottom = createLaneNode('nested-bottom', 70, 120, 120, 80)
+    const horizontalParent = createLaneNode('horizontal-parent', 70, 40, 120, 200, {
+      children: [nestedTop, nestedBottom],
+    })
 
     swimlaneDelete.__test__.expandLaneEdge(parent, false, 'after', 30)
+    swimlaneDelete.__test__.expandLaneEdge(beforeParent, true, 'before', 20)
+    swimlaneDelete.__test__.expandLaneEdge(horizontalParent, true, 'after', 20)
 
     expect(parent.getSize()).toEqual({ width: 150, height: 200 })
     expect(nestedRight.getSize()).toEqual({ width: 90, height: 200 })
+    expect(beforeParent.getPosition()).toEqual({ x: 70, y: 20 })
+    expect(nestedTopOnly.getPosition()).toEqual({ x: 70, y: 20 })
+    expect(horizontalParent.getSize()).toEqual({ width: 120, height: 220 })
+    expect(nestedBottom.getSize()).toEqual({ width: 120, height: 100 })
     expect(swimlaneDelete.__test__.findEdgeLane([], false, 'before')).toBeNull()
+    expect(swimlaneDelete.__test__.findEdgeLane([right, left, middle], false, 'after')?.id).toBe('right')
+    expect(swimlaneDelete.__test__.findEdgeLane([right, left], false, 'before')?.id).toBe('left')
+    expect(swimlaneDelete.__test__.findEdgeLane([
+      createLaneNode('right-most', 300, 40, 100, 120),
+      createLaneNode('left-most', 40, 40, 100, 120),
+    ], false, 'before')?.id).toBe('left-most')
+  })
+
+  it('迁移目标解析与重挂接辅助函数应覆盖左右拆分、addChild 与字符串父链回退', () => {
+    const before = createLaneNode('before', 40, 70, 120, 300)
+    const after = createLaneNode('after', 260, 70, 120, 300)
+    const fallback = createLaneNode('fallback', 40, 70, 340, 300)
+    const graph = {
+      getCellById: vi.fn((id: string) => {
+        if (id === 'before') return before
+        if (id === 'after') return after
+        if (id === 'fallback-parent') return fallback
+        return null
+      }),
+      getNodes: vi.fn(() => [fallback]),
+    } as any
+    const task = createLaneNode('task', 90, 100, 40, 40)
+    const parent = createLaneNode('parent', 40, 70, 340, 300)
+    delete (parent as { embed?: unknown }).embed
+    const addChild = vi.fn()
+    ;(parent as typeof parent & { addChild?: typeof addChild }).addChild = addChild
+    const staleParent = {
+      id: 'stale-parent',
+      isNode: () => true,
+      unembed: vi.fn(),
+    }
+    task.getParent = () => staleParent as any
+    const migrationPlan = {
+      deletedLaneId: 'deleted',
+      deletedBounds: { x: 160, y: 70, width: 80, height: 300 },
+      isHorizontal: false,
+      beforeRecipientId: 'before',
+      afterRecipientId: 'after',
+      fallbackRecipientId: null,
+    }
+
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(
+      graph,
+      task,
+      migrationPlan,
+    )?.id).toBe('before')
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(
+      graph,
+      createLaneNode('task-right', 300, 100, 40, 40),
+      migrationPlan,
+    )?.id).toBe('after')
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(
+      { getCellById: () => null } as any,
+      task,
+      migrationPlan,
+    )).toBeNull()
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, task, {
+      ...migrationPlan,
+      afterRecipientId: null,
+    })?.id).toBe('before')
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, task, {
+      ...migrationPlan,
+      beforeRecipientId: null,
+    })?.id).toBe('after')
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, task, {
+      ...migrationPlan,
+      afterRecipientId: null,
+      fallbackRecipientId: 'after',
+      beforeRecipientId: 'missing',
+    })?.id).toBe('after')
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, task, {
+      ...migrationPlan,
+      beforeRecipientId: null,
+      fallbackRecipientId: 'before',
+      afterRecipientId: 'missing',
+    })?.id).toBe('before')
+    expect(swimlaneDelete.__test__.resolveCandidateNode(graph, { isNode: () => false } as any)).toBeNull()
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, createLaneNode('task-top', 90, 80, 40, 40), {
+      ...migrationPlan,
+      isHorizontal: true,
+    })?.id).toBe('before')
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, createLaneNode('task-bottom', 90, 320, 40, 40), {
+      ...migrationPlan,
+      isHorizontal: true,
+    })?.id).toBe('after')
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, createLaneNode('task-top-fallback', 90, 80, 40, 40), {
+      ...migrationPlan,
+      isHorizontal: true,
+      beforeRecipientId: 'missing',
+      fallbackRecipientId: 'before',
+    })?.id).toBe('before')
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, createLaneNode('task-right-fallback', 300, 100, 40, 40), {
+      ...migrationPlan,
+      afterRecipientId: 'missing',
+      fallbackRecipientId: 'after',
+    })?.id).toBe('after')
+    expect(swimlaneDelete.__test__.resolveRecipientNode(graph, null)).toBeNull()
+    expect(swimlaneDelete.__test__.resolveRecipientNode(graph, 'missing')).toBeNull()
+
+    swimlaneDelete.__test__.reparentNodeToContainer(task, parent)
+
+    expect(staleParent.unembed).toHaveBeenCalledWith(task)
+    expect(addChild).toHaveBeenCalledWith(task)
+
+    const plainParent = createLaneNode('plain-parent', 40, 70, 340, 300)
+    delete (plainParent as { embed?: unknown }).embed
+    delete (plainParent as { addChild?: unknown }).addChild
+    expect(() => swimlaneDelete.__test__.reparentNodeToContainer(task, plainParent)).not.toThrow()
+
+    const detached = {
+      getParent: () => null,
+      getPropByPath: () => 'fallback-parent',
+    } as unknown as Node
+    expect(swimlaneDelete.__test__.resolveDeleteParent(graph, detached, { x: 160, y: 70, width: 80, height: 300 })?.id).toBe('fallback')
+    const invalidParentRef = {
+      getParent: () => null,
+      getPropByPath: () => 'not-a-node',
+    } as unknown as Node
+    expect(swimlaneDelete.__test__.resolveDeleteParent({ getCellById: () => ({ isNode: () => false }), getNodes: () => [] } as any, invalidParentRef, migrationPlan.deletedBounds)).toBeNull()
+  })
+
+  it('findEdgeLane 应覆盖当前 Lane 取代 best 与保留 best 的比较分支', () => {
+    const higherLane = createLaneNode('higher', 40, 40, 120, 80)
+    const lowerLane = createLaneNode('lower', 40, 180, 120, 120)
+    const lefterLane = createLaneNode('lefter', 40, 40, 120, 80)
+    const widerRightLane = createLaneNode('wider-right', 200, 40, 140, 80)
+
+    expect(swimlaneDelete.__test__.findEdgeLane([higherLane, lowerLane], true, 'before')?.id).toBe('higher')
+    expect(swimlaneDelete.__test__.findEdgeLane([lowerLane, higherLane], true, 'before')?.id).toBe('higher')
+    expect(swimlaneDelete.__test__.findEdgeLane([lowerLane, higherLane], true, 'after')?.id).toBe('lower')
+    expect(swimlaneDelete.__test__.findEdgeLane([lefterLane, widerRightLane], false, 'after')?.id).toBe('wider-right')
+    expect(swimlaneDelete.__test__.findEdgeLane([widerRightLane, lefterLane], false, 'after')?.id).toBe('wider-right')
+  })
+
+  it('removeCell 包装在批量删除返回空数组时应回退为 null，并支持嵌套删除深度', () => {
+    const pool = createLaneNode('pool', 40, 40, 400, 300)
+    pool.shape = BPMN_POOL
+    const lane = createLaneNode('lane', 70, 40, 370, 100, { parent: pool })
+    pool.getChildren = () => [lane]
+    pool.getDescendants = () => [lane]
+    const graph: any = {
+      getCellById: vi.fn((id: string) => (id === pool.id ? pool : id === lane.id ? lane : null)),
+      getNodes: vi.fn(() => [pool, lane]),
+      removeCell: vi.fn(() => lane),
+      removeCells: vi.fn(() => []),
+    }
+    const originalRemoveCells = graph.removeCells
+
+    swimlaneDelete.setupSwimlaneDelete(graph)
+
+    originalRemoveCells.mockImplementationOnce(() => {
+      graph.removeCell(pool.id)
+      return []
+    })
+
+    expect(graph.removeCell(pool.id)).toBeNull()
+  })
+
+  it('垂直删除规划应按左右位置归入 before/after 集合', () => {
+    const deletedLane = createLaneNode('deleted', 160, 70, 80, 300)
+    const leftLane = createLaneNode('left', 40, 70, 120, 300)
+    const rightLane = createLaneNode('right', 260, 70, 120, 300)
+    const fallback = createLaneNode('fallback', 40, 70, 340, 300)
+
+    expect(swimlaneDelete.__test__.buildDeleteMigrationPlan(
+      deletedLane,
+      { x: 160, y: 70, width: 80, height: 300 },
+      [leftLane, rightLane],
+      false,
+      fallback,
+    )).toEqual({
+      deletedLaneId: 'deleted',
+      deletedBounds: { x: 160, y: 70, width: 80, height: 300 },
+      isHorizontal: false,
+      beforeRecipientId: 'left',
+      afterRecipientId: 'right',
+      fallbackRecipientId: 'fallback',
+    })
+  })
+
+  it('垂直贴边扩展与迁移目标解析应覆盖左右分支和空 recipient', () => {
+    const nestedLeft = createLaneNode('nested-left', 40, 70, 60, 200)
+    const nestedRight = createLaneNode('nested-right', 100, 70, 60, 200)
+    const parent = createLaneNode('parent', 40, 70, 120, 200, {
+      children: [nestedLeft, nestedRight],
+    })
+
+    swimlaneDelete.__test__.expandLaneEdge(parent, false, 'after', 30)
+    expect(parent.getSize()).toEqual({ width: 150, height: 200 })
+    expect(nestedRight.getSize()).toEqual({ width: 90, height: 200 })
+
+    swimlaneDelete.__test__.expandLaneEdge(parent, false, 'before', 20)
+    expect(parent.getPosition()).toEqual({ x: 20, y: 70 })
+    expect(parent.getSize()).toEqual({ width: 170, height: 200 })
+    expect(nestedLeft.getPosition()).toEqual({ x: 20, y: 70 })
+
+    const beforeLane = createLaneNode('before', 40, 70, 120, 200)
+    const afterLane = createLaneNode('after', 240, 70, 120, 200)
+    const graph = {
+      getCellById: vi.fn((id: string) => {
+        if (id === beforeLane.id) return beforeLane
+        if (id === afterLane.id) return afterLane
+        return null
+      }),
+    } as any
+    const leftTask = createFlowNode('left-task', BPMN_USER_TASK, { x: 150, y: 120, width: 20, height: 40 })
+    const rightTask = createFlowNode('right-task', BPMN_USER_TASK, { x: 250, y: 120, width: 20, height: 40 })
+
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, leftTask as any, {
+      deletedLaneId: 'deleted',
+      deletedBounds: { x: 160, y: 70, width: 80, height: 200 },
+      isHorizontal: false,
+      beforeRecipientId: beforeLane.id,
+      afterRecipientId: afterLane.id,
+      fallbackRecipientId: null,
+    })).toBe(beforeLane)
+    expect(swimlaneDelete.__test__.resolveMigrationRecipient(graph, rightTask as any, {
+      deletedLaneId: 'deleted',
+      deletedBounds: { x: 160, y: 70, width: 80, height: 200 },
+      isHorizontal: false,
+      beforeRecipientId: beforeLane.id,
+      afterRecipientId: afterLane.id,
+      fallbackRecipientId: null,
+    })).toBe(afterLane)
+    expect(swimlaneDelete.__test__.resolveRecipientNode(graph, null)).toBeNull()
+  })
+
+  it('迁移删除 Lane 内容时应跳过子 Lane 与无法解析 recipient 的节点', () => {
+    const deletedLane = createLaneNode('deleted', 70, 40, 370, 200)
+    const childLane = createLaneNode('child-lane', 100, 80, 340, 120)
+    const task = createFlowNode('task', BPMN_USER_TASK, { x: 150, y: 120, width: 100, height: 60 })
+    deletedLane.getChildren = () => [childLane, task]
+    const graph = {
+      getCellById: vi.fn(() => null),
+    } as any
+
+    swimlaneDelete.__test__.migrateDeletedLaneContent(graph, deletedLane as any, {
+      deletedLaneId: deletedLane.id,
+      deletedBounds: { x: 70, y: 40, width: 370, height: 200 },
+      isHorizontal: true,
+      beforeRecipientId: null,
+      afterRecipientId: null,
+      fallbackRecipientId: null,
+    })
+
+    expect(task.getParent()).toBeNull()
   })
 
   it('删除 Lane 时应按父节点属性与 Pool 包围盒回退解析删除父容器', () => {

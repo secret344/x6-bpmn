@@ -938,6 +938,34 @@ describe('createBpmn2ExporterAdapter', () => {
     graph.dispose()
   })
 
+  it('exportXML 使用默认命名空间时不应额外注入 xmlns:bpmn，但仍应补充其它扩展命名空间', async () => {
+    vi.resetModules()
+    const exportBpmnXml = vi.fn().mockResolvedValue('<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" />')
+    vi.doMock('../../../src/export/exporter', () => ({ exportBpmnXml }))
+
+    const mod = await import('../../../src/export/adapter')
+    const adapter = mod.createBpmn2ExporterAdapter({
+      serialization: {
+        namespaces: {
+          bpmn: 'http://www.omg.org/spec/BPMN/20100524/MODEL',
+          smart: 'http://smartengine.org/schema/process',
+        },
+        xmlNames: {
+          useDefaultNamespace: true,
+        },
+      },
+    })
+
+    const xml = await adapter.exportXML({} as any, { profile: { serialization: {} } } as any)
+
+    expect(xml).toContain('xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"')
+    expect(xml).toContain('xmlns:smart="http://smartengine.org/schema/process"')
+    expect(xml).not.toContain('xmlns:bpmn=')
+
+    vi.doUnmock('../../../src/export/exporter')
+    vi.resetModules()
+  })
+
   it('exportXML 在底层返回非 definitions XML 时应原样返回', async () => {
     vi.resetModules()
     vi.doMock('../../../src/export/exporter', () => ({

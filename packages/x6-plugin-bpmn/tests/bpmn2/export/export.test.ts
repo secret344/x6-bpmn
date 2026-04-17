@@ -17,6 +17,7 @@ import {
 } from '../../../src/export/bpmn-mapping'
 import { exportBpmnXml } from '../../../src/export/exporter'
 import { parseBpmnXml, loadBpmnGraph } from '../../../src/import'
+import { __test__ as xmlParserTest } from '../../../src/import/xml-parser'
 
 import {
   BPMN_START_EVENT,
@@ -1251,6 +1252,78 @@ describe('BPMN XML 导入（parseBpmnXml + loadBpmnGraph）', () => {
     const labels = mfEdge!.getLabels()
     expect(labels.length).toBe(1)
     graph.dispose()
+  })
+
+  it('应把 Pool、Lane 与消息流 BPMNDI 原始属性并入导入数据', async () => {
+    const baseXml = await buildTestXml({
+      processes: [
+        {
+          id: 'Process_1',
+          elements: [
+            { kind: 'laneSet', id: 'LaneSet_1', lanes: [{ id: 'Lane_1', name: '泳道A' }] },
+          ],
+        },
+        { id: 'Process_2', elements: [] },
+      ],
+      collaboration: {
+        id: 'Collab_1',
+        participants: [
+          { id: 'Pool_1', name: '参与者1', processRef: 'Process_1' },
+          { id: 'Pool_2', name: '参与者2', processRef: 'Process_2' },
+        ],
+        messageFlows: [{ id: 'MF_1', name: '消息', sourceRef: 'Pool_1', targetRef: 'Pool_2' }],
+      },
+      shapes: {
+        Pool_1: { id: 'Pool_1', x: 40, y: 40, width: 400, height: 200, isHorizontal: true },
+        Pool_2: { id: 'Pool_2', x: 40, y: 320, width: 400, height: 200, isHorizontal: true },
+        Lane_1: { id: 'Lane_1', x: 70, y: 40, width: 370, height: 200, isHorizontal: true },
+      },
+      edges: {
+        MF_1: { id: 'MF_1', waypoints: [{ x: 240, y: 240 }, { x: 240, y: 320 }] },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        replaceXmlOrThrow(
+          replaceXmlOrThrow(
+            withXmlDeclaration(baseXml),
+            /<bpmn:definitions([^>]*)>/,
+            '<bpmn:definitions$1 xmlns:modeler="http://example.com/modeler">',
+            '应能为 definitions 注入 BPMNDI 测试命名空间',
+          ),
+          /<bpmndi:BPMNShape id="Pool_1_di" bpmnElement="Pool_1"([^>]*)>/,
+          '<bpmndi:BPMNShape id="Pool_1_di" bpmnElement="Pool_1"$1 modeler:stroke="red">',
+          '应能为 Pool DI 注入原始属性',
+        ),
+        /<bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1"([^>]*)>/,
+        '<bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1"$1 modeler:laneStyle="solid">',
+        '应能为 Lane DI 注入原始属性',
+      ),
+      /<bpmndi:BPMNEdge id="MF_1_di" bpmnElement="MF_1"([^>]*)>/,
+      '<bpmndi:BPMNEdge id="MF_1_di" bpmnElement="MF_1"$1 modeler:edgeStyle="dashed" messageVisibleKind="initiating">',
+      '应能为消息流 DI 注入原始属性',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    const pool = parsed.nodes.find((node) => node.id === 'Pool_1')
+    const lane = parsed.nodes.find((node) => node.id === 'Lane_1')
+    const messageFlow = parsed.edges.find((edge) => edge.id === 'MF_1')
+
+    expect(((pool?.data as any)?.bpmndi as any)?.$attrs).toEqual({ 'modeler:stroke': 'red' })
+    expect(((lane?.data as any)?.bpmndi as any)?.$attrs).toEqual({ 'modeler:laneStyle': 'solid' })
+    expect(((messageFlow?.data as any)?.bpmn as any)?.messageVisibleKind).toBe('initiating')
+    expect(((messageFlow?.data as any)?.bpmndi as any)?.$attrs).toEqual({ 'modeler:edgeStyle': 'dashed' })
+  })
+
+  it('BPMNDI merge helper 应保留既有 bpmndi 字段并叠加补丁', () => {
+    expect(xmlParserTest.mergeNodeBpmndiData({ bpmndi: { keep: true }, foo: 'bar' }, { add: 1 })).toEqual({
+      foo: 'bar',
+      bpmndi: { keep: true, add: 1 },
+    })
+    expect(xmlParserTest.mergeEdgeBpmndiData({ bpmndi: { keep: true }, foo: 'bar' }, { add: 1 })).toEqual({
+      foo: 'bar',
+      bpmndi: { keep: true, add: 1 },
+    })
   })
 
   it('应导入任务内部的数据关联', async () => {

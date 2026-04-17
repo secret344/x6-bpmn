@@ -56,10 +56,6 @@ export function validatePoolContainment(
     return validateLaneBounds(node)
   }
 
-  if (isSwimlaneShape(node.shape)) {
-    return { valid: true }
-  }
-
   const swimlaneParent = findSwimlaneParent(node)
   if (!swimlaneParent) {
     if (!hasPoolNodes(graph)) {
@@ -115,7 +111,15 @@ export function setupPoolContainment(
         return
       }
 
-      if (isSwimlaneShape(node.shape)) {
+      if (isLaneShape(node.shape)) {
+        return
+      }
+
+      if (isPoolShape(node.shape)) {
+        if (constrainToContainer) {
+          clampPoolPosition(graph, node)
+        }
+        reportContainmentViolation(graph, node, onViolation)
         return
       }
 
@@ -171,14 +175,14 @@ export function setupPoolContainment(
           // 忽略重复 embed 的瞬时中间态
         }
       }
-      reconcilePoolGeometry(graph, node, isFinalizingPools)
+      ensurePoolMinSize(node)
       return
     }
 
     if (isLaneShape(node.shape)) {
       const pool = findAncestorPool(node)
       if (pool) {
-        reconcilePoolGeometry(graph, pool, isFinalizingPools)
+        ensurePoolMinSize(pool)
       }
       return
     }
@@ -341,7 +345,7 @@ function reportContainmentViolation(
 
   const result = validatePoolContainment(graph, node)
   if (!result.valid) {
-    onViolation?.(node, result.reason ?? '节点超出泳道容器边界')
+    onViolation?.(node, result.reason!)
   }
 }
 
@@ -368,6 +372,83 @@ function clampFlowNodeBounds(node: Node): void {
     node.setPosition(clamped.x, clamped.y, { silent: true, bpmnContainmentSync: true })
     node.setSize(clamped.width, clamped.height, { silent: true, bpmnContainmentSync: true })
   }
+}
+
+function clampPoolPosition(graph: Graph, pool: Node): void {
+  const clamped = resolveClampedPoolPosition(graph, pool)
+  if (!clamped) {
+    return
+  }
+
+  const currentPosition = pool.getPosition()
+  const delta = {
+    x: clamped.x - currentPosition.x,
+    y: clamped.y - currentPosition.y,
+  }
+
+  pool.setPosition(clamped.x, clamped.y, { silent: true, bpmnContainmentSync: true })
+
+  if (delta.x === 0 && delta.y === 0) {
+    return
+  }
+
+  for (const descendant of collectDescendantNodes(pool)) {
+    const position = descendant.getPosition()
+    descendant.setPosition(position.x + delta.x, position.y + delta.y, {
+      silent: true,
+      bpmnContainmentSync: true,
+    })
+  }
+}
+
+function resolveClampedPoolPosition(graph: Graph, pool: Node): { x: number; y: number } | null {
+  const initialRect = nodeRect(pool)
+  let nextRect = { ...initialRect }
+  let changed = false
+
+  for (const candidate of safeGetNodes(graph)) {
+    if (candidate.id === pool.id || !isPoolShape(candidate.shape)) {
+      continue
+    }
+
+    const candidateRect = nodeRect(candidate)
+    if (!rectsOverlap(nextRect, candidateRect)) {
+      continue
+    }
+
+    const overlapWidth = Math.min(nextRect.x + nextRect.width, candidateRect.x + candidateRect.width)
+      - Math.max(nextRect.x, candidateRect.x)
+    const overlapHeight = Math.min(nextRect.y + nextRect.height, candidateRect.y + candidateRect.height)
+      - Math.max(nextRect.y, candidateRect.y)
+
+    if (overlapWidth <= 0 || overlapHeight <= 0) {
+      continue
+    }
+
+    if (overlapWidth <= overlapHeight) {
+      const moveLeft = candidateRect.x - nextRect.width - 1
+      const moveRight = candidateRect.x + candidateRect.width + 1
+      nextRect = {
+        ...nextRect,
+        x: Math.abs(moveLeft - nextRect.x) <= Math.abs(moveRight - nextRect.x) ? moveLeft : moveRight,
+      }
+    } else {
+      const moveUp = candidateRect.y - nextRect.height - 1
+      const moveDown = candidateRect.y + candidateRect.height + 1
+      nextRect = {
+        ...nextRect,
+        y: Math.abs(moveUp - nextRect.y) <= Math.abs(moveDown - nextRect.y) ? moveUp : moveDown,
+      }
+    }
+
+    changed = true
+  }
+
+  if (!changed || (nextRect.x === initialRect.x && nextRect.y === initialRect.y)) {
+    return null
+  }
+
+  return { x: nextRect.x, y: nextRect.y }
 }
 
 function resolveFlowNodeClampRect(node: Node): Rect | null {
@@ -398,12 +479,20 @@ function syncFlowNodeSwimlaneParent(graph: Graph, node: Node): void {
     return
   }
 
+  const currentParent = findSwimlaneParent(node)
+  if (
+    currentParent
+    && isLaneShape(currentParent.shape)
+    && rectContains(getContainmentRect(currentParent), nodeRect(node))
+  ) {
+    return
+  }
+
   const targetParent = findContainingSwimlane(graph, node, node.id)
   if (!targetParent) {
     return
   }
 
-  const currentParent = findSwimlaneParent(node)
   if (currentParent?.id === targetParent.id) {
     return
   }
@@ -576,6 +665,26 @@ function safeGetNodes(graph: Graph): Node[] {
   }
 }
 
+function collectDescendantNodes(node: Node): Node[] {
+  const descendants: Node[] = []
+  const queue = ((node.getChildren?.() ?? []) as Cell[])
+    .filter((child): child is Node => child.isNode())
+
+  while (queue.length > 0) {
+    const current = queue.shift() as Node
+    descendants.push(current)
+
+    const children = (current.getChildren?.() ?? []) as Cell[]
+    for (const child of children) {
+      if (child.isNode()) {
+        queue.push(child as Node)
+      }
+    }
+  }
+
+  return descendants
+}
+
 export const __test__ = {
   validatePoolBounds,
   validateLaneBounds,
@@ -589,6 +698,8 @@ export const __test__ = {
   reportContainmentViolation,
   clampFlowNodePosition,
   clampFlowNodeBounds,
+  clampPoolPosition,
+  resolveClampedPoolPosition,
   resolveFlowNodeClampRect,
   syncFlowNodeSwimlaneParent,
   hasAttachedBoundaryHost,
@@ -600,4 +711,5 @@ export const __test__ = {
   clampNodeToContainer,
   clampNodeBoundsToContainer,
   safeGetNodes,
+  collectDescendantNodes,
 }

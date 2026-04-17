@@ -291,4 +291,51 @@ describe('setupBpmnInteractionBehaviors', () => {
     dispose()
     requestAnimationFrameSpy.mockRestore()
   })
+
+  it('缺少 getSelectedCells 时点击 Lane 不应切换直接选中', () => {
+    const handlers: Record<string, (args: { node: any }) => void> = {}
+    const cleanSelection = vi.fn()
+    const select = vi.fn()
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback) => {
+        callback(0)
+        return 1
+      })
+
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      isNode: vi.fn(() => true),
+    }
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      getParent: vi.fn(() => pool),
+    }
+
+    const graph = {
+      on: vi.fn((event: string, handler: (args: { node: any }) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      cleanSelection,
+      select,
+    } as any
+
+    behaviorMocks.setupBoundaryAttach.mockReturnValue(vi.fn())
+    behaviorMocks.setupPoolContainment.mockReturnValue(vi.fn())
+    behaviorMocks.setupSwimlaneResize.mockReturnValue(vi.fn())
+    behaviorMocks.setupSwimlaneDelete.mockReturnValue(vi.fn())
+
+    const dispose = setupBpmnInteractionBehaviors(graph)
+
+    handlers['node:click']({ node: lane })
+
+    expect(cleanSelection).not.toHaveBeenCalled()
+    expect(select).not.toHaveBeenCalled()
+
+    dispose()
+    requestAnimationFrameSpy.mockRestore()
+  })
 })

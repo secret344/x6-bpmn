@@ -168,9 +168,7 @@ function expandLaneEdge(
       // 如果有嵌套子 Lane，找到最底部的子 Lane 进行扩展
       if (childLanes.length > 0) {
         const bottomChild = findEdgeLane(childLanes, isHorizontal, 'after')
-        if (bottomChild) {
-          expandLaneEdge(bottomChild, isHorizontal, 'after', offset)
-        }
+          expandLaneEdge(bottomChild as Node, isHorizontal, 'after', offset)
       }
     } else {
       // 向上扩展：上移位置 + 增加高度
@@ -180,9 +178,7 @@ function expandLaneEdge(
       // 如果有嵌套子 Lane，找到最顶部的子 Lane 进行扩展
       if (childLanes.length > 0) {
         const topChild = findEdgeLane(childLanes, isHorizontal, 'before')
-        if (topChild) {
-          expandLaneEdge(topChild, isHorizontal, 'before', offset)
-        }
+          expandLaneEdge(topChild as Node, isHorizontal, 'before', offset)
       }
     }
   } else {
@@ -192,9 +188,7 @@ function expandLaneEdge(
 
       if (childLanes.length > 0) {
         const rightChild = findEdgeLane(childLanes, isHorizontal, 'after')
-        if (rightChild) {
-          expandLaneEdge(rightChild, isHorizontal, 'after', offset)
-        }
+          expandLaneEdge(rightChild as Node, isHorizontal, 'after', offset)
       }
     } else {
       // 向左扩展：左移位置 + 增加宽度
@@ -203,9 +197,7 @@ function expandLaneEdge(
 
       if (childLanes.length > 0) {
         const leftChild = findEdgeLane(childLanes, isHorizontal, 'before')
-        if (leftChild) {
-          expandLaneEdge(leftChild, isHorizontal, 'before', offset)
-        }
+          expandLaneEdge(leftChild as Node, isHorizontal, 'before', offset)
       }
     }
   }
@@ -541,7 +533,7 @@ function reparentNodeToContainer(node: Node, parent: Node): void {
     }
 
     if (typeof (parent as Node & { addChild?: (child: Node) => void }).addChild === 'function') {
-      ;(parent as Node & { addChild?: (child: Node) => void }).addChild?.(node)
+      ;(parent as Node & { addChild?: (child: Node) => void }).addChild(node)
     }
   } catch {
     // 忽略重复 embed 或宿主已在中间态清理父链的瞬时异常

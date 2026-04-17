@@ -285,10 +285,8 @@ export function compactLaneLayout(
     const lastLanePos = lastLane.getPosition()
     const lastLaneSize = lastLane.getSize()
     const remaining = poolBottom - lastLanePos.y - lastLaneSize.height
-    if (remaining > 0) {
-      lastLane.resize?.(contentWidth, lastLaneSize.height + remaining, { bpmnLayout: true })
-      lastLane.setSize(contentWidth, lastLaneSize.height + remaining)
-    }
+    lastLane.resize?.(contentWidth, lastLaneSize.height + remaining, { bpmnLayout: true })
+    lastLane.setSize(contentWidth, lastLaneSize.height + remaining)
   }
 
   normalizePoolSubtreeLayers(graph, pool)
@@ -329,7 +327,7 @@ function createLaneInPool(
     if (typeof pool.embed === 'function') {
       pool.embed(node)
     } else if (typeof (pool as Node & { addChild?: (child: Node) => void }).addChild === 'function') {
-      ;(pool as Node & { addChild?: (child: Node) => void }).addChild?.(node)
+      ;(pool as Node & { addChild?: (child: Node) => void }).addChild(node)
     }
   } catch { /* 忽略重复 embed */ }
 

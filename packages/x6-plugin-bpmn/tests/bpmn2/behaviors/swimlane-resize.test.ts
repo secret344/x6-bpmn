@@ -8,6 +8,7 @@ import {
 } from '../../helpers/behavior-test-graph'
 import {
   __test__ as resizeTest,
+  clampLanePreviewRect,
   patchTransformResizing,
   restoreTransformResizing,
   setupSwimlaneResize,
@@ -124,6 +125,110 @@ describe('setupSwimlaneResize', () => {
     dispose()
   })
 
+  it('transform 插件提供 resize 事件源时应优先注册到插件，并覆盖无 direction 与无 resize 的回退路径', () => {
+    const handlers: Record<string, (args: any) => void> = {}
+    const pluginHandlers: Record<string, (args: any) => void> = {}
+    const lane = createMockResizeNode('lane-1', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    delete lane.resize
+    const transform = {
+      options: { resizing: {} },
+      on: vi.fn((event: string, handler: (args: any) => void) => {
+        pluginHandlers[event] = handler
+      }),
+      off: vi.fn(),
+    }
+    const graph = {
+      container: document.createElement('div'),
+      options: {},
+      on: vi.fn((event: string, handler: (args: any) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getPlugin: vi.fn((name: string) => (name === 'transform' ? transform : null)),
+      getNodes: vi.fn(() => [lane]),
+      startBatch: vi.fn(),
+      stopBatch: vi.fn(),
+    } as unknown as Graph
+
+    const dispose = setupSwimlaneResize(graph)
+
+    expect(transform.on).toHaveBeenCalledWith('node:resize', expect.any(Function))
+    expect(transform.on).toHaveBeenCalledWith('node:resized', expect.any(Function))
+    expect(graph.on).toHaveBeenCalledWith('node:change:size', expect.any(Function))
+    expect(graph.on).toHaveBeenCalledWith('node:change:position', expect.any(Function))
+
+    pluginHandlers['node:resize']({ node: lane, options: {} })
+    pluginHandlers['node:resized']({ node: lane, options: {} })
+    pluginHandlers['node:resize']({ node: lane, options: { direction: 'bottom' } })
+    pluginHandlers['node:resize']({ node: lane, options: { direction: 'bottom' } })
+    pluginHandlers['node:resized']({ node: lane, options: { direction: 'bottom' } })
+
+    dispose()
+
+    expect(transform.off).toHaveBeenCalledWith('node:resize', expect.any(Function))
+    expect(transform.off).toHaveBeenCalledWith('node:resized', expect.any(Function))
+  })
+
+  it('重复 beginPreview、无 state commit 与 transform 空配置恢复应覆盖回退分支', () => {
+    const handlers: Record<string, (args: any) => void> = {}
+    const lane = createMockResizeNode('lane-repeat', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    const graph = {
+      container: document.createElement('div'),
+      options: {},
+      on: vi.fn((event: string, handler: (args: any) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getPlugin: vi.fn(() => null),
+      getNodes: vi.fn(() => [lane]),
+      startBatch: vi.fn(),
+      stopBatch: vi.fn(),
+    } as unknown as Graph
+
+    const dispose = setupSwimlaneResize(graph)
+
+    handlers['node:resize']({ node: lane, options: { direction: 'bottom' } })
+    handlers['node:resize']({ node: lane, options: { direction: 'bottom' } })
+    invokePreviewResize(lane as unknown as Node, 870, 240, 'bottom')
+    handlers['node:resized']({ node: lane, options: { direction: 'bottom' } })
+
+    const detachedLane = createMockResizeNode('lane-detached-commit', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 220,
+    })
+    handlers['node:resized']({ node: detachedLane, options: { direction: 'bottom' } })
+    handlers['node:resized']({ node: detachedLane, options: { direction: 'bottom', silent: true } })
+    expect(detachedLane.setSize).toHaveBeenCalled()
+
+    dispose()
+
+    const transform = { options: {} as Record<string, unknown> }
+    const transformGraph = { getPlugin: vi.fn(() => transform) } as unknown as Graph
+    const saved = patchTransformResizing(transformGraph)
+    expect(typeof (transform.options as any).resizing.minWidth).toBe('function')
+    expect(typeof (transform.options as any).resizing.minHeight).toBe('function')
+    expect((transform.options as any).resizing.minWidth({ shape: BPMN_USER_TASK } as Node)).toBe(0)
+    expect((transform.options as any).resizing.minHeight({ shape: BPMN_USER_TASK } as Node)).toBe(0)
+    restoreTransformResizing(transformGraph, saved)
+    expect('minWidth' in ((transform.options as any).resizing as Record<string, unknown>)).toBe(false)
+    expect('minHeight' in ((transform.options as any).resizing as Record<string, unknown>)).toBe(false)
+
+    restoreTransformResizing({ getPlugin: vi.fn(() => null) } as unknown as Graph, saved)
+    restoreTransformResizing({ getPlugin: vi.fn(() => ({ options: {} })) } as unknown as Graph, saved)
+  })
+
   it('patchTransformResizing 应注入泳道最小尺寸并在 restore 后恢复原值', () => {
     const transform = {
       options: {
@@ -166,6 +271,221 @@ describe('setupSwimlaneResize', () => {
     expect(getPreviewElement(graph, task.id)).toBeNull()
 
     dispose()
+  })
+
+  it('缺少容器时开始预览不应渲染 preview 元素', () => {
+    const handlers: Record<string, (args: any) => void> = {}
+    const lane = createMockResizeNode('lane-1', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    const graph = {
+      options: {},
+      on: vi.fn((event: string, handler: (args: any) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getPlugin: vi.fn(() => null),
+      getNodes: vi.fn(() => [lane]),
+      startBatch: vi.fn(),
+      stopBatch: vi.fn(),
+    } as unknown as Graph
+
+    const dispose = setupSwimlaneResize(graph)
+
+    handlers['node:resize']({ node: lane, options: { direction: 'bottom' } })
+    invokePreviewResize(lane as unknown as Node, 870, 240, 'bottom')
+
+    dispose()
+  })
+
+  it('live 几何事件在无 preview state、无 direction 与 pool stale 分支下应安全回退', () => {
+    const handlers: Record<string, (args: any) => void> = {}
+    const childLane = createMockResizeNode('lane-child', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 400,
+    })
+    const pool = createMockResizeNode('pool-1', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 900,
+      height: 400,
+    }, { children: [childLane] })
+    childLane.__setParent(pool)
+    const loneLane = createMockResizeNode('lane-standalone', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    delete loneLane.resize
+    const graph = {
+      container: document.createElement('div'),
+      options: {},
+      on: vi.fn((event: string, handler: (args: any) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getPlugin: vi.fn(() => null),
+      getNodes: vi.fn(() => [pool, childLane, loneLane]),
+      startBatch: vi.fn(),
+      stopBatch: vi.fn(),
+    } as unknown as Graph
+
+    const dispose = setupSwimlaneResize(graph)
+
+    handlers['node:change:size']({ node: loneLane, previous: { width: 870, height: 200 }, options: { ui: true } })
+    loneLane.setSize(870, 240)
+    handlers['node:change:size']({ node: loneLane, previous: { width: 870, height: 200 }, options: { ui: true, direction: 'bottom', relativeDirection: 'bottom' } })
+    expect(getPreviewElement(graph, loneLane.id)?.style.height).toBe('240px')
+
+    handlers['node:change:position']({ node: createMockResizeNode('fresh-lane', BPMN_LANE, { x: 70, y: 40, width: 870, height: 200 }), previous: { x: 70, y: 40 }, options: { ui: true } })
+
+    handlers['node:resize']({ node: pool, options: { direction: 'bottom' } })
+    pool.setPosition(40, 20)
+    pool.setSize(900, 430)
+    childLane.setPosition(70, 20)
+    handlers['node:change:size']({ node: pool, previous: { width: 900, height: 400 }, options: { ui: true, direction: 'bottom', relativeDirection: 'bottom' } })
+    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
+    expect(childLane.getPosition()).toEqual({ x: 70, y: 40 })
+
+    dispose()
+  })
+
+  it('Pool live size 在无 resize 实现时应走原始矩形回推，live position 无 state 但有 direction 时也应安全返回', () => {
+    const handlers: Record<string, (args: any) => void> = {}
+    const poolWithResizeChild = createMockResizeNode('pool-live-child-with-resize', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 400,
+    })
+    const poolWithResize = createMockResizeNode('pool-live-with-resize', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 900,
+      height: 400,
+    }, { children: [poolWithResizeChild] })
+    const poolChild = createMockResizeNode('pool-live-child', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 400,
+    })
+    const pool = createMockResizeNode('pool-live-no-resize', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 900,
+      height: 400,
+    }, { children: [poolChild] })
+    delete pool.resize
+    poolChild.__setParent(pool)
+    const freshLane = createMockResizeNode('fresh-live-position', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    const graph = {
+      container: document.createElement('div'),
+      options: {},
+      on: vi.fn((event: string, handler: (args: any) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getPlugin: vi.fn(() => null),
+      getNodes: vi.fn(() => [poolWithResize, poolWithResizeChild, pool, poolChild, freshLane]),
+      startBatch: vi.fn(),
+      stopBatch: vi.fn(),
+    } as unknown as Graph
+
+    const dispose = setupSwimlaneResize(graph)
+
+    poolWithResize.setSize(900, 430)
+    handlers['node:change:size']({
+      node: poolWithResize,
+      previous: { width: 900, height: 400 },
+      options: { direction: 'bottom', relativeDirection: 'bottom', ui: true },
+    })
+
+    pool.setSize(900, 430)
+    handlers['node:change:size']({
+      node: pool,
+      previous: { width: 900, height: 400 },
+      options: { direction: 'bottom', relativeDirection: 'bottom', ui: true },
+    })
+    expect(getPreviewElement(graph, pool.id)?.style.height).toBe('430px')
+
+    handlers['node:change:position']({
+      node: freshLane,
+      previous: { x: 70, y: 40 },
+      options: { direction: 'right', relativeDirection: 'right', ui: true },
+    })
+
+    dispose()
+  })
+
+  it('Lane preview clamp 应按分隔线约束裁剪 preview 边界', () => {
+    const pool = createMockResizeNode('pool-1', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 500,
+      height: 260,
+    })
+    const task = createMockResizeNode('task-1', BPMN_USER_TASK, {
+      x: 180,
+      y: 120,
+      width: 120,
+      height: 60,
+    })
+    const lane1 = createMockResizeNode('lane-1', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 470,
+      height: 120,
+    }, { parent: pool })
+    const lane2 = createMockResizeNode('lane-2', BPMN_LANE, {
+      x: 70,
+      y: 160,
+      width: 470,
+      height: 140,
+    }, { parent: pool })
+    pool.getChildren = () => [lane1, lane2, task]
+
+    expect(clampLanePreviewRect(lane2 as unknown as Node, { x: 70, y: 80, width: 470, height: 220 }, 'n')).toEqual({
+      x: 70,
+      y: 100,
+      width: 470,
+      height: 200,
+    })
+    expect(clampLanePreviewRect(lane1 as unknown as Node, { x: 70, y: 120, width: 470, height: 40 }, 'n')).toEqual({
+      x: 70,
+      y: 100,
+      width: 470,
+      height: 60,
+    })
+    expect(clampLanePreviewRect(lane1 as unknown as Node, { x: 70, y: 40, width: 470, height: 240 }, 's')).toEqual({
+      x: 70,
+      y: 40,
+      width: 470,
+      height: 200,
+    })
+    expect(clampLanePreviewRect(lane1 as unknown as Node, { x: 250, y: 40, width: 290, height: 120 }, 'w')).toEqual({
+      x: 180,
+      y: 40,
+      width: 360,
+      height: 120,
+    })
+    expect(clampLanePreviewRect(lane1 as unknown as Node, { x: 70, y: 40, width: 200, height: 120 }, 'e')).toEqual({
+      x: 70,
+      y: 40,
+      width: 230,
+      height: 120,
+    })
   })
 
   it('Pool 边界 resize 应只更新 preview，提交后再同步 Pool 与贴边 Lane', () => {
@@ -920,9 +1240,215 @@ describe('setupSwimlaneResize', () => {
     dispose()
   })
 
+  it('stale live position 应覆盖 north/south/east/west 分支，并在 Pool 场景恢复子 Lane', () => {
+    const handlers: Record<string, (args: any) => void> = {}
+    const container = document.createElement('div')
+
+    const poolChild = createMockResizeNode('pool-child', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 400,
+    })
+    const pool = createMockResizeNode('pool-stale-position', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 900,
+      height: 400,
+    }, { children: [poolChild] })
+    poolChild.__setParent(pool)
+    const northLane = createMockResizeNode('lane-stale-n', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    const southLane = createMockResizeNode('lane-stale-s', BPMN_LANE, {
+      x: 70,
+      y: 260,
+      width: 870,
+      height: 180,
+    })
+    const eastLane = createMockResizeNode('lane-stale-e', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+
+    const graph = {
+      container,
+      options: {},
+      on: vi.fn((event: string, handler: (args: any) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getPlugin: vi.fn(() => null),
+      getNodes: vi.fn(() => [pool, poolChild, northLane, southLane, eastLane]),
+      startBatch: vi.fn(),
+      stopBatch: vi.fn(),
+    } as unknown as Graph
+
+    const dispose = setupSwimlaneResize(graph)
+
+    handlers['node:resize']({ node: northLane, options: { direction: 'top', ui: true } })
+    invokePreviewResize(northLane as unknown as Node, 870, 160, 'top')
+    handlers['node:change:position']({
+      node: northLane,
+      previous: { x: 70, y: 40 },
+      options: { direction: 'top', relativeDirection: 'top', ui: true },
+    })
+
+    handlers['node:resize']({ node: southLane, options: { direction: 'bottom', ui: true } })
+    invokePreviewResize(southLane as unknown as Node, 870, 140, 'bottom')
+    handlers['node:change:position']({
+      node: southLane,
+      previous: { x: 70, y: 260 },
+      options: { direction: 'bottom', relativeDirection: 'bottom', ui: true },
+    })
+
+    handlers['node:resize']({ node: pool, options: { direction: 'left', ui: true } })
+    invokePreviewResize(pool as unknown as Node, 840, 400, 'left')
+    poolChild.setPosition(200, 100)
+    handlers['node:change:position']({
+      node: pool,
+      previous: { x: 40, y: 40 },
+      options: { direction: 'left', relativeDirection: 'left', ui: true },
+    })
+    expect(poolChild.getPosition()).toEqual({ x: 70, y: 40 })
+
+    handlers['node:resize']({ node: eastLane, options: { direction: 'right', ui: true } })
+    invokePreviewResize(eastLane as unknown as Node, 810, 200, 'right')
+    handlers['node:change:position']({
+      node: eastLane,
+      previous: { x: 70, y: 40 },
+      options: { direction: 'right', relativeDirection: 'right', ui: true },
+    })
+
+    dispose()
+  })
+
+  it('stale live size 应覆盖 south/east 轴漂移与 north/west/east 反向放大回退', () => {
+    const handlers: Record<string, (args: any) => void> = {}
+    const container = document.createElement('div')
+    const southLane = createMockResizeNode('lane-stale-size-s', BPMN_LANE, {
+      x: 70,
+      y: 260,
+      width: 870,
+      height: 180,
+    })
+    const eastShiftLane = createMockResizeNode('lane-stale-size-e-shift', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    const northLane = createMockResizeNode('lane-stale-size-n', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    const westLane = createMockResizeNode('lane-stale-size-w', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    const eastGrowLane = createMockResizeNode('lane-stale-size-e-grow', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 200,
+    })
+    const graph = {
+      container,
+      options: {},
+      on: vi.fn((event: string, handler: (args: any) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getPlugin: vi.fn(() => null),
+      getNodes: vi.fn(() => [southLane, eastShiftLane, northLane, westLane, eastGrowLane]),
+      startBatch: vi.fn(),
+      stopBatch: vi.fn(),
+    } as unknown as Graph
+
+    const dispose = setupSwimlaneResize(graph)
+
+    handlers['node:resize']({ node: southLane, options: { direction: 'bottom', ui: true } })
+    invokePreviewResize(southLane as unknown as Node, 870, 140, 'bottom')
+    southLane.setSize(870, 260)
+    handlers['node:change:size']({
+      node: southLane,
+      previous: undefined,
+      options: { direction: 'bottom', relativeDirection: 'bottom', ui: true },
+    })
+
+    handlers['node:resize']({ node: eastShiftLane, options: { direction: 'right', ui: true } })
+    invokePreviewResize(eastShiftLane as unknown as Node, 930, 200, 'right')
+    eastShiftLane.setPosition(40, 40)
+    eastShiftLane.setSize(930, 200)
+    handlers['node:change:size']({
+      node: eastShiftLane,
+      previous: { width: 870, height: 200 },
+      options: { direction: 'right', relativeDirection: 'right', ui: true },
+    })
+
+    handlers['node:resize']({ node: northLane, options: { direction: 'top', ui: true } })
+    invokePreviewResize(northLane as unknown as Node, 870, 160, 'top')
+    northLane.setPosition(70, 20)
+    northLane.setSize(870, 220)
+    handlers['node:change:size']({
+      node: northLane,
+      previous: { width: 870, height: 160 },
+      options: { direction: 'top', relativeDirection: 'top', ui: true },
+    })
+
+    handlers['node:resize']({ node: westLane, options: { direction: 'left', ui: true } })
+    invokePreviewResize(westLane as unknown as Node, 810, 200, 'left')
+    westLane.setPosition(40, 40)
+    westLane.setSize(900, 200)
+    handlers['node:change:size']({
+      node: westLane,
+      previous: { width: 810, height: 200 },
+      options: { direction: 'left', relativeDirection: 'left', ui: true },
+    })
+
+    handlers['node:resize']({ node: eastGrowLane, options: { direction: 'right', ui: true } })
+    invokePreviewResize(eastGrowLane as unknown as Node, 810, 200, 'right')
+    eastGrowLane.setSize(930, 200)
+    handlers['node:change:size']({
+      node: eastGrowLane,
+      previous: undefined,
+      options: { direction: 'right', relativeDirection: 'right', ui: true },
+    })
+
+    dispose()
+  })
+
   it('内部方向与矩形辅助函数应覆盖别名、混合方向与标准化逻辑', () => {
+    expect(resizeTest.resolveRawResizeDirection(undefined)).toBeNull()
+    expect(resizeTest.resolveRawResizeDirection('top')).toBe('n')
+    expect(resizeTest.resolveRawResizeDirection('right')).toBe('e')
+    expect(resizeTest.resolveRawResizeDirection('bottom')).toBe('s')
+    expect(resizeTest.resolveRawResizeDirection('left')).toBe('w')
     expect(resizeTest.resolveRawResizeDirection('top-left')).toBe('nw')
+    expect(resizeTest.resolveRawResizeDirection('left-top')).toBe('nw')
+    expect(resizeTest.resolveRawResizeDirection('top-right')).toBe('ne')
+    expect(resizeTest.resolveRawResizeDirection('right-top')).toBe('ne')
+    expect(resizeTest.resolveRawResizeDirection('bottom-right')).toBe('se')
     expect(resizeTest.resolveRawResizeDirection('right-bottom')).toBe('se')
+    expect(resizeTest.resolveRawResizeDirection('bottom-left')).toBe('sw')
+    expect(resizeTest.resolveRawResizeDirection('left-bottom')).toBe('sw')
+    expect(resizeTest.resolveRawResizeDirection('n')).toBe('n')
+    expect(resizeTest.resolveRawResizeDirection('e')).toBe('e')
+    expect(resizeTest.resolveRawResizeDirection('s')).toBe('s')
+    expect(resizeTest.resolveRawResizeDirection('w')).toBe('w')
+    expect(resizeTest.resolveRawResizeDirection('ne')).toBe('ne')
+    expect(resizeTest.resolveRawResizeDirection('nw')).toBe('nw')
+    expect(resizeTest.resolveRawResizeDirection('se')).toBe('se')
+    expect(resizeTest.resolveRawResizeDirection('sw')).toBe('sw')
     expect(resizeTest.resolveRawResizeDirection('unknown')).toBeNull()
     expect(resizeTest.resolveResizeDirection({ direction: 'top', relativeDirection: 'top-left' })).toBe('nw')
 
@@ -931,6 +1457,8 @@ describe('setupSwimlaneResize', () => {
 
     expect(resizeTest.hasHorizontalResizeChange(originalRect, previewRect)).toBe(true)
     expect(resizeTest.hasVerticalResizeChange(originalRect, previewRect)).toBe(true)
+    expect(resizeTest.hasHorizontalResizeChange(originalRect, { ...originalRect, width: 930 })).toBe(true)
+    expect(resizeTest.hasVerticalResizeChange(originalRect, { ...originalRect, height: 220 })).toBe(true)
     expect(resizeTest.isTranslationOnlyPreviewUpdate(
       { x: 70, y: 110, width: 1250, height: 375 },
       { x: 70, y: 250, width: 1250, height: 375 },
@@ -940,7 +1468,11 @@ describe('setupSwimlaneResize', () => {
       { x: 70, y: 250, width: 1250, height: 375 },
     )).toEqual({ x: 70, y: 110, width: 1250, height: 375 })
     expect(resizeTest.pickHorizontalDirection('nw')).toBe('w')
+    expect(resizeTest.pickHorizontalDirection('e')).toBe('e')
+    expect(resizeTest.pickHorizontalDirection('s')).toBeNull()
+    expect(resizeTest.pickVerticalDirection('n')).toBe('n')
     expect(resizeTest.pickVerticalDirection('se')).toBe('s')
+    expect(resizeTest.pickVerticalDirection('e')).toBeNull()
     expect(resizeTest.isVerticalLaneResize('ne')).toBe(true)
     expect(resizeTest.sameRect(originalRect, { ...originalRect })).toBe(true)
     expect(resizeTest.normalizeResizeRect(originalRect, previewRect, 'n')).toEqual({
@@ -979,6 +1511,13 @@ describe('setupSwimlaneResize', () => {
     expect(
       resizeTest.resolveResizeDirection({ relativeDirection: 'bottom' }),
     ).toBe('s')
+    expect(
+      resizeTest.buildResizeRectFromLivePosition(
+        { x: 70, y: 40, width: 870, height: 200 },
+        { x: 120, y: 80, width: 820, height: 160 },
+        'se',
+      ),
+    ).toEqual({ x: 70, y: 40, width: 870, height: 200 })
   })
 
   it('内部 Pool/Lane 辅助函数应同步边界、兄弟泳道和快照恢复', () => {
@@ -1033,6 +1572,9 @@ describe('setupSwimlaneResize', () => {
     expect(
       resizeTest.buildPoolRectFromLanePreview(lane1, pool, { x: 10, y: 20, width: 930, height: 140 }, 'nw'),
     ).toEqual({ x: -20, y: 20, width: 960, height: 420 })
+    expect(
+      resizeTest.buildPoolRectFromLanePreview(lane1, pool, { x: 70, y: 40, width: 930, height: 120 }, 'e'),
+    ).toEqual({ x: 40, y: 40, width: 960, height: 400 })
     expect(resizeTest.isBoundaryLane(lane1, 'top')).toBe(true)
     expect(resizeTest.isBoundaryLane(lane3, 'bottom')).toBe(true)
     expect(
@@ -1110,6 +1652,89 @@ describe('setupSwimlaneResize', () => {
         }),
       } as unknown as Node),
     ).toBeNull()
+    expect(
+      resizeTest.computeSiblingResizeAdjustments(
+        {
+          id: 'orphan-root-lane',
+          shape: BPMN_LANE,
+          getParent: () => null,
+          getPosition: () => ({ x: 70, y: 40 }),
+          getSize: () => ({ width: 870, height: 120 }),
+        } as unknown as Node,
+        { x: 70, y: 40, width: 870, height: 120 },
+        { x: 70, y: 20, width: 870, height: 160 },
+      ),
+    ).toEqual([])
+  })
+
+  it('后代快照与兄弟排序辅助函数应恢复嵌套泳道树的原始几何', () => {
+    const pool = createMockResizeNode('pool', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 900,
+      height: 400,
+    })
+    const laneUpper = createMockResizeNode('lane-upper', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 120,
+    }, { parent: pool })
+    const laneLower = createMockResizeNode('lane-lower', BPMN_LANE, {
+      x: 70,
+      y: 220,
+      width: 870,
+      height: 220,
+    }, { parent: pool })
+    const task = createMockResizeNode('task-1', BPMN_USER_TASK, {
+      x: 180,
+      y: 260,
+      width: 120,
+      height: 60,
+    }, { parent: laneLower })
+    const nestedLane = createMockResizeNode('lane-nested', BPMN_LANE, {
+      x: 100,
+      y: 320,
+      width: 780,
+      height: 80,
+    }, { parent: laneLower })
+
+    laneLower.getChildren = () => [task, nestedLane, { isNode: () => false }]
+    pool.getChildren = () => [laneLower, laneUpper]
+
+    expect(resizeTest.getLaneSiblingsSorted(pool as unknown as Node).map((lane) => lane.id)).toEqual([
+      'lane-upper',
+      'lane-lower',
+    ])
+
+    const descendantSnapshots = resizeTest.captureDescendantNodeRects(laneLower as unknown as Node)
+    task.setPosition(240, 340)
+    task.setSize(180, 90)
+    nestedLane.setPosition(130, 350)
+    nestedLane.setSize(730, 70)
+    resizeTest.restoreDescendantNodeRects(descendantSnapshots)
+
+    expect(task.getPosition()).toEqual({ x: 180, y: 260 })
+    expect(task.getSize()).toEqual({ width: 120, height: 60 })
+    expect(nestedLane.getPosition()).toEqual({ x: 100, y: 320 })
+    expect(nestedLane.getSize()).toEqual({ width: 780, height: 80 })
+    expect(resizeTest.captureStablePreviewOriginalRect({
+      shape: BPMN_LANE,
+      getParent: () => ({
+        isNode: () => true,
+        getPosition: () => ({ x: 40, y: 40 }),
+        getSize: () => ({ width: 900, height: 400 }),
+        getChildren: () => [laneUpper],
+      }),
+      getPosition: () => ({ x: 70, y: 500, width: 0, height: 0 }),
+      getSize: () => ({ width: 870, height: 100 }),
+      id: 'detached-lane',
+    } as unknown as Node)).toEqual({
+      x: 70,
+      y: 500,
+      width: 870,
+      height: 100,
+    })
   })
 
   it('内部提交辅助函数应处理空泳道、单泳道与内容稳定化分支', () => {
@@ -1132,6 +1757,9 @@ describe('setupSwimlaneResize', () => {
     }, 'n')
     expect(emptyPool.getPosition()).toEqual({ x: 40, y: 60 })
     expect(emptyPool.getSize()).toEqual({ width: 180, height: 140 })
+
+    resizeTest.commitPoolResize(graph, emptyPool, { x: 40, y: 60, width: 220, height: 140 })
+    expect(emptyPool.getSize()).toEqual({ width: 220, height: 140 })
 
     const pool = graph.addNode({
       id: 'pool-1',
@@ -1193,6 +1821,353 @@ describe('setupSwimlaneResize', () => {
     resizeTest.commitResize(batchGraph, standaloneTask, { x: 480, y: 480, width: 140, height: 80 }, 'se')
     expect(batchGraph.startBatch).not.toHaveBeenCalled()
     expect(batchGraph.stopBatch).not.toHaveBeenCalled()
+  })
+
+  it('Pool preview clamp 应覆盖 east 方向下限与非法 lane inset 的回退', () => {
+    const malformedLane = {
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getPosition: () => ({ x: Number.NaN, y: 40 }),
+      getSize: () => ({ width: 120, height: 120 }),
+    }
+    const pool = {
+      shape: BPMN_POOL,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 180, height: 120 }),
+      getChildren: () => [malformedLane],
+    } as unknown as Node
+
+    expect(
+      resizeTest.clampPoolPreviewRect(
+        pool,
+        { x: 40, y: 40, width: 60, height: 120 },
+        'e',
+        { x: 40, y: 40, width: 180, height: 120 },
+      ),
+    ).toEqual({ x: 40, y: 40, width: 90, height: 120 })
+    expect(
+      resizeTest.clampPoolPreviewRect(
+        pool,
+        { x: 90, y: 40, width: 90, height: 120 },
+        'w',
+        { x: 40, y: 40, width: 180, height: 120 },
+      ),
+    ).toEqual({ x: 90, y: 40, width: 90, height: 120 })
+  })
+
+  it('Pool 顶边稳定、Lane 同步与重排 helper 应覆盖空集合、单 Lane 与多 Lane 场景', () => {
+    const graph = trackGraph(createBehaviorTestGraph())
+    const emptyPool = graph.addNode({
+      id: 'empty-pool',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 300,
+      height: 180,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    resizeTest.syncPoolLaneFrame(emptyPool)
+    resizeTest.restackCommittedPoolLanes(emptyPool)
+
+    const pool = graph.addNode({
+      id: 'pool-helper',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 100,
+      width: 900,
+      height: 300,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane1 = graph.addNode({
+      id: 'lane-helper-1',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 100,
+      width: 870,
+      height: 120,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane2 = graph.addNode({
+      id: 'lane-helper-2',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 220,
+      width: 870,
+      height: 180,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    pool.embed(lane1)
+    pool.embed(lane2)
+
+    resizeTest.syncPoolLanes(pool, { x: 40, y: 100, width: 900, height: 300 }, { x: 40, y: 80, width: 960, height: 340 })
+    expect(lane1.getPosition()).toEqual({ x: 70, y: 80 })
+    expect(lane2.getSize().width).toBe(930)
+
+    resizeTest.syncPoolLaneFrame(pool)
+    expect(lane1.getPosition().x).toBe(70)
+    expect(lane2.getSize().width).toBe(870)
+
+    lane1.setSize(930, 140)
+    lane2.setPosition(70, 240)
+    lane2.setSize(930, 200)
+    resizeTest.restackCommittedPoolLanes(pool)
+    expect(lane1.getPosition()).toEqual({ x: 70, y: 100 })
+    expect(lane2.getPosition()).toEqual({ x: 70, y: 240 })
+
+    const singleLanePool = graph.addNode({
+      id: 'single-lane-pool',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 500,
+      height: 240,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const singleLane = graph.addNode({
+      id: 'single-lane',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 470,
+      height: 240,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    singleLanePool.embed(singleLane)
+    resizeTest.syncPoolLanes(singleLanePool, { x: 40, y: 40, width: 500, height: 240 }, { x: 40, y: 20, width: 520, height: 280 })
+    expect(singleLane.getPosition()).toEqual({ x: 70, y: 20 })
+    expect(singleLane.getSize()).toEqual({ width: 490, height: 280 })
+
+    const stablePool = graph.addNode({
+      id: 'stable-pool',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 400,
+      height: 240,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const stableLane = graph.addNode({
+      id: 'stable-lane',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 370,
+      height: 240,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    stablePool.embed(stableLane)
+    resizeTest.stabilizePoolTopByContent(graph, stablePool)
+    expect(stablePool.getPosition()).toEqual({ x: 40, y: 40 })
+  })
+
+  it('Pool preview clamp 在 north 与 west 方向应受内容边界钳制', () => {
+    const pool = createMockResizeNode('pool-clamp', BPMN_POOL, {
+      x: 40,
+      y: 100,
+      width: 400,
+      height: 220,
+    }, {
+      children: [createMockResizeNode('lane', BPMN_LANE, { x: 70, y: 100, width: 370, height: 220 })],
+      data: { bpmn: { isHorizontal: true } },
+    })
+
+    expect(resizeTest.clampPoolPreviewRect(
+      pool as unknown as Node,
+      { x: 40, y: 180, width: 400, height: 140 },
+      'n',
+      { x: 40, y: 100, width: 400, height: 220 },
+      {
+        poolMin: { width: 200, height: 120 },
+        poolContent: { x: 120, y: 60, width: 80, height: 80 },
+        contentInsetLeft: 30,
+      } as any,
+    ).y).toBe(60)
+    expect(resizeTest.clampPoolPreviewRect(
+      pool as unknown as Node,
+      { x: 200, y: 100, width: 240, height: 220 },
+      'w',
+      { x: 40, y: 100, width: 400, height: 220 },
+      {
+        poolMin: { width: 200, height: 120 },
+        poolContent: { x: 150, y: 120, width: 80, height: 60 },
+        contentInsetLeft: 30,
+      } as any,
+    ).x).toBe(120)
+  })
+
+  it('边界 Lane 判定在缺少父节点或没有泳道兄弟时应返回 false', () => {
+    const detachedLane = createMockResizeNode('lane-detached', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 120,
+    })
+    detachedLane.__setParent(null)
+
+    const parent = {
+      isNode: () => true,
+      getChildren: () => [],
+    }
+    const loneLane = createMockResizeNode('lane-lone', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 120,
+    }, { parent })
+
+    expect(resizeTest.isBoundaryLane(detachedLane as Node, 'top')).toBe(false)
+    expect(resizeTest.isBoundaryLane(loneLane as Node, 'bottom')).toBe(false)
+  })
+
+  it('原始矩形与稳定化辅助函数应覆盖 undefined previous、首尾 Lane 与空内容/无 Lane 分支', () => {
+    expect(resizeTest.buildOriginalRectFromLiveSizeChange(
+      { x: 70, y: 40, width: 870, height: 200 },
+      undefined,
+      'se',
+    )).toEqual({ x: 70, y: 40, width: 870, height: 200 })
+    expect(resizeTest.buildOriginalRectFromLivePositionChange(
+      { x: 70, y: 40, width: 870, height: 200 },
+      undefined,
+      'se',
+    )).toEqual({ x: 70, y: 40, width: 870, height: 200 })
+    expect(resizeTest.reconcileOriginalRectWithLiveSizeChange(
+      { x: 70, y: 40, width: 870, height: 200 },
+      undefined,
+    )).toEqual({ x: 70, y: 40, width: 870, height: 200 })
+    expect(resizeTest.reconcileOriginalRectWithLivePositionChange(
+      { x: 70, y: 40, width: 870, height: 200 },
+      undefined,
+    )).toEqual({ x: 70, y: 40, width: 870, height: 200 })
+
+    const pool = createMockResizeNode('stable-helper-pool', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 900,
+      height: 400,
+    })
+    const firstLane = createMockResizeNode('stable-helper-first', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 120,
+    }, { parent: pool })
+    const lastLane = createMockResizeNode('stable-helper-last', BPMN_LANE, {
+      x: 70,
+      y: 160,
+      width: 870,
+      height: 280,
+    }, { parent: pool })
+    pool.getChildren = () => [firstLane, lastLane]
+
+    expect(resizeTest.captureStablePreviewOriginalRect(firstLane as unknown as Node)).toEqual({
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 120,
+    })
+    expect(resizeTest.captureStablePreviewOriginalRect(lastLane as unknown as Node)).toEqual({
+      x: 70,
+      y: 160,
+      width: 870,
+      height: 280,
+    })
+
+    const graph = trackGraph(createBehaviorTestGraph())
+    const emptyPool = graph.addNode({
+      id: 'stable-helper-empty-pool',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 260,
+      height: 160,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    resizeTest.stabilizePoolTopByContent(graph, emptyPool)
+    expect(emptyPool.getPosition()).toEqual({ x: 40, y: 40 })
+
+    const alignedPool = graph.addNode({
+      id: 'stable-helper-aligned-pool',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 260,
+      height: 160,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const alignedTask = graph.addNode({
+      id: 'stable-helper-aligned-task',
+      shape: BPMN_USER_TASK,
+      x: 120,
+      y: 40,
+      width: 80,
+      height: 40,
+    })
+    alignedPool.embed(alignedTask)
+    resizeTest.stabilizePoolTopByContent(graph, alignedPool)
+    expect(alignedPool.getPosition()).toEqual({ x: 40, y: 40 })
+
+    const taskOnlyPool = graph.addNode({
+      id: 'stable-helper-task-pool',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 120,
+      width: 260,
+      height: 160,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const task = graph.addNode({
+      id: 'stable-helper-task',
+      shape: BPMN_USER_TASK,
+      x: 120,
+      y: 80,
+      width: 80,
+      height: 40,
+    })
+    taskOnlyPool.embed(task)
+    resizeTest.stabilizePoolTopByContent(graph, taskOnlyPool)
+    expect(taskOnlyPool.getPosition()).toEqual({ x: 40, y: 80 })
+
+    const layeredPool = graph.addNode({
+      id: 'stable-helper-layered-pool',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 140,
+      width: 400,
+      height: 220,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const layeredLaneTop = graph.addNode({
+      id: 'stable-helper-layered-top',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 140,
+      width: 370,
+      height: 100,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const layeredLaneBottom = graph.addNode({
+      id: 'stable-helper-layered-bottom',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 240,
+      width: 370,
+      height: 120,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const layeredTask = graph.addNode({
+      id: 'stable-helper-layered-task',
+      shape: BPMN_USER_TASK,
+      x: 160,
+      y: 100,
+      width: 80,
+      height: 40,
+    })
+    layeredPool.embed(layeredLaneTop)
+    layeredPool.embed(layeredLaneBottom)
+    layeredLaneTop.embed(layeredTask)
+    resizeTest.stabilizePoolTopByContent(graph, layeredPool)
+    expect(layeredPool.getPosition()).toEqual({ x: 40, y: 100 })
+    expect(layeredLaneTop.getPosition()).toEqual({ x: 70, y: 100 })
   })
 
   it('Lane 提交导致 Pool 左边界变化时，应先把新内容边界投影到兄弟 Lane', () => {
@@ -1581,9 +2556,30 @@ describe('setupSwimlaneResize', () => {
     const graph = {
       getPlugin: vi.fn(() => transform),
     } as unknown as Graph
+    const pool = {
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getChildren: () => [],
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 400, height: 240 }),
+      getData: () => ({ bpmn: { isHorizontal: true } }),
+    } as unknown as Node
+    const lane = {
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getChildren: () => [],
+      getParent: () => pool,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 370, height: 240 }),
+      getData: () => ({ bpmn: { isHorizontal: true } }),
+    } as unknown as Node
 
     const saved = patchTransformResizing(graph)
     expect(saved).toEqual({ minWidth: undefined, minHeight: undefined })
+    expect((transform.options.resizing as { minWidth: (node: Node) => number }).minWidth(pool)).toBeGreaterThan(0)
+    expect((transform.options.resizing as { minHeight: (node: Node) => number }).minHeight(pool)).toBeGreaterThan(0)
+    expect((transform.options.resizing as { minWidth: (node: Node) => number }).minWidth(lane)).toBeGreaterThanOrEqual(60)
+    expect((transform.options.resizing as { minHeight: (node: Node) => number }).minHeight(lane)).toBeGreaterThanOrEqual(60)
 
     restoreTransformResizing(graph, saved)
 

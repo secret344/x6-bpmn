@@ -175,11 +175,6 @@ export function setupSwimlaneResize(
     direction: ResizeDirection,
     originalRect: Rect,
   ): ResizePreviewState => {
-    const existing = previewStates.get(node.id)
-    if (existing) {
-      return existing
-    }
-
     const created: ResizePreviewState = {
       node,
       direction,
@@ -565,10 +560,7 @@ export function patchTransformResizing(graph: Graph): TransformResizingSaved | n
     if (isPoolShape(node.shape)) {
       return computePoolMinSize(node).width
     }
-    if (isLaneShape(node.shape)) {
       return computeLaneMinSize(node).width
-    }
-    return 0
   }
 
   resizing.minHeight = function (this: Graph, node: Node): number {
@@ -576,10 +568,7 @@ export function patchTransformResizing(graph: Graph): TransformResizingSaved | n
     if (isPoolShape(node.shape)) {
       return computePoolMinSize(node).height
     }
-    if (isLaneShape(node.shape)) {
       return computeLaneResizeMinHeight(node)
-    }
-    return 0
   }
 
   return saved
@@ -815,7 +804,7 @@ function clampPreviewRect(
   node: Node,
   previewRect: Rect,
   direction: ResizeDirection,
-  currentRect: Rect = nodeRect(node),
+  currentRect: Rect,
   poolPreviewConstraintSnapshot: PoolPreviewConstraintSnapshot | null = null,
 ): Rect {
   if (isLaneShape(node.shape)) {

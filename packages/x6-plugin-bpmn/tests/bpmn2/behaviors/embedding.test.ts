@@ -69,6 +69,14 @@ describe('embedding helpers', () => {
     expect(resolveContainingBpmnParents(graph as never, lane as never).map((node) => node.id)).toEqual(['pool'])
   })
 
+  it('没有合法包含容器时 findContainingBpmnParent 应返回 null', () => {
+    const task = createMockNode('task', BPMN_USER_TASK, { x: 160, y: 110, width: 100, height: 60 })
+    const graph = { getNodes: () => [task] } as const
+
+    expect(findContainingBpmnParent(graph as never, task as never)).toBeNull()
+    expect(resolveContainingBpmnParents(graph as never, task as never)).toEqual([])
+  })
+
   it('边界事件应选最近且合法的宿主，并在超出阈值时返回空', () => {
     const boundary = createMockNode('boundary', BPMN_BOUNDARY_EVENT_TIMER, { x: 182, y: 82, width: 36, height: 36 })
     const task = createMockNode('task', BPMN_USER_TASK, { x: 100, y: 100, width: 200, height: 100 })

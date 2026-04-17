@@ -9,6 +9,8 @@ import {
   importBpmnXml,
   addLaneToPool,
   resolveBpmnEmbeddingTargets,
+  createBpmnValidateConnectionWithResult,
+  createBpmnValidateEdgeWithResult,
   BPMN_BOUNDARY_EVENT_TIMER,
   BPMN_END_EVENT,
   BPMN_EXCLUSIVE_GATEWAY,
@@ -96,6 +98,13 @@ type EdgeSnapshot = {
   targetId: string | null
 }
 
+type ConnectResult = {
+  ok: boolean
+  edgeId: string | null
+  shape: string
+  reason?: string
+}
+
 declare global {
   interface Window {
     __x6PluginBrowserHarness?: {
@@ -119,6 +128,12 @@ declare global {
       getNodeSnapshot: (id: string) => NodeSnapshot
       getPoolLaneSnapshots: (poolId: string) => NodeSnapshot[]
       getSelectedCellIds: () => string[]
+      connectNodes: (args: {
+        sourceId: string
+        sourceGroup: 'left' | 'right' | 'top' | 'bottom'
+        targetId: string
+        targetGroup: 'left' | 'right' | 'top' | 'bottom'
+      }) => ConnectResult
       getEdgeSnapshotByShape: (shape: string) => EdgeSnapshot
       getEdgeCountByShape: (shape: string) => number
       roundtripXml: () => Promise<string>
@@ -134,6 +149,8 @@ if (!container) {
 }
 
 let graph!: Graph
+const validateConnectionWithResult = createBpmnValidateConnectionWithResult(() => currentEdgeShape)
+const validateEdgeWithResult = createBpmnValidateEdgeWithResult(() => currentEdgeShape)
 
 graph = new Graph({
   container,
@@ -274,6 +291,82 @@ function getPoolLaneSnapshots(poolId: string): NodeSnapshot[] {
         parentId: node.getParent()?.id ?? null,
       }
     })
+}
+
+function connectNodes(args: {
+  sourceId: string
+  sourceGroup: 'left' | 'right' | 'top' | 'bottom'
+  targetId: string
+  targetGroup: 'left' | 'right' | 'top' | 'bottom'
+}): ConnectResult {
+  const sourceNode = graph.getCellById(args.sourceId)
+  const targetNode = graph.getCellById(args.targetId)
+
+  if (!sourceNode?.isNode?.() || !targetNode?.isNode?.()) {
+    return {
+      ok: false,
+      edgeId: null,
+      shape: currentEdgeShape,
+      reason: '源节点或目标节点不存在',
+    }
+  }
+
+  const sourcePortId = resolvePortIdByGroup(sourceNode as Node, args.sourceGroup)
+  const targetPortId = resolvePortIdByGroup(targetNode as Node, args.targetGroup)
+
+  const edge = graph.createEdge({
+    shape: currentEdgeShape,
+    source: { cell: args.sourceId, port: sourcePortId },
+    target: { cell: args.targetId, port: targetPortId },
+  })
+
+  const targetMagnet = document.querySelector(
+    `.x6-node[data-cell-id="${args.targetId}"] .x6-port-${args.targetGroup} .x6-port-body`,
+  ) ?? document.createElement('div')
+
+  const connectionResult = validateConnectionWithResult({
+    edge,
+    sourceCell: sourceNode,
+    targetCell: targetNode,
+    sourcePort: sourcePortId,
+    targetPort: targetPortId,
+    targetMagnet,
+  })
+
+  if (!connectionResult.valid) {
+    edge.remove()
+    return {
+      ok: false,
+      edgeId: null,
+      shape: currentEdgeShape,
+      reason: connectionResult.reason,
+    }
+  }
+
+  graph.addEdge(edge)
+
+  const edgeResult = validateEdgeWithResult({ edge })
+
+  if (!edgeResult.valid) {
+    edge.remove()
+    return {
+      ok: false,
+      edgeId: null,
+      shape: currentEdgeShape,
+      reason: edgeResult.reason,
+    }
+  }
+
+  return {
+    ok: true,
+    edgeId: edge.id,
+    shape: currentEdgeShape,
+  }
+}
+
+function resolvePortIdByGroup(node: Node, group: 'left' | 'right' | 'top' | 'bottom'): string {
+  const port = node.getPorts?.().find((candidate) => candidate.group === group)
+  return port?.id ?? group
 }
 
 function getSelectedCellIds(): string[] {
@@ -1179,6 +1272,7 @@ window.__x6PluginBrowserHarness = {
   getNodeSnapshot,
   getPoolLaneSnapshots,
   getSelectedCellIds,
+  connectNodes,
   getEdgeSnapshotByShape,
   getEdgeCountByShape,
   roundtripXml,

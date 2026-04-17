@@ -393,6 +393,7 @@ describe('默认节点外观辅助函数', () => {
   it('应返回 BPMN 节点默认尺寸', () => {
     expect(resolveBpmnNodeSize('bpmn-pool')).toEqual({ width: 400, height: 200 })
     expect(resolveBpmnNodeSize('bpmn-lane')).toEqual({ width: 370, height: 100 })
+    expect(resolveBpmnNodeSize('bpmn-group')).toEqual({ width: 160, height: 100 })
     expect(resolveBpmnNodeSize('bpmn-exclusive-gateway')).toEqual({ width: 50, height: 50 })
     expect(resolveBpmnNodeSize('bpmn-start-event')).toEqual({ width: 36, height: 36 })
     expect(resolveBpmnNodeSize('bpmn-user-task')).toEqual({ width: 100, height: 60 })
@@ -445,6 +446,43 @@ describe('默认节点外观辅助函数', () => {
           processRef: 'Process_1',
         },
       },
+    })
+  })
+
+  it('未传标签且没有 BPMN 默认数据时应只返回尺寸与宿主自定义数据', () => {
+    expect(buildBpmnNodeDefaults('bpmn-user-task')).toEqual({
+      width: 100,
+      height: 60,
+    })
+    expect(buildBpmnNodeDefaults('bpmn-user-task', {
+      data: { owner: 'demo' },
+    })).toEqual({
+      width: 100,
+      height: 60,
+      data: { owner: 'demo' },
+    })
+  })
+
+  it('泳道默认数据应忽略非对象 bpmn 输入并保留默认方向', () => {
+    expect(buildBpmnNodeDefaults('bpmn-lane', {
+      data: { owner: 'demo', bpmn: 'invalid' as any },
+    })).toEqual({
+      width: 370,
+      height: 100,
+      data: {
+        owner: 'demo',
+        bpmn: { isHorizontal: true },
+      },
+    })
+  })
+
+  it('普通节点传入 BPMN 对象时应仅保留传入的 bpmn 数据', () => {
+    expect(buildBpmnNodeDefaults('bpmn-user-task', {
+      data: { bpmn: { assignee: 'demo' } },
+    })).toEqual({
+      width: 100,
+      height: 60,
+      data: { bpmn: { assignee: 'demo' } },
     })
   })
 })

@@ -2,11 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   autoWrapFirstPool,
+  asTRBL,
+  buildLaneResizeConstraintContext,
   clampSwimlaneToContent,
   collectLanes,
   collectFirstPoolWrapTargets,
   computeAutoWrapPoolRect,
   computeLaneContentMinSize,
+  computeLaneResizeMinHeight,
   computeLanesResize,
   computeLaneMinSize,
   computePoolContentRect,
@@ -15,11 +18,16 @@ import {
   computeRequiredSwimlaneRect,
   getLanesRoot,
   normalizeSwimlaneLayers,
+  resizeTRBL,
+  subtractTRBL,
+  trblToRect,
 } from '../../../src/behaviors/swimlane-layout'
 import {
   BPMN_BOUNDARY_EVENT_TIMER,
+  BPMN_EXCLUSIVE_GATEWAY,
   BPMN_LANE,
   BPMN_POOL,
+  BPMN_SEND_TASK,
   BPMN_USER_TASK,
 } from '../../../src/utils/constants'
 
@@ -223,6 +231,86 @@ describe('swimlane-layout helpers', () => {
     })
   })
 
+  it('递归收集内容时应跳过非节点子项，空泳道内容钳制应直接返回 false', () => {
+    const task = createMockNode('task', BPMN_USER_TASK, 180, 120, 110, 60, {
+      children: [{ isNode: () => false }],
+    })
+    const lane = createMockNode('lane', BPMN_LANE, 40, 0, 360, 220, {
+      children: [task, { isNode: () => false }],
+    })
+    const emptyLane = createMockNode('empty-lane', BPMN_LANE, 40, 0, 360, 220)
+
+    expect(computeRequiredSwimlaneRect(lane)).toEqual({
+      x: 150,
+      y: 120,
+      width: 140,
+      height: 60,
+    })
+    expect(clampSwimlaneToContent(emptyLane)).toBe(false)
+  })
+
+  it('右侧 resize 约束应同时考虑祖先 Pool 最小宽度与内容右边界', () => {
+    const task = createMockNode('task', BPMN_USER_TASK, 420, 120, 120, 60)
+    const pool = createMockNode('pool', BPMN_POOL, 40, 40, 500, 260, {
+      children: [task],
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = createMockNode('lane', BPMN_LANE, 70, 40, 470, 260, {
+      parent: pool,
+      data: { bpmn: { isHorizontal: true } },
+    })
+
+    const constraints = computeResizeConstraints(lane, 'e', true)
+
+    expect(constraints.min.right).toBeGreaterThanOrEqual(540)
+  })
+
+  it('顶部 resize 约束在首 Lane 贴 Pool 顶边时应受 Pool 最小高度限制', () => {
+    const pool = createMockNode('pool', BPMN_POOL, 40, 40, 500, 260, {
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = createMockNode('lane', BPMN_LANE, 70, 40, 470, 260, {
+      parent: pool,
+      data: { bpmn: { isHorizontal: true } },
+    })
+
+    const constraints = computeResizeConstraints(lane, 'n', true)
+
+    expect(constraints.max.top).toBeLessThanOrEqual(240)
+  })
+
+  it('顶部 resize 在未贴 Pool 顶边时不应再受 Pool 最小高度钳制，独立 Lane 右侧约束也应可计算', () => {
+    const pool = createMockNode('pool', BPMN_POOL, 40, 40, 500, 260, {
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const shiftedLane = createMockNode('shifted-lane', BPMN_LANE, 70, 80, 470, 180, {
+      parent: pool,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const detachedLane = createMockNode('detached-lane', BPMN_LANE, 70, 40, 470, 180, {
+      data: { bpmn: { isHorizontal: true } },
+    })
+
+    expect(computeResizeConstraints(shiftedLane, 'n', true).max.top).toBe(200)
+    expect(computeResizeConstraints(detachedLane, 'e', true).min.right).toBeUndefined()
+  })
+
+  it('Pool 内容递归收集应跳过非节点子项', () => {
+    const task = createMockNode('task', BPMN_USER_TASK, 180, 120, 110, 60, {
+      children: [{ isNode: () => false }],
+    })
+    const pool = createMockNode('pool', BPMN_POOL, 40, 40, 500, 260, {
+      children: [task],
+    })
+
+    expect(computePoolContentRect(pool)).toEqual({
+      x: 180,
+      y: 120,
+      width: 110,
+      height: 60,
+    })
+  })
+
   it('非泳池泳道节点不应触发内容边界钳制', () => {
     const task = createMockNode('task', BPMN_USER_TASK, 180, 120, 110, 60)
 
@@ -304,6 +392,46 @@ describe('swimlane-layout helpers', () => {
     } as any
 
     expect(() => normalizeSwimlaneLayers(graph)).not.toThrow()
+  })
+
+  it('TRBL 工具与 balanced resize 的未命中分支应返回稳定结果', () => {
+    expect(trblToRect({ top: 40, right: 140, bottom: 120, left: 40 })).toEqual({
+      x: 40,
+      y: 40,
+      width: 100,
+      height: 80,
+    })
+    expect(subtractTRBL(
+      { top: 10, right: 50, bottom: 80, left: 5 },
+      { top: 4, right: 20, bottom: 30, left: 2 },
+    )).toEqual({ top: 6, right: 30, bottom: 50, left: 3 })
+    expect(resizeTRBL(
+      { x: 40, y: 40, width: 100, height: 80 },
+      { top: 10, right: 20, bottom: 30, left: 5 },
+    )).toEqual({ x: 45, y: 50, width: 115, height: 100 })
+    expect(asTRBL({ x: 40, y: 40, width: 100, height: 80 })).toEqual({
+      top: 40,
+      right: 140,
+      bottom: 120,
+      left: 40,
+    })
+
+    const parent = createMockNode('pool', BPMN_POOL, 40, 40, 500, 360)
+    const lane1 = createMockNode('lane-1', BPMN_LANE, 70, 40, 470, 100, { parent })
+    const lane2 = createMockNode('lane-2', BPMN_LANE, 70, 140, 470, 100, { parent })
+    parent.getChildren = () => [lane1, lane2]
+
+    expect(computeLanesResize(
+      {
+        ...lane2,
+        id: 'missing-lane',
+      },
+      { x: 70, y: 120, width: 470, height: 140 },
+    )).toEqual([])
+    expect(computeResizeConstraints(lane2, 'n', false)).toEqual({
+      min: { top: 100 },
+      max: { top: 180 },
+    })
   })
 
   // ============================================================================
@@ -560,6 +688,55 @@ describe('swimlane-layout helpers', () => {
     expect(getLanesRoot(innerLane).id).toBe('pool')
   })
 
+  it('非泳道父节点应终止泳道根回溯，普通父链之上仍可继续找到 Pool', () => {
+    const wrapper = {
+      id: 'wrapper',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => null,
+    }
+    const lane = createMockNode('lane', BPMN_LANE, 70, 40, 470, 180, {
+      parent: wrapper,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const pool = createMockNode('pool', BPMN_POOL, 40, 40, 500, 400)
+    const parentWrapper = {
+      id: 'parent-wrapper',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => pool,
+    }
+    const laneUnderWrapper = createMockNode('lane-under-wrapper', BPMN_LANE, 70, 40, 470, 180, {
+      parent: parentWrapper,
+      data: { bpmn: { isHorizontal: true } },
+    })
+
+    expect(getLanesRoot(lane).id).toBe('lane')
+    expect(computeLaneMinSize(laneUnderWrapper).width).toBe(300)
+  })
+
+  it('遇到非节点父链时应停止回溯祖先 Pool，并支持垂直 Lane 最小高度', () => {
+    const nonNodeParent = {
+      isNode: () => false,
+    }
+    const lane = createMockNode('lane', BPMN_LANE, 70, 40, 470, 180, {
+      parent: nonNodeParent,
+      data: { bpmn: { isHorizontal: false } },
+    })
+
+    expect(getLanesRoot({ ...lane, getParent: () => nonNodeParent } as any).id).toBe('lane')
+    expect(computeLaneMinSize(lane).width).toBe(300)
+    expect(computeLaneResizeMinHeight(lane)).toBeGreaterThan(60)
+    expect(buildLaneResizeConstraintContext(lane).laneTrbl.top).toBe(40)
+  })
+
+  it('缺少 children 的泳道根节点应返回空 Lane 集合', () => {
+    const pool = createMockNode('pool', BPMN_POOL, 40, 40, 500, 400)
+    pool.getChildren = () => undefined as any
+
+    expect(collectLanes(pool)).toEqual([])
+  })
+
   it('应递归计算 Pool 内部所有内容节点的包围盒', () => {
     const taskInLane = createMockNode('task-in-lane', BPMN_USER_TASK, 180, 120, 80, 60)
     const nestedTask = createMockNode('nested-task', BPMN_USER_TASK, 260, 260, 90, 70)
@@ -579,6 +756,59 @@ describe('swimlane-layout helpers', () => {
       width: 170,
       height: 210,
     })
+  })
+
+  it('递归收集内容时应忽略子泳道本身，并在读取子节点异常时安全回退', () => {
+    const nestedLane = createMockNode('nested-lane', BPMN_LANE, 100, 220, 360, 140)
+    nestedLane.getChildren = () => {
+      throw new Error('boom')
+    }
+    const lane = createMockNode('lane', BPMN_LANE, 70, 40, 470, 320, {
+      children: [nestedLane],
+    })
+    const pool = createMockNode('pool', BPMN_POOL, 40, 40, 500, 360, {
+      children: [lane],
+    })
+
+    expect(computePoolContentRect(pool)).toBeNull()
+    expect(computeRequiredSwimlaneRect(lane)).toBeNull()
+    expect(computeLaneContentMinSize(lane)).toEqual({ minWidth: 300, minHeight: 60 })
+  })
+
+  it('首个 Lane 顶边约束应再受 Pool 内容顶部钳制', () => {
+    const task = createMockNode('task', BPMN_USER_TASK, 120, 120, 100, 40)
+    const pool = createMockNode('pool', BPMN_POOL, 40, 40, 400, 400)
+    const lane1 = createMockNode('lane-1', BPMN_LANE, 70, 40, 370, 200, {
+      parent: pool,
+      children: [task],
+    })
+    const lane2 = createMockNode('lane-2', BPMN_LANE, 70, 240, 370, 200, {
+      parent: pool,
+    })
+    pool.getChildren = () => [lane1, lane2]
+
+    const constraints = computeResizeConstraints(lane1, 'n', true)
+
+    expect(constraints.max.top).toBe(120)
+  })
+
+  it('仅剩单条 Lane 时，顶部 resize 应按剩余内容高度而非过度保守的 Pool 高度钳制', () => {
+    const task2 = createMockNode('task-2', BPMN_USER_TASK, 460, 340, 100, 60)
+    const gateway = createMockNode('gateway', BPMN_EXCLUSIVE_GATEWAY, 360, 380, 50, 50)
+    const sendTask = createMockNode('send-task', BPMN_SEND_TASK, 620, 360, 100, 60)
+    const pool = createMockNode('pool', BPMN_POOL, 40, 120, 900, 400, {
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = createMockNode('lane', BPMN_LANE, 70, 120, 870, 400, {
+      parent: pool,
+      children: [gateway, task2, sendTask],
+      data: { bpmn: { isHorizontal: true } },
+    })
+    pool.getChildren = () => [lane]
+
+    const constraints = computeResizeConstraints(lane, 'n', true)
+
+    expect(constraints.max.top).toBe(210)
   })
 
   it('空垂直 Lane 的最小内容尺寸应回退到垂直泳道下限', () => {
@@ -670,6 +900,20 @@ describe('swimlane-layout helpers', () => {
     expect(wrapped.map((node) => node.id)).toEqual(['task'])
     expect(pool.setPosition).toHaveBeenLastCalledWith(134, 104, { bpmnLayout: true })
     expect(pool.resize).toHaveBeenLastCalledWith(172, 92, { bpmnLayout: true })
+  })
+
+  it('自动包裹在缺少 resize 接口时应退化为 setSize', () => {
+    const pool = createMockNode('pool', BPMN_POOL, 0, 0, 180, 120, { withResize: false })
+    const task = createMockNode('task', BPMN_USER_TASK, 180, 120, 110, 60)
+    const graph = {
+      getNodes: () => [pool, task],
+    } as any
+
+    const wrapped = autoWrapFirstPool(graph, pool)
+
+    expect(wrapped.map((node) => node.id)).toEqual(['task'])
+    expect(pool.setPosition).toHaveBeenLastCalledWith(134, 104, { bpmnLayout: true })
+    expect(pool.setSize).toHaveBeenLastCalledWith(172, 92, { bpmnLayout: true })
   })
 
   it('泳道内容越界时应扩展到所需内容边界', () => {

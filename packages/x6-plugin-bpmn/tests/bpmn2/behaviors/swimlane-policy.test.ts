@@ -158,6 +158,15 @@ describe('setupSwimlanePolicy', () => {
     expect(graph.options.translating).toBe(false)
   })
 
+  it('缺少 graph.options 时安装策略应安全返回 dispose', () => {
+    const graph = {} as any
+
+    expect(() => {
+      const dispose = setupSwimlanePolicy(graph)
+      dispose()
+    }).not.toThrow()
+  })
+
   it('应为选中的普通流程节点返回共同父泳道的约束矩形，并与原始 restrict 取交集', () => {
     const pool = {
       id: 'pool-1',
@@ -278,5 +287,238 @@ describe('setupSwimlanePolicy', () => {
     expect(swimlanePolicyTest.resolveSelectionRestrictArea({
       getSelectedCells: () => [pool, foreignTask],
     } as any)).toBeNull()
+  })
+
+  it('普通流程节点多选时应按共同 Pool 或共同泳道解析约束区域', () => {
+    const poolA = {
+      id: 'pool-a',
+      shape: BPMN_POOL,
+      getParent: () => null,
+      isNode: () => true,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 400, height: 260 }),
+    }
+    const poolB = {
+      id: 'pool-b',
+      shape: BPMN_POOL,
+      getParent: () => null,
+      isNode: () => true,
+      getPosition: () => ({ x: 500, y: 40 }),
+      getSize: () => ({ width: 400, height: 260 }),
+    }
+    const lane = {
+      id: 'lane-a',
+      shape: BPMN_LANE,
+      getParent: () => poolA,
+      isNode: () => true,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 370, height: 260 }),
+    }
+    const taskA = {
+      id: 'task-a',
+      shape: BPMN_USER_TASK,
+      getParent: () => lane,
+      isNode: () => true,
+      getPosition: () => ({ x: 120, y: 80 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+    const taskB = {
+      id: 'task-b',
+      shape: BPMN_USER_TASK,
+      getParent: () => lane,
+      isNode: () => true,
+      getPosition: () => ({ x: 260, y: 160 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+    const laneWithoutPool = {
+      id: 'lane-free',
+      shape: BPMN_LANE,
+      getParent: () => null,
+      isNode: () => true,
+      getPosition: () => ({ x: 20, y: 320 }),
+      getSize: () => ({ width: 420, height: 120 }),
+    }
+    const taskWithoutPoolA = {
+      id: 'task-free-a',
+      shape: BPMN_USER_TASK,
+      getParent: () => laneWithoutPool,
+      isNode: () => true,
+      getPosition: () => ({ x: 80, y: 350 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+    const taskWithoutPoolB = {
+      id: 'task-free-b',
+      shape: BPMN_USER_TASK,
+      getParent: () => laneWithoutPool,
+      isNode: () => true,
+      getPosition: () => ({ x: 220, y: 350 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+    const taskInOtherPool = {
+      id: 'task-other-pool',
+      shape: BPMN_USER_TASK,
+      getParent: () => ({
+        id: 'lane-b',
+        shape: BPMN_LANE,
+        getParent: () => poolB,
+        isNode: () => true,
+        getPosition: () => ({ x: 530, y: 40 }),
+        getSize: () => ({ width: 370, height: 260 }),
+      }),
+      isNode: () => true,
+      getPosition: () => ({ x: 580, y: 100 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+
+    expect(swimlanePolicyTest.resolveSelectionRestrictArea({
+      getSelectedCells: () => [taskA, taskB],
+    } as any)).toEqual({ x: 70, y: 40, width: 370, height: 260 })
+    expect(swimlanePolicyTest.resolveSelectionRestrictArea({
+      getSelectedCells: () => [taskWithoutPoolA, taskWithoutPoolB],
+    } as any)).toEqual({ x: 20, y: 320, width: 420, height: 120 })
+    expect(swimlanePolicyTest.resolveSelectionRestrictArea({
+      getSelectedCells: () => [taskA, taskInOtherPool],
+    } as any)).toBeNull()
+  })
+
+  it('节点级约束区域应按泳道类型和父链返回对应矩形', () => {
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      getParent: () => null,
+      isNode: () => true,
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 400, height: 260 }),
+    }
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      getParent: () => pool,
+      isNode: () => true,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 370, height: 260 }),
+    }
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      getParent: () => lane,
+      isNode: () => true,
+      getPosition: () => ({ x: 120, y: 100 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+    const detachedTask = {
+      id: 'task-2',
+      shape: BPMN_USER_TASK,
+      getParent: () => null,
+      isNode: () => true,
+      getPosition: () => ({ x: 520, y: 100 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+    const boundary = {
+      id: 'boundary-1',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      getParent: () => lane,
+      isNode: () => true,
+      getPosition: () => ({ x: 150, y: 90 }),
+      getSize: () => ({ width: 36, height: 36 }),
+    }
+
+    expect(swimlanePolicyTest.resolveNodeRestrictArea(lane as any)).toEqual({
+      x: 70,
+      y: 40,
+      width: 370,
+      height: 260,
+    })
+    expect(swimlanePolicyTest.resolveNodeRestrictArea(task as any)).toEqual({
+      x: 70,
+      y: 40,
+      width: 370,
+      height: 260,
+    })
+    expect(swimlanePolicyTest.resolveNodeRestrictArea(boundary as any)).toBeNull()
+    expect(swimlanePolicyTest.resolveNodeRestrictArea(detachedTask as any)).toBeNull()
+  })
+
+  it('普通流程节点只有泳道父而没有祖先 Pool 时应回退到泳道约束区', () => {
+    const lane = {
+      id: 'lane-free',
+      shape: BPMN_LANE,
+      getParent: () => null,
+      isNode: () => true,
+      getPosition: () => ({ x: 20, y: 320 }),
+      getSize: () => ({ width: 420, height: 120 }),
+    }
+    const task = {
+      id: 'task-free',
+      shape: BPMN_USER_TASK,
+      getParent: () => lane,
+      isNode: () => true,
+      getPosition: () => ({ x: 80, y: 350 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+
+    expect(swimlanePolicyTest.resolveNodeRestrictArea(task as any)).toEqual({
+      x: 20,
+      y: 320,
+      width: 420,
+      height: 120,
+    })
+  })
+
+  it('多选包含非受约束节点或父泳道不一致时应返回 null，并能跨普通父链回溯泳道', () => {
+    const laneA = {
+      id: 'lane-a',
+      shape: BPMN_LANE,
+      getParent: () => null,
+      isNode: () => true,
+      getPosition: () => ({ x: 20, y: 40 }),
+      getSize: () => ({ width: 300, height: 120 }),
+    }
+    const laneB = {
+      id: 'lane-b',
+      shape: BPMN_LANE,
+      getParent: () => null,
+      isNode: () => true,
+      getPosition: () => ({ x: 340, y: 40 }),
+      getSize: () => ({ width: 300, height: 120 }),
+    }
+    const container = {
+      id: 'task-parent',
+      shape: BPMN_USER_TASK,
+      getParent: () => laneA,
+      isNode: () => true,
+    }
+    const taskInLaneA = {
+      id: 'task-a',
+      shape: BPMN_USER_TASK,
+      getParent: () => container,
+      isNode: () => true,
+      getPosition: () => ({ x: 80, y: 60 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+    const taskInLaneB = {
+      id: 'task-b',
+      shape: BPMN_USER_TASK,
+      getParent: () => laneB,
+      isNode: () => true,
+      getPosition: () => ({ x: 380, y: 60 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    }
+    const boundary = {
+      id: 'boundary-1',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      getParent: () => laneA,
+      isNode: () => true,
+      getPosition: () => ({ x: 120, y: 50 }),
+      getSize: () => ({ width: 36, height: 36 }),
+    }
+
+    expect(swimlanePolicyTest.resolveSelectionRestrictArea({
+      getSelectedCells: () => [taskInLaneA, boundary],
+    } as any)).toBeNull()
+    expect(swimlanePolicyTest.resolveSelectionRestrictArea({
+      getSelectedCells: () => [taskInLaneA, taskInLaneB],
+    } as any)).toBeNull()
+    expect(swimlanePolicyTest.findSwimlaneParent(taskInLaneA as any)).toBe(laneA)
   })
 })
