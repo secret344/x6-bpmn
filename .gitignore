@@ -36,5 +36,10 @@ coverage/
 .eslintcache
 .parcel-cache/
 
+# Playwright 平台特定快照残留
+packages/x6-plugin-bpmn/tests/browser/**/*-darwin.png
+packages/x6-plugin-bpmn/tests/browser/**/*-linux.png
+packages/x6-plugin-bpmn/tests/browser/**/*-win32.png
+
 # 浏览器测试运行产物
 packages/x6-plugin-bpmn/tests/browser/artifacts/
