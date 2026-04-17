@@ -16,6 +16,7 @@
  */
 
 import type { Graph, Node, Cell } from '@antv/x6'
+import { getAncestorSwimlane } from '../core/swimlane-membership'
 import {
   BPMN_TASK,
   BPMN_USER_TASK,
@@ -316,8 +317,13 @@ export function setupBoundaryAttach(
 
     // 脱离检测：仅在显式配置有限阈值时允许拖离宿主
     if (snap.distance > detachDistance) {
+      const swimlaneParent = getAncestorSwimlane(host)
       if (node.getParent()?.id === host.id) {
         host.unembed(node)
+      }
+      if (swimlaneParent && node.getParent()?.id !== swimlaneParent.id) {
+        swimlaneParent.embed(node)
+        node.toFront()
       }
       clearBoundaryAttachment(node)
       return

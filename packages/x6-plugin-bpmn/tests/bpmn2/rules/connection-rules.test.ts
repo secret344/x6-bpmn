@@ -1064,6 +1064,18 @@ describe('createBpmnValidateConnectionWithResult', () => {
     expect(result.valid).toBe(true)
   })
 
+  it('交互期临时 edge shape 为 edge 时应回退到默认 BPMN 连线类型', () => {
+    const validate = createBpmnValidateConnectionWithResult(() => BPMN_SEQUENCE_FLOW)
+    const result = validate(connectionArgs({
+      edge: mockEdge({ id: 'preview-edge', shape: 'edge' }),
+      targetMagnet: document.createElement('div'),
+      sourceCell: mockNode('1', BPMN_USER_TASK),
+      targetCell: mockNode('2', BPMN_SERVICE_TASK),
+    }))
+
+    expect(result).toEqual({ valid: true })
+  })
+
   it('带 graph 的节点应统计出入线数量用于验证', () => {
     const graph: TestGraph = {
       getConnectedEdges: (_node, opts) => {

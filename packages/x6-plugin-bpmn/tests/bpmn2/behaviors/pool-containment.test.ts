@@ -11,9 +11,14 @@ import {
   setupPoolContainment,
   validatePoolContainment,
 } from '../../../src/behaviors/pool-containment'
-import { BPMN_LANE, BPMN_POOL, BPMN_USER_TASK } from '../../../src/utils/constants'
+import {
+  BPMN_BOUNDARY_EVENT_TIMER,
+  BPMN_LANE,
+  BPMN_POOL,
+  BPMN_USER_TASK,
+} from '../../../src/utils/constants'
 
-registerBehaviorTestShapes([BPMN_POOL, BPMN_LANE, BPMN_USER_TASK])
+registerBehaviorTestShapes([BPMN_POOL, BPMN_LANE, BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
 
 describe('setupPoolContainment', () => {
   it('不应对 Lane 的 node:moved 事件做交互期违规校验', () => {
@@ -483,7 +488,7 @@ describe('pool containment helpers', () => {
     })
   })
 
-  it('应在缺少父泳道时跳过 clamp，并在 getNodes 异常时安全回退', () => {
+  it('应在缺少父泳道时跳过普通节点 clamp，并在 getNodes 异常时安全回退', () => {
     const freeTask = {
       shape: BPMN_USER_TASK,
       getParent: () => null,
@@ -502,7 +507,94 @@ describe('pool containment helpers', () => {
     expect(containmentTest.hasPoolNodes({ getNodes: () => { throw new Error('boom') } } as unknown as Graph)).toBe(false)
   })
 
-  it('应在泳道父节点变化后同步普通流程节点父链，并忽略边界事件', () => {
+  it('脱离宿主后的边界事件重新挂到 Lane 后，越出 Lane 时应按 Pool 内容区钳制', () => {
+    const graph = createBehaviorTestGraph()
+    const pool = graph.addNode({
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 420,
+      height: 260,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = graph.addNode({
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 390,
+      height: 120,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const boundary = graph.addNode({
+      id: 'boundary-1',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      x: 390,
+      y: 190,
+      width: 36,
+      height: 36,
+      data: { bpmn: {} },
+    })
+    pool.embed(lane)
+    lane.embed(boundary)
+
+    const dispose = setupPoolContainment(graph)
+
+    boundary.setPosition(430, 290)
+    emitGraphEvent(graph, 'node:moved', { node: boundary })
+
+    expect(boundary.getParent()?.id).toBe(pool.id)
+    expect(boundary.getPosition()).toEqual({ x: 424, y: 264 })
+
+    dispose()
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('容器钳制写回位置与尺寸时应使用静默更新，避免重复触发 position 事件', () => {
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 390, height: 120 }),
+    } as unknown as Node
+    const node = {
+      id: 'boundary-1',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      isNode: () => true,
+      getParent: () => lane,
+      getPosition: () => ({ x: 430, y: 290 }),
+      getSize: () => ({ width: 36, height: 36 }),
+      setPosition: vi.fn(),
+      setSize: vi.fn(),
+      getData: () => ({ bpmn: {} }),
+    } as unknown as Node
+
+    containmentTest.clampFlowNodePosition(node)
+    containmentTest.clampFlowNodeBounds(node)
+
+    expect((node.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenNthCalledWith(
+      1,
+      424,
+      124,
+      expect.objectContaining({ silent: true, bpmnContainmentSync: true }),
+    )
+    expect((node.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenNthCalledWith(
+      2,
+      424,
+      124,
+      expect.objectContaining({ silent: true, bpmnContainmentSync: true }),
+    )
+    expect((node.setSize as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
+      36,
+      36,
+      expect.objectContaining({ silent: true, bpmnContainmentSync: true }),
+    )
+  })
+
+  it('应在泳道父节点变化后同步普通流程节点父链，并仅跳过仍附着宿主的边界事件', () => {
     const pool = {
       id: 'pool-1',
       shape: BPMN_POOL,
@@ -530,21 +622,61 @@ describe('pool containment helpers', () => {
     } as unknown as Node
     const boundary = {
       id: 'boundary-1',
-      shape: 'bpmn-boundary-event-timer',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
       isNode: () => true,
-      getParent: () => task,
+      getParent: () => null,
       getPosition: () => ({ x: 210, y: 180 }),
       getSize: () => ({ width: 36, height: 36 }),
+      getData: () => ({ bpmn: {} }),
     } as unknown as Node
     const graph = {
-      getNodes: () => [pool, lane],
+      getNodes: () => [pool, lane, boundary],
     } as unknown as Graph
 
     containmentTest.syncFlowNodeSwimlaneParent(graph, task)
     containmentTest.syncFlowNodeSwimlaneParent(graph, boundary)
 
     expect((pool.embed as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(task)
-    expect((pool.embed as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1)
+    expect((pool.embed as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(boundary)
+    expect((pool.embed as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(2)
+  })
+
+  it('仍附着宿主的边界事件不应被重挂到泳道父链', () => {
+    const lane = {
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      isNode: () => true,
+      getParent: () => null,
+      getPosition: () => ({ x: 70, y: 40 }),
+      getSize: () => ({ width: 390, height: 120 }),
+      embed: vi.fn(),
+    } as unknown as Node
+    const task = {
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      isNode: () => true,
+      getParent: () => lane,
+      getPosition: () => ({ x: 180, y: 80 }),
+      getSize: () => ({ width: 100, height: 60 }),
+    } as unknown as Node
+    const boundary = {
+      id: 'boundary-1',
+      shape: BPMN_BOUNDARY_EVENT_TIMER,
+      isNode: () => true,
+      getParent: () => task,
+      getPosition: () => ({ x: 210, y: 70 }),
+      getSize: () => ({ width: 36, height: 36 }),
+      getData: () => ({ bpmn: { attachedToRef: task.id } }),
+    } as unknown as Node
+    const graph = {
+      getSelectedCells: () => [],
+      getNodes: () => [lane],
+    } as unknown as Graph
+
+    containmentTest.syncFlowNodeSwimlaneParent(graph, boundary)
+
+    expect(containmentTest.hasAttachedBoundaryHost(boundary)).toBe(true)
+    expect((lane.embed as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
   })
 
   it('应只在普通流程节点违规时触发违规回调', () => {

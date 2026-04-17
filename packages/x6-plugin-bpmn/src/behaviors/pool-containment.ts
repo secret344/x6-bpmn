@@ -353,7 +353,7 @@ function clampFlowNodePosition(node: Node): void {
 
   const clamped = clampNodeToContainer(node, containerRect)
   if (clamped) {
-    node.setPosition(clamped.x, clamped.y, { bpmnContainmentSync: true })
+    node.setPosition(clamped.x, clamped.y, { silent: true, bpmnContainmentSync: true })
   }
 }
 
@@ -365,8 +365,8 @@ function clampFlowNodeBounds(node: Node): void {
 
   const clamped = clampNodeBoundsToContainer(node, containerRect)
   if (clamped) {
-    node.setPosition(clamped.x, clamped.y, { bpmnContainmentSync: true })
-    node.setSize(clamped.width, clamped.height, { bpmnContainmentSync: true })
+    node.setPosition(clamped.x, clamped.y, { silent: true, bpmnContainmentSync: true })
+    node.setSize(clamped.width, clamped.height, { silent: true, bpmnContainmentSync: true })
   }
 }
 
@@ -390,7 +390,7 @@ function resolveFlowNodeClampRect(node: Node): Rect | null {
 }
 
 function syncFlowNodeSwimlaneParent(graph: Graph, node: Node): void {
-  if (isSwimlaneShape(node.shape) || isBoundaryShape(node.shape)) {
+  if (isSwimlaneShape(node.shape) || hasAttachedBoundaryHost(node)) {
     return
   }
 
@@ -398,22 +398,31 @@ function syncFlowNodeSwimlaneParent(graph: Graph, node: Node): void {
     return
   }
 
-  const currentParent = node.getParent()
-  if (!currentParent?.isNode?.()) {
-    return
-  }
-
-  const currentParentNode = currentParent as Node
-  if (!isSwimlaneShape(currentParentNode.shape)) {
-    return
-  }
-
   const targetParent = findContainingSwimlane(graph, node, node.id)
-  if (!targetParent || targetParent.id === currentParentNode.id) {
+  if (!targetParent) {
+    return
+  }
+
+  const currentParent = findSwimlaneParent(node)
+  if (currentParent?.id === targetParent.id) {
     return
   }
 
   reparentFlowNode(node, targetParent)
+}
+
+function hasAttachedBoundaryHost(node: Node): boolean {
+  if (!isBoundaryShape(node.shape)) {
+    return false
+  }
+
+  const parent = node.getParent()
+  if (parent?.isNode?.() && !isSwimlaneShape((parent as Node).shape)) {
+    return true
+  }
+
+  const attachedToRef = node.getData<{ bpmn?: { attachedToRef?: string } }>()?.bpmn?.attachedToRef
+  return Boolean(attachedToRef)
 }
 
 function shouldSkipFlowNodeParentSyncDuringLaneInteraction(graph: Graph, node: Node): boolean {
@@ -582,6 +591,7 @@ export const __test__ = {
   clampFlowNodeBounds,
   resolveFlowNodeClampRect,
   syncFlowNodeSwimlaneParent,
+  hasAttachedBoundaryHost,
   shouldSkipFlowNodeParentSyncDuringLaneInteraction,
   isNodeDescendantOf,
   reparentFlowNode,

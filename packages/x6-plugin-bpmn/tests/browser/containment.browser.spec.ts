@@ -707,25 +707,34 @@ test.describe('主库浏览器行为回归', () => {
     ).toBeGreaterThan(0)
   })
 
-  test('直接拖拽边界事件越界时，默认配置下仍应保持附着在宿主边框', async ({ page }, testInfo) => {
+  test('直接拖拽边界事件脱离宿主后，仍应被限制在 Pool 范围内', async ({ page }, testInfo) => {
     await waitForHarness(page)
     const takeScreenshot = createBrowserScreenshotTaker(testInfo)
 
     const scenario = await createPoolLaneTaskBoundaryScenario(page)
+    const poolBefore = await getNodeSnapshot(page, scenario.poolId)
+    const laneBefore = await getNodeSnapshot(page, scenario.laneId)
     const taskBefore = await getNodeSnapshot(page, scenario.taskId)
     const boundaryBefore = await getNodeSnapshot(page, scenario.boundaryId!)
     await takeScreenshot(page, '边界事件直拖前状态')
 
     await dragNodeBy(page, scenario.boundaryId!, { x: 760, y: 520 })
-    await takeScreenshot(page, '边界事件直拖越界后解除附着')
+    await takeScreenshot(page, '边界事件直拖脱离宿主后仍受泳池限制')
 
     const taskAfter = await getNodeSnapshot(page, scenario.taskId)
     const boundaryAfter = await getNodeSnapshot(page, scenario.boundaryId!)
 
     expect(taskAfter.parentId).toBe(scenario.laneId)
     expectPositionNear(taskAfter, taskBefore)
-    expect(boundaryAfter.parentId).toBeNull()
+    expect(boundaryAfter.parentId).not.toBe(scenario.taskId)
+    expect([scenario.laneId, scenario.poolId]).toContain(boundaryAfter.parentId ?? '')
     expect(Math.abs(boundaryAfter.x - boundaryBefore.x) + Math.abs(boundaryAfter.y - boundaryBefore.y)).toBeGreaterThan(0)
+    expectInsideRect(boundaryAfter, {
+      x: laneBefore.x,
+      y: poolBefore.y,
+      width: poolBefore.width - (laneBefore.x - poolBefore.x),
+      height: poolBefore.height,
+    })
   })
 
   test('选中后的边界事件拖动选框时，仍应沿宿主边框滑动而不是直接脱离', async ({ page }, testInfo) => {

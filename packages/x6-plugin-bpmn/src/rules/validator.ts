@@ -581,7 +581,11 @@ function resolveEdgeShape(edge: Edge | null | undefined, edgeShapeGetter: () => 
     ? shapeReader.getShape()
     : edge?.shape
 
-  return typeof shape === 'string' && shape.length > 0 ? shape : edgeShapeGetter()
+  return isRuntimeEdgeShape(shape) ? shape : edgeShapeGetter()
+}
+
+function isRuntimeEdgeShape(shape: unknown): shape is string {
+  return typeof shape === 'string' && shape.length > 0 && shape !== 'edge'
 }
 
 function getGraphFromCell(cell: Node | Edge): GraphLike | null | undefined {

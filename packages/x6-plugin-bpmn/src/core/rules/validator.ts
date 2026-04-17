@@ -161,7 +161,11 @@ function validateRuntimeEdgeWithContext(
 
 function resolveEdgeShape(edge: any, edgeShapeGetter: () => string): string {
   const shape = typeof edge?.getShape === 'function' ? edge.getShape() : edge?.shape
-  return typeof shape === 'string' && shape.length > 0 ? shape : edgeShapeGetter()
+  return isRuntimeEdgeShape(shape) ? shape : edgeShapeGetter()
+}
+
+function isRuntimeEdgeShape(shape: unknown): shape is string {
+  return typeof shape === 'string' && shape.length > 0 && shape !== 'edge'
 }
 
 function getGraphFromCell(cell: any): any {

@@ -679,6 +679,18 @@ describe('createContextValidateConnectionWithResult', () => {
     expect(result.reason).toContain('入线')
   })
 
+  it('交互期临时 edge shape 为 edge 时应回退到当前方言默认连线类型', () => {
+    const validate = createContextValidateConnectionWithResult(() => 'bpmn-sequence-flow', ctx)
+    const result = validate({
+      edge: { id: 'preview-edge', shape: 'edge' },
+      sourceCell: { id: '1', shape: 'bpmn-user-task' },
+      targetCell: { id: '2', shape: 'bpmn-user-task' },
+      targetMagnet: document.createElement('div'),
+    })
+
+    expect(result).toEqual({ valid: true })
+  })
+
   it('edgeShapeGetter 抛异常时应返回 exception 结果', () => {
     const validate = createContextValidateConnectionWithResult(
       () => { throw new Error('mock getter error') },
