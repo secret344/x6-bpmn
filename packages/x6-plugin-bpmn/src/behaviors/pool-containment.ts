@@ -388,10 +388,6 @@ function clampPoolPosition(graph: Graph, pool: Node): void {
 
   pool.setPosition(clamped.x, clamped.y, { silent: true, bpmnContainmentSync: true })
 
-  if (delta.x === 0 && delta.y === 0) {
-    return
-  }
-
   for (const descendant of collectDescendantNodes(pool)) {
     const position = descendant.getPosition()
     descendant.setPosition(position.x + delta.x, position.y + delta.y, {
@@ -420,10 +416,6 @@ function resolveClampedPoolPosition(graph: Graph, pool: Node): { x: number; y: n
       - Math.max(nextRect.x, candidateRect.x)
     const overlapHeight = Math.min(nextRect.y + nextRect.height, candidateRect.y + candidateRect.height)
       - Math.max(nextRect.y, candidateRect.y)
-
-    if (overlapWidth <= 0 || overlapHeight <= 0) {
-      continue
-    }
 
     if (overlapWidth <= overlapHeight) {
       const moveLeft = candidateRect.x - nextRect.width - 1

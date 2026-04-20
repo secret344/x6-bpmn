@@ -170,6 +170,12 @@ describe('smartengineDatabaseProfile', () => {
     expect(f.normalize).toBeDefined()
     expect(f.normalize!(null)).toBe('')
   })
+
+  it('multiInstanceAbortCondition normalize', () => {
+    const f = getField(smartengineDatabaseProfile as typeof smartengineBaseProfile, 'multiInstanceAbortCondition')
+    expect(f.normalize).toBeDefined()
+    expect(f.normalize!(null)).toBe('')
+  })
 })
 
 // ============================================================================
@@ -218,6 +224,7 @@ describe('ProfileRegistry 编译 SmartEngine profiles', () => {
     const resolved = registry.compile('smartengine-database')
     expect(resolved.dataModel.fields.multiInstance).toBeDefined()
     expect(resolved.dataModel.fields.multiInstanceType).toBeDefined()
+    expect(resolved.dataModel.fields.multiInstanceAbortCondition).toBeDefined()
     expect(resolved.dataModel.fields.assignee).toBeDefined()
     expect(resolved.dataModel.fields.smartClass).toBeDefined()
     expect(resolved.availability.nodes['bpmn-inclusive-gateway']).toBe('enabled')

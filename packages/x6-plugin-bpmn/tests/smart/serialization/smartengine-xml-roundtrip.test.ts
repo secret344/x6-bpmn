@@ -19,6 +19,7 @@ import {
   BPMN_USER_TASK,
 } from '../../../src/utils/constants'
 import { SMARTENGINE_NAMESPACE_URI } from '../../../src/builtin/smartengine-base/serialization'
+import { replaceXmlOrThrow } from '../../helpers/xml-test-utils'
 
 function createSmartRegistry(): ProfileRegistry {
   const registry = new ProfileRegistry()
@@ -382,7 +383,7 @@ describe('SmartEngine XML roundtrip', () => {
     const receiveNode = imported.nodes.find((node) => node.id === 'receive_1')
     const conditionEdge = imported.edges.find((edge) => edge.id === 'flow_2')
 
-    expect(imported.metadata).toEqual({
+    expect(imported.metadata).toMatchObject({
       targetNamespace: 'Examples',
       processVersion: '1.0.0',
     })
@@ -643,5 +644,307 @@ describe('SmartEngine XML roundtrip', () => {
       },
     })
 
+  })
+
+  it('smartengine-database 应稳定往返普通完成条件与 abort 条件', async () => {
+    const graph = createGraph()
+    const resolved = createSmartRegistry().compile('smartengine-database')
+
+    graph.addNode({
+      id: 'start_abort_1',
+      shape: BPMN_START_EVENT,
+      x: 80,
+      y: 180,
+      width: 36,
+      height: 36,
+      data: { bpmn: { name: '开始' } },
+    })
+    graph.addNode({
+      id: 'user_abort_1',
+      shape: BPMN_USER_TASK,
+      x: 220,
+      y: 160,
+      width: 160,
+      height: 60,
+      data: {
+        bpmn: {
+          name: '会签任务',
+          multiInstance: true,
+          multiInstanceType: 'parallel',
+          multiInstanceCollection: '${approverList}',
+          multiInstanceElementVariable: 'approver',
+          multiInstanceCompletionCondition: '${nrOfCompletedInstances >= 2}',
+          multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
+        },
+      },
+    })
+    graph.addNode({
+      id: 'end_abort_1',
+      shape: BPMN_END_EVENT,
+      x: 460,
+      y: 180,
+      width: 36,
+      height: 36,
+      data: { bpmn: { name: '结束' } },
+    })
+
+    graph.addEdge({ id: 'flow_abort_1', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'start_abort_1' }, target: { cell: 'user_abort_1' } })
+    graph.addEdge({ id: 'flow_abort_2', shape: BPMN_SEQUENCE_FLOW, source: { cell: 'user_abort_1' }, target: { cell: 'end_abort_1' } })
+
+    const xml = await exportBpmnXml(graph, {
+      processId: 'abortApprovalProcess',
+      serialization: resolved.serialization,
+    })
+
+    expect(xml).toContain('${nrOfCompletedInstances &gt;= 2}')
+    expect(xml).toContain('${nrOfRejectedInstances &gt; 0}')
+    expect(xml).toContain('action="abort"')
+
+    const importedSmart = await parseBpmnXml(xml, { serialization: resolved.serialization })
+    expect(importedSmart.nodes.find((node) => node.id === 'user_abort_1')?.data).toEqual({
+      bpmn: {
+        name: '会签任务',
+        multiInstance: true,
+        multiInstanceType: 'parallel',
+        multiInstanceCollection: '${approverList}',
+        multiInstanceElementVariable: 'approver',
+        multiInstanceCompletionCondition: '${nrOfCompletedInstances >= 2}',
+        multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
+      },
+    })
+
+    const importedStandard = await parseBpmnXml(xml)
+    expect(importedStandard.diagnostics?.compatibilityIssues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        'multiple-completion-conditions',
+        'smart-abort-condition-unsupported',
+      ]),
+    )
+    expect(importedStandard.diagnostics?.lossyFlags).toEqual(
+      expect.arrayContaining([
+        'multiple-completion-conditions',
+        'smart-abort-condition-unsupported',
+      ]),
+    )
+  })
+
+  it('smartengine-database 在仅有 abort 条件时也应输出可回读的 completionCondition', async () => {
+    const graph = createGraph()
+    const resolved = createSmartRegistry().compile('smartengine-database')
+
+    graph.addNode({
+      id: 'user_abort_only_1',
+      shape: BPMN_USER_TASK,
+      x: 220,
+      y: 160,
+      width: 160,
+      height: 60,
+      data: {
+        bpmn: {
+          name: '仅中止会签',
+          multiInstance: true,
+          multiInstanceType: 'parallel',
+          multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      processId: 'abortOnlyProcess',
+      serialization: resolved.serialization,
+    })
+
+    expect(xml).toContain('action="abort"')
+    expect(xml).toContain('${nrOfRejectedInstances &gt; 0}')
+    expect(xml).not.toContain('<bpmn:multiInstanceLoopCharacteristics />')
+
+    const imported = await parseBpmnXml(xml, { serialization: resolved.serialization })
+    expect(imported.nodes.find((node) => node.id === 'user_abort_only_1')?.data).toEqual({
+      bpmn: {
+        name: '仅中止会签',
+        multiInstance: true,
+        multiInstanceType: 'parallel',
+        multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
+      },
+    })
+  })
+
+  it('smartengine-database 在双普通 completionCondition 输入下应标记有损', async () => {
+    const graph = createGraph()
+    const resolved = createSmartRegistry().compile('smartengine-database')
+
+    graph.addNode({
+      id: 'user_double_normal_1',
+      shape: BPMN_USER_TASK,
+      x: 220,
+      y: 160,
+      width: 160,
+      height: 60,
+      data: {
+        bpmn: {
+          name: '双完成条件会签',
+          multiInstance: true,
+          multiInstanceType: 'parallel',
+          multiInstanceCompletionCondition: '${nrOfCompletedInstances >= 2}',
+          multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      processId: 'doubleNormalProcess',
+      serialization: resolved.serialization,
+    })
+    const xmlWithTwoNormalConditions = replaceXmlOrThrow(
+      xml,
+      / action="abort"/,
+      '',
+      '应能将第二个 completionCondition 伪装为普通条件',
+    )
+
+    const imported = await parseBpmnXml(xmlWithTwoNormalConditions, { serialization: resolved.serialization })
+    expect(imported.diagnostics?.compatibilityIssues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['multiple-completion-conditions']),
+    )
+    expect(imported.diagnostics?.lossyFlags).toEqual(
+      expect.arrayContaining(['multiple-completion-conditions']),
+    )
+  })
+
+  it('smartengine-database 应支持从 CDATA completionCondition 中还原双条件', async () => {
+    const graph = createGraph()
+    const resolved = createSmartRegistry().compile('smartengine-database')
+
+    graph.addNode({
+      id: 'user_cdata_1',
+      shape: BPMN_USER_TASK,
+      x: 220,
+      y: 160,
+      width: 160,
+      height: 60,
+      data: {
+        bpmn: {
+          name: 'CDATA 会签',
+          multiInstance: true,
+          multiInstanceType: 'parallel',
+          multiInstanceCompletionCondition: '${nrOfCompletedInstances >= 2}',
+          multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      processId: 'cdataConditionProcess',
+      serialization: resolved.serialization,
+    })
+    const xmlWithCdata = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        xml,
+        />\$\{nrOfCompletedInstances &gt;= 2\}<\/bpmn:completionCondition>/,
+        '><![CDATA[${nrOfCompletedInstances >= 2}]]></bpmn:completionCondition>',
+        '应能将普通 completionCondition 改写为 CDATA',
+      ),
+      />\$\{nrOfRejectedInstances &gt; 0\}<\/bpmn:completionCondition>/,
+      '><![CDATA[${nrOfRejectedInstances > 0}]]></bpmn:completionCondition>',
+      '应能将 abort completionCondition 改写为 CDATA',
+    )
+
+    const imported = await parseBpmnXml(xmlWithCdata, { serialization: resolved.serialization })
+    expect(imported.nodes.find((node) => node.id === 'user_cdata_1')?.data).toEqual({
+      bpmn: {
+        name: 'CDATA 会签',
+        multiInstance: true,
+        multiInstanceType: 'parallel',
+        multiInstanceCompletionCondition: '${nrOfCompletedInstances >= 2}',
+        multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
+      },
+    })
+  })
+
+  it('smartengine-database 在空 multi-instance 条件块下不应生成 completionCondition patch', async () => {
+    const graph = createGraph()
+    const resolved = createSmartRegistry().compile('smartengine-database')
+
+    graph.addNode({
+      id: 'user_empty_conditions_1',
+      shape: BPMN_USER_TASK,
+      x: 220,
+      y: 160,
+      width: 160,
+      height: 60,
+      data: {
+        bpmn: {
+          name: '空条件会签',
+          multiInstance: true,
+          multiInstanceType: 'parallel',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      processId: 'emptyConditionProcess',
+      serialization: resolved.serialization,
+    })
+    const xmlWithExplicitEmptyLoop = replaceXmlOrThrow(
+      xml,
+      /<bpmn:multiInstanceLoopCharacteristics([^>]*)\/>/,
+      '<bpmn:multiInstanceLoopCharacteristics$1></bpmn:multiInstanceLoopCharacteristics>',
+      '应能把自闭合多实例节点改为显式空块',
+    )
+
+    const imported = await parseBpmnXml(xmlWithExplicitEmptyLoop, { serialization: resolved.serialization })
+    expect(imported.nodes.find((node) => node.id === 'user_empty_conditions_1')?.data).toEqual({
+      bpmn: {
+        name: '空条件会签',
+        multiInstance: true,
+        multiInstanceType: 'parallel',
+      },
+    })
+  })
+
+  it('smartengine-database 在空白 completionCondition 下不应写入 Smart 条件字段', async () => {
+    const graph = createGraph()
+    const resolved = createSmartRegistry().compile('smartengine-database')
+
+    graph.addNode({
+      id: 'user_blank_conditions_1',
+      shape: BPMN_USER_TASK,
+      x: 220,
+      y: 160,
+      width: 160,
+      height: 60,
+      data: {
+        bpmn: {
+          name: '空白条件会签',
+          multiInstance: true,
+          multiInstanceType: 'parallel',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      processId: 'blankConditionProcess',
+      serialization: resolved.serialization,
+    })
+    const xmlWithBlankConditions = replaceXmlOrThrow(
+      xml,
+      /<bpmn:multiInstanceLoopCharacteristics([^>]*)\/>/,
+      [
+        '<bpmn:multiInstanceLoopCharacteristics$1>',
+        '  <bpmn:completionCondition><![CDATA[   ]]></bpmn:completionCondition>',
+        '  <bpmn:completionCondition action="abort"><![CDATA[\n  ]]></bpmn:completionCondition>',
+        '</bpmn:multiInstanceLoopCharacteristics>',
+      ].join('\n'),
+      '应能注入空白的双 completionCondition',
+    )
+
+    const imported = await parseBpmnXml(xmlWithBlankConditions, { serialization: resolved.serialization })
+    expect(imported.nodes.find((node) => node.id === 'user_blank_conditions_1')?.data).toEqual({
+      bpmn: {
+        name: '空白条件会签',
+        multiInstance: true,
+        multiInstanceType: 'parallel',
+      },
+    })
   })
 })

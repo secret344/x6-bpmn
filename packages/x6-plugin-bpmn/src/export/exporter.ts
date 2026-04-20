@@ -9,6 +9,8 @@
 import type { Graph, Node, Edge } from '@antv/x6'
 import { BpmnModdle } from 'bpmn-moddle'
 import type { ModdleElement } from 'bpmn-moddle'
+import { getImportedBpmnState } from '../import/state'
+import type { BpmnImportMetadata, BpmnPreservedProcessMetadata } from '../import/types'
 import { classifyShape } from '../config'
 import {
   type BpmnNodeMapping,
@@ -83,6 +85,53 @@ interface ProcessBuildContext {
 const PRESERVED_XML_ATTRS_KEY = '$attrs'
 const PRESERVED_XML_NAMESPACES_KEY = '$namespaces'
 const BOUNDARY_INTERNAL_BPMN_KEYS = new Set(['attachedToRef', 'boundaryPosition'])
+
+function readInternalBpmnString(
+  bpmnData: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  if (!bpmnData) return undefined
+
+  const rawValue = bpmnData[key]
+  if (typeof rawValue !== 'string') {
+    return undefined
+  }
+
+  const normalized = rawValue.trim()
+  return normalized || undefined
+}
+
+function readPreservedBpmndiId(cell: Node | Edge): string | undefined {
+  const bpmndiData = readBpmndiData(cell)
+  if (!bpmndiData) return undefined
+
+  const rawId = bpmndiData.id
+  if (typeof rawId !== 'string') {
+    return undefined
+  }
+
+  const normalized = rawId.trim()
+  return normalized ? toXmlId(normalized) : undefined
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function escapeXmlText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+function hasAbortCompletionCondition(xmlBlock: string, tagPrefix: string): boolean {
+  const completionTagName = escapeRegExp(`${tagPrefix}completionCondition`)
+  const abortPattern = new RegExp(`<${completionTagName}\\b[^>]*\\baction="abort"`)
+  return abortPattern.test(xmlBlock)
+}
 
 function appendXmlAttributes(element: ModdleElement, attrs: Record<string, unknown> | undefined): void {
   if (!attrs || Object.keys(attrs).length === 0) return
@@ -160,6 +209,26 @@ function appendPreservedDiXmlAttributes(element: ModdleElement, cell: Node | Edg
   }
   if (preservedXmlAttrs) {
     appendXmlAttributes(element, preservedXmlAttrs)
+  }
+}
+
+function appendPreservedElementMetadata(
+  element: ModdleElement,
+  metadata: {
+    $attrs?: Record<string, unknown>
+    $namespaces?: Record<string, string>
+  } | undefined,
+): void {
+  if (!metadata) return
+
+  const preservedXmlNamespaces = metadata.$namespaces
+    ? Object.fromEntries(Object.entries(metadata.$namespaces).map(([prefix, uri]) => [`xmlns:${prefix}`, uri]))
+    : undefined
+  if (preservedXmlNamespaces) {
+    appendXmlAttributes(element, preservedXmlNamespaces)
+  }
+  if (metadata.$attrs) {
+    appendXmlAttributes(element, metadata.$attrs)
   }
 }
 
@@ -374,6 +443,8 @@ export interface ExportBpmnOptions {
   processId?: string
   /** 流程名称，默认为空 */
   processName?: string
+  /** 导入阶段保存的文档级保真元数据。 */
+  metadata?: BpmnImportMetadata
   /** 使用方言序列化层覆盖默认 BPMN 映射 */
   serialization?: SerializationOverrides
 }
@@ -392,7 +463,11 @@ export interface ExportBpmnOptions {
  * @returns BPMN 2.0 XML 字符串
  */
 export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {}): Promise<string> {
-  const { processId = 'Process_1', processName = '' } = options
+  const importedState = getImportedBpmnState(graph)
+  const importedMetadata = options.metadata ?? importedState?.metadata
+  const defaultProcessMetadata = importedMetadata?.processes?.[0]
+  const processId = options.processId ?? defaultProcessMetadata?.id ?? 'Process_1'
+  const processName = options.processName ?? defaultProcessMetadata?.name ?? ''
   const moddle = new BpmnModdle()
   const xmlNames = resolveBpmnXmlNameSettings(options.serialization?.xmlNames)
   const nodeMapping = options.serialization?.nodeMapping ?? NODE_MAPPING
@@ -402,7 +477,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     options.serialization?.extensionProperties,
     namespaces,
   )
-  const targetNamespace = options.serialization?.targetNamespace ?? 'http://bpmn.io/schema/bpmn'
+  const targetNamespace = options.serialization?.targetNamespace ?? importedMetadata?.targetNamespace ?? 'http://bpmn.io/schema/bpmn'
   const processAttributes = options.serialization?.processAttributes ?? {}
   const nodeSerializers = options.serialization?.nodeSerializers ?? {}
   const edgeSerializers = options.serialization?.edgeSerializers ?? {}
@@ -526,19 +601,35 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     }
   }
 
+  const importedProcessMetadataById = new Map<string, BpmnPreservedProcessMetadata>()
+  const importedProcessMetadataByPoolId = new Map<string, BpmnPreservedProcessMetadata>()
+  for (const processMetadata of importedMetadata?.processes ?? []) {
+    if (processMetadata.id) {
+      importedProcessMetadataById.set(processMetadata.id, processMetadata)
+    }
+    if (processMetadata.poolId) {
+      importedProcessMetadataByPoolId.set(processMetadata.poolId, processMetadata)
+    }
+  }
+
   const usedProcessIds = new Set<string>()
   const processContexts: ProcessBuildContext[] = []
   const processContextByPoolId = new Map<string, ProcessBuildContext>()
   let fallbackProcessContext: ProcessBuildContext | null = null
 
-  const createProcessContext = (candidateId: string, name: string, poolId: string | null): ProcessBuildContext => {
-    const uniqueId = ensureUniqueProcessId(candidateId, usedProcessIds)
+  const createProcessContext = (
+    candidateId: string,
+    name: string,
+    poolId: string | null,
+    preservedMetadata?: BpmnPreservedProcessMetadata,
+  ): ProcessBuildContext => {
+    const uniqueId = ensureUniqueProcessId(toXmlId(preservedMetadata?.id ?? candidateId), usedProcessIds)
     const context: ProcessBuildContext = {
       id: uniqueId,
       process: createBpmnElement(moddle, 'process', {
         id: uniqueId,
-        name,
-        isExecutable: false,
+        name: preservedMetadata?.name ?? name,
+        isExecutable: preservedMetadata?.isExecutable ?? false,
       }, xmlNames),
       poolId,
       rootFlowElements: [],
@@ -546,6 +637,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       artifactElements: [],
     }
 
+    appendPreservedElementMetadata(context.process, preservedMetadata)
     appendXmlAttributes(context.process, processAttributes)
 
     processContexts.push(context)
@@ -556,14 +648,18 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   }
 
   if (pools.length === 0) {
-    fallbackProcessContext = createProcessContext(toXmlId(processId), processName, null)
+    fallbackProcessContext = createProcessContext(toXmlId(processId), processName, null, defaultProcessMetadata)
   } else {
     pools.forEach((pool, index) => {
-      const candidateId = resolvePoolProcessRef(pool) ?? buildProcessId(processId, index, pools.length)
+      const preservedMetadata = importedProcessMetadataByPoolId.get(pool.id)
+        ?? importedProcessMetadataById.get(resolvePoolProcessRef(pool) ?? '')
+      const candidateId = resolvePoolProcessRef(pool)
+        ?? preservedMetadata?.id
+        ?? buildProcessId(processId, index, pools.length)
       const candidateName = pools.length === 1
         ? processName || getNodeLabel(pool)
         : getNodeLabel(pool) || processName
-      createProcessContext(candidateId, candidateName, pool.id)
+      createProcessContext(candidateId, candidateName, pool.id, preservedMetadata)
     })
   }
 
@@ -572,7 +668,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       return fallbackProcessContext
     }
 
-    fallbackProcessContext = createProcessContext(`${toXmlId(processId)}_unassigned`, processName, null)
+    fallbackProcessContext = createProcessContext(`${toXmlId(processId)}_unassigned`, processName, null, defaultProcessMetadata)
     return fallbackProcessContext
   }
 
@@ -702,24 +798,26 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
     // 边界事件 → attachedToRef（在所有节点创建后再设置）
     const element = createBpmnElement(moddle, mapping.tag, props, xmlNames)
+    const bpmnData = node.getData<{ bpmn?: Record<string, any> }>()?.bpmn
 
     // 事件定义
     if (mapping.eventDefinition) {
+      const eventDefinitionId = readInternalBpmnString(bpmnData, '$eventDefinitionId') ?? `${toXmlId(node.id)}_ed`
       const eventDef = createBpmnElement(
         moddle,
         mapping.eventDefinition,
-        { id: `${toXmlId(node.id)}_ed` },
+        { id: eventDefinitionId },
         xmlNames,
       )
       element.eventDefinitions = [eventDef]
     }
 
     // 扩展属性
-    const bpmnData = node.getData<{ bpmn?: Record<string, any> }>()?.bpmn
     const nodeSerializer = nodeSerializers[node.shape]
     const omitBpmnKeys = new Set<string>()
     const preservedXmlAttrs = readPreservedXmlAttributes(bpmnData)
     const preservedXmlNamespaces = readPreservedXmlNamespaces(bpmnData)
+    omitBpmnKeys.add('$eventDefinitionId')
 
     if (preservedXmlNamespaces) {
       appendXmlAttributes(element, preservedXmlNamespaces)
@@ -1060,7 +1158,9 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
       context.process.laneSets = [
         createBpmnElement(moddle, 'laneSet', {
-          id: `LaneSet_${context.id}`,
+          id: context.poolId
+            ? importedProcessMetadataByPoolId.get(context.poolId)?.laneSetId ?? `LaneSet_${context.id}`
+            : defaultProcessMetadata?.laneSetId ?? `LaneSet_${context.id}`,
           lanes: laneElements,
         }, xmlNames),
       ]
@@ -1080,7 +1180,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
   // ---- Build collaboration (if pools or message flows exist) ----
   const hasCollaboration = pools.length > 0 || messageFlows.length > 0
-  const collaborationId = 'Collaboration_1'
+  const collaborationId = importedMetadata?.collaboration?.id ?? 'Collaboration_1'
   let collaboration: ModdleElement | null = null
 
   if (hasCollaboration) {
@@ -1135,6 +1235,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       participants,
       messageFlows: msgFlowElements.length > 0 ? msgFlowElements : undefined,
     }, xmlNames)
+    appendPreservedElementMetadata(collaboration, importedMetadata?.collaboration)
   }
 
   // ---- Build BPMNDiagram ----
@@ -1146,7 +1247,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const size = pool.getSize()
     const poolElement = swimlaneElements.get(pool.id) as ModdleElement
     const shape = moddle.create('bpmndi:BPMNShape', {
-      id: `${toXmlId(pool.id)}_di`,
+      id: readPreservedBpmndiId(pool) ?? `${toXmlId(pool.id)}_di`,
       bpmnElement: poolElement,
       isHorizontal: resolveSwimlaneIsHorizontal(pool.getData(), size),
     })
@@ -1163,7 +1264,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const size = lane.getSize()
     const laneElement = swimlaneElements.get(lane.id) as ModdleElement
     const shape = moddle.create('bpmndi:BPMNShape', {
-      id: `${toXmlId(lane.id)}_di`,
+      id: readPreservedBpmndiId(lane) ?? `${toXmlId(lane.id)}_di`,
       bpmnElement: laneElement,
       isHorizontal: resolveSwimlaneIsHorizontal(lane.getData(), size),
     })
@@ -1183,7 +1284,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
     const isExpanded = resolveActivityIsExpanded(node)
     const isMarkerVisible = resolveGatewayMarkerVisible(node)
     const shape = moddle.create('bpmndi:BPMNShape', {
-      id: `${toXmlId(node.id)}_di`,
+      id: readPreservedBpmndiId(node) ?? `${toXmlId(node.id)}_di`,
       bpmnElement: el || /* v8 ignore next */ /* istanbul ignore next */ { id: toXmlId(node.id) },
       ...(typeof isExpanded === 'boolean' ? { isExpanded } : {}),
       ...(typeof isMarkerVisible === 'boolean' ? { isMarkerVisible } : {}),
@@ -1239,7 +1340,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
       : undefined
 
     const edgeEl = moddle.create('bpmndi:BPMNEdge', {
-      id: `${toXmlId(edge.id)}_di`,
+      id: readPreservedBpmndiId(edge) ?? `${toXmlId(edge.id)}_di`,
       bpmnElement: flowEdgeElements.get(edge.id) || { id: toXmlId(edge.id) },
       ...(messageVisibleKind === 'non_initiating' ? { messageVisibleKind } : {}),
     })
@@ -1279,19 +1380,24 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   }
 
   const plane = moddle.create('bpmndi:BPMNPlane', {
-    id: 'BPMNPlane_1',
+    id: importedMetadata?.diagram?.plane?.id ?? 'BPMNPlane_1',
     bpmnElement: hasCollaboration ? collaboration : processContexts[0]?.process,
   })
+  appendPreservedElementMetadata(plane, importedMetadata?.diagram?.plane)
   plane.planeElement = planeElements
 
-  const diagram = moddle.create('bpmndi:BPMNDiagram', { id: 'BPMNDiagram_1' })
+  const diagram = moddle.create('bpmndi:BPMNDiagram', {
+    id: importedMetadata?.diagram?.id ?? 'BPMNDiagram_1',
+  })
+  appendPreservedElementMetadata(diagram, importedMetadata?.diagram)
   diagram.plane = plane
 
   // ---- Assemble definitions ----
   const definitions = createBpmnElement(moddle, 'definitions', {
-    id: 'Definitions_1',
+    id: importedMetadata?.definitions?.id ?? 'Definitions_1',
     targetNamespace,
   }, xmlNames)
+  appendPreservedElementMetadata(definitions, importedMetadata?.definitions)
   if (xmlNames.useDefaultNamespace) {
     appendXmlAttributes(definitions, { xmlns: xmlNames.namespaceUri })
   }
@@ -1313,5 +1419,47 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   definitions.diagrams = [diagram]
 
   const { xml } = await moddle.toXML(definitions, { format: true, preamble: true })
-  return xml
+  const bpmnTagPrefix = xmlNames.useDefaultNamespace ? '' : 'bpmn:'
+
+  const xmlWithSmartAbortConditions = graph.getNodes().reduce((currentXml, node) => {
+    const bpmnData = node.getData<{ bpmn?: Record<string, unknown> }>()?.bpmn
+    const abortCondition = readInternalBpmnString(bpmnData, 'multiInstanceAbortCondition')
+    if (!abortCondition) {
+      return currentXml
+    }
+
+    const mapping = nodeMapping[node.shape]
+    if (!mapping) {
+      return currentXml
+    }
+
+    const nodeId = escapeRegExp(toXmlId(node.id))
+    const tagName = escapeRegExp(`${bpmnTagPrefix}${mapping.tag}`)
+    const loopTagName = escapeRegExp(`${bpmnTagPrefix}multiInstanceLoopCharacteristics`)
+    const abortXml = `\n      <${bpmnTagPrefix}completionCondition action="abort">${escapeXmlText(abortCondition)}</${bpmnTagPrefix}completionCondition>`
+    const loopBlockPattern = new RegExp(
+      `(<${tagName}\\b[^>]*id="${nodeId}"[\\s\\S]*?<${loopTagName}\\b[^>]*>[\\s\\S]*?)(\\n\\s*</${loopTagName}>)`,
+    )
+
+    if (loopBlockPattern.test(currentXml)) {
+      return currentXml.replace(loopBlockPattern, (matched, start, end) => {
+        if (hasAbortCompletionCondition(matched, bpmnTagPrefix)) {
+          return matched
+        }
+        return `${start}${abortXml}${end}`
+      })
+    }
+
+    const loopSelfClosingPattern = new RegExp(
+      `(<${tagName}\\b[^>]*id="${nodeId}"[\\s\\S]*?<${loopTagName}\\b([^>]*)\\/>)`,
+    )
+    return currentXml.replace(loopSelfClosingPattern, (_matched, selfClosingTag, loopAttrs) => {
+      return selfClosingTag.replace(
+        new RegExp(`<${loopTagName}\\b([^>]*)\\/>`),
+        `<${bpmnTagPrefix}multiInstanceLoopCharacteristics$1>${abortXml}\n    </${bpmnTagPrefix}multiInstanceLoopCharacteristics>`,
+      )
+    })
+  }, xml)
+
+  return xmlWithSmartAbortConditions
 }

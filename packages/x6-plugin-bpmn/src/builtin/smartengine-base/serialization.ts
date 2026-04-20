@@ -11,6 +11,12 @@ import type {
 import { createBpmnElement } from '../../utils/bpmn-xml-names'
 
 export const SMARTENGINE_NAMESPACE_URI = 'http://smartengine.org/schema/process'
+const BPMN_NAMESPACE_URI = 'http://www.omg.org/spec/BPMN/20100524/MODEL'
+
+interface SmartNodeSerializationHandler extends NodeSerializationHandler {
+  /** 标记当前 serializer 是否支持 Smart 多实例 abort 条件。 */
+  supportsSmartAbortCondition?: boolean
+}
 
 type SmartPropertyItem = {
   type?: string
@@ -301,8 +307,13 @@ function createSmartNodePatch(
 
       const completionCondition = loop.completionCondition as ModdleElement | undefined
       const completionBody = completionCondition?.body
-      if (typeof completionBody === 'string' && completionBody.trim()) {
-        patch.multiInstanceCompletionCondition = completionBody
+      if (completionCondition && typeof completionBody === 'string' && completionBody.trim()) {
+        const completionAction = getAttributeValue(completionCondition, 'action')
+        if (completionAction === 'abort') {
+          patch.multiInstanceAbortCondition = completionBody
+        } else {
+          patch.multiInstanceCompletionCondition = completionBody
+        }
       }
     }
   }
@@ -386,7 +397,7 @@ export function createSmartNodeSerializer(options: {
 } = {}): NodeSerializationHandler {
   const autoPropertyKeys = new Set(options.autoPropertyKeys ?? [])
 
-  return {
+  const handler: SmartNodeSerializationHandler = {
     export(context) {
       const element = context.element as ModdleElement
       const moddle = context.moddle as BpmnModdle
@@ -444,12 +455,26 @@ export function createSmartNodeSerializer(options: {
           })
         }
 
+        const abortCondition = String(context.bpmnData.multiInstanceAbortCondition || '').trim()
+        if (abortCondition) {
+          const abortExpression = moddle.createAny('bpmn:completionCondition', BPMN_NAMESPACE_URI, {
+            $body: abortCondition,
+            action: 'abort',
+          }) as ModdleElement
+          const currentChildren = [
+            ...(((loop as { $children?: ModdleElement[] }).$children ?? []) as ModdleElement[]),
+          ]
+          currentChildren.push(abortExpression)
+          ;(loop as { $children?: ModdleElement[] }).$children = currentChildren
+        }
+
         element.loopCharacteristics = loop
         omitted.add('multiInstance')
         omitted.add('multiInstanceType')
         omitted.add('multiInstanceCollection')
         omitted.add('multiInstanceElementVariable')
         omitted.add('multiInstanceCompletionCondition')
+        omitted.add('multiInstanceAbortCondition')
       }
 
       return { omitBpmnKeys: Array.from(omitted) }
@@ -465,6 +490,12 @@ export function createSmartNodeSerializer(options: {
       })
     },
   }
+
+  if (options.multiInstance) {
+    handler.supportsSmartAbortCondition = true
+  }
+
+  return handler
 }
 
 export const smartConditionalFlowSerializer: EdgeSerializationHandler = {

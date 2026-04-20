@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { Graph, Node as X6Node } from '@antv/x6'
+import type { BpmnModdle, ModdleElement } from 'bpmn-moddle'
 import { buildAndValidateBpmn, validateBpmnXml } from '../../helpers/bpmn-builder'
 import { bpmnRoundtrip } from '../../helpers/roundtrip'
 import { buildTestXml, matchXmlOrThrow, removeXmlOrThrow, replaceXmlOrThrow, truncateXml, withXmlDeclaration } from '../../helpers/xml-test-utils'
@@ -17,7 +18,10 @@ import {
 } from '../../../src/export/bpmn-mapping'
 import { exportBpmnXml } from '../../../src/export/exporter'
 import { parseBpmnXml, loadBpmnGraph } from '../../../src/import'
+import { createBpmn2ImporterAdapter } from '../../../src/import/adapter'
+import { clearImportedBpmnState, getImportedBpmnState } from '../../../src/import/state'
 import { __test__ as xmlParserTest } from '../../../src/import/xml-parser'
+import { createBpmnElement } from '../../../src/utils/bpmn-xml-names'
 
 import {
   BPMN_START_EVENT,
@@ -3374,6 +3378,717 @@ describe('BPMNDI 自定义属性往返', () => {
     expect(exportedXml).toContain('qa:renderHint="review-card"')
     expect(exportedXml).toContain('qa:laneSlot="review-panel"')
     expect(exportedXml).toContain('qa:pathHint="straight-entry"')
+
+    graph.dispose()
+  })
+})
+
+describe('结构层与导入诊断保真', () => {
+  it('应在导入后导出时复用结构层、事件定义和 DI 层 id', async () => {
+    const graph = createTestGraph()
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_Source',
+        isExecutable: true,
+        elements: [
+          {
+            kind: 'laneSet',
+            id: 'LaneSet_Source',
+            lanes: [{ id: 'Lane_1', name: '审批泳道', flowNodeRefs: ['StartEvent_1', 'UserTask_1'] }],
+          },
+          { kind: 'startEvent', id: 'StartEvent_1', name: '开始', eventDefinition: 'messageEventDefinition' },
+          { kind: 'userTask', id: 'UserTask_1', name: '审批' },
+          { kind: 'sequenceFlow', id: 'Flow_1', sourceRef: 'StartEvent_1', targetRef: 'UserTask_1' },
+        ],
+      }],
+      collaboration: {
+        id: 'Collaboration_1',
+        participants: [{ id: 'Pool_1', name: '主流程', processRef: 'Process_Source' }],
+      },
+      shapes: {
+        Pool_1: { id: 'Pool_1', x: 40, y: 40, width: 720, height: 240, isHorizontal: true },
+        Lane_1: { id: 'Lane_1', x: 70, y: 40, width: 690, height: 240, isHorizontal: true },
+        StartEvent_1: { id: 'StartEvent_1', x: 130, y: 130, width: 36, height: 36 },
+        UserTask_1: { id: 'UserTask_1', x: 240, y: 118, width: 120, height: 60 },
+      },
+      edges: {
+        Flow_1: { id: 'Flow_1', waypoints: [{ x: 166, y: 148 }, { x: 240, y: 148 }] },
+      },
+    })
+
+    const xml = [
+      [/<bpmn:definitions\b([^>]*?)id="Definitions_1"/, '<bpmn:definitions$1id="Definitions_Custom"'],
+      [/targetNamespace="http:\/\/bpmn\.io\/schema\/bpmn"/, 'targetNamespace="http://example.com/custom/bpmn"'],
+      [/<bpmn:collaboration id="Collaboration_1"/, '<bpmn:collaboration id="Collaboration_Custom"'],
+      [/<bpmndi:BPMNDiagram id="BPMNDiagram_1"/, '<bpmndi:BPMNDiagram id="BPMNDiagram_Custom" xmlns:qa="http://example.com/qa" qa:diagramRole="main"'],
+      [/<bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1"/, '<bpmndi:BPMNPlane id="BPMNPlane_Custom" bpmnElement="Collaboration_Custom" qa:planeRole="root"'],
+      [/id="StartEvent_1_ed"/, 'id="EventDefinition_Custom"'],
+      [/id="Pool_1_di"/, 'id="PoolDiagram_Custom"'],
+      [/id="Lane_1_di"/, 'id="LaneDiagram_Custom"'],
+      [/id="StartEvent_1_di"/, 'id="StartDiagram_Custom"'],
+      [/id="UserTask_1_di"/, 'id="TaskDiagram_Custom"'],
+      [/id="Flow_1_di"/, 'id="FlowDiagram_Custom"'],
+    ].reduce(
+      (currentXml, [pattern, replacement], index) => replaceXmlOrThrow(
+        currentXml,
+        pattern as RegExp,
+        replacement as string,
+        `第 ${index + 1} 处结构层 id 变更应命中原始 XML`,
+      ),
+      baseXml,
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    loadBpmnGraph(graph, parsed, { zoomToFit: false })
+    const exportedXml = await exportBpmnXml(graph)
+
+    expect(exportedXml).toContain('id="Definitions_Custom"')
+    expect(exportedXml).toContain('targetNamespace="http://example.com/custom/bpmn"')
+    expect(exportedXml).toContain('id="Collaboration_Custom"')
+    expect(exportedXml).toContain('id="LaneSet_Source"')
+    expect(exportedXml).toContain('id="BPMNDiagram_Custom"')
+    expect(exportedXml).toContain('id="BPMNPlane_Custom"')
+    expect(exportedXml).toContain('qa:diagramRole="main"')
+    expect(exportedXml).toContain('qa:planeRole="root"')
+    expect(exportedXml).toContain('id="EventDefinition_Custom"')
+    expect(exportedXml).toContain('id="PoolDiagram_Custom"')
+    expect(exportedXml).toContain('id="LaneDiagram_Custom"')
+    expect(exportedXml).toContain('id="StartDiagram_Custom"')
+    expect(exportedXml).toContain('id="TaskDiagram_Custom"')
+    expect(exportedXml).toContain('id="FlowDiagram_Custom"')
+
+    graph.dispose()
+  })
+
+  it('应暴露失效引用与错误 plane 归属的导入诊断', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_1',
+        elements: [
+          { kind: 'startEvent', id: 'Start_1', name: '开始' },
+          { kind: 'userTask', id: 'Task_1', name: '审批' },
+          { kind: 'sequenceFlow', id: 'Flow_1', sourceRef: 'Start_1', targetRef: 'Task_1' },
+        ],
+      }],
+      shapes: {
+        Start_1: { id: 'Start_1', x: 120, y: 120, width: 36, height: 36 },
+        Task_1: { id: 'Task_1', x: 240, y: 108, width: 120, height: 60 },
+      },
+      edges: {
+        Flow_1: { id: 'Flow_1', waypoints: [{ x: 156, y: 138 }, { x: 240, y: 138 }] },
+      },
+    })
+
+    const xmlWithIssues = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        baseXml,
+        /<bpmn:sequenceFlow id="Flow_1" sourceRef="Start_1" targetRef="Task_1"\s*\/>/,
+        '<bpmn:sequenceFlow id="Flow_1" sourceRef="Start_1" targetRef="Missing_Task" />',
+        '应能制造失效 targetRef',
+      ),
+      /<bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1"/,
+      '<bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Missing_Process"',
+      '应能制造错误的 plane 根元素引用',
+    )
+
+    const parsed = await parseBpmnXml(xmlWithIssues)
+    expect(parsed.diagnostics?.compatibilityIssues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        'invalid-reference',
+        'invalid-plane-bpmn-element',
+      ]),
+    )
+    expect(parsed.diagnostics?.lossyFlags).toEqual(
+      expect.arrayContaining([
+        'invalid-reference',
+        'invalid-plane-bpmn-element',
+      ]),
+    )
+  })
+
+  it('应将多个 laneSet 标记为有损导入', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_MultiLaneSet',
+        elements: [
+          { kind: 'laneSet', id: 'LaneSet_A', lanes: [{ id: 'Lane_A', name: 'A', flowNodeRefs: ['Task_A'] }] },
+          { kind: 'userTask', id: 'Task_A', name: '任务A' },
+        ],
+      }],
+      shapes: {
+        Lane_A: { id: 'Lane_A', x: 80, y: 60, width: 640, height: 120, isHorizontal: true },
+        Task_A: { id: 'Task_A', x: 160, y: 90, width: 120, height: 60 },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      baseXml,
+      /(<\/bpmn:process>)/,
+      [
+        '<bpmn:laneSet id="LaneSet_B">',
+        '  <bpmn:lane id="Lane_B" name="B">',
+        '    <bpmn:flowNodeRef>Task_A</bpmn:flowNodeRef>',
+        '  </bpmn:lane>',
+        '</bpmn:laneSet>',
+        '$1',
+      ].join('\n'),
+      '应能为 process 注入第二个 laneSet',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    expect(parsed.diagnostics?.compatibilityIssues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['multiple-lane-sets']),
+    )
+    expect(parsed.diagnostics?.lossyFlags).toEqual(
+      expect.arrayContaining(['multiple-lane-sets']),
+    )
+  })
+
+  it('缺少 process id 时仍应保留 multiple laneSets 诊断，但不附带 elementIds', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_No_Id',
+        elements: [
+          { kind: 'laneSet', id: 'LaneSet_A', lanes: [{ id: 'Lane_A', name: 'A', flowNodeRefs: ['Task_A'] }] },
+          { kind: 'userTask', id: 'Task_A', name: '任务A' },
+        ],
+      }],
+      shapes: {
+        Lane_A: { id: 'Lane_A', x: 80, y: 60, width: 640, height: 120, isHorizontal: true },
+        Task_A: { id: 'Task_A', x: 160, y: 90, width: 120, height: 60 },
+      },
+    })
+    const xmlWithExtraLaneSet = replaceXmlOrThrow(
+      baseXml,
+      /(<\/bpmn:process>)/,
+      [
+        '<bpmn:laneSet id="LaneSet_B">',
+        '  <bpmn:lane id="Lane_B" name="B">',
+        '    <bpmn:flowNodeRef>Task_A</bpmn:flowNodeRef>',
+        '  </bpmn:lane>',
+        '</bpmn:laneSet>',
+        '$1',
+      ].join('\n'),
+      '应能为 process 注入第二个 laneSet',
+    )
+    const xml = replaceXmlOrThrow(
+      xmlWithExtraLaneSet,
+      /<bpmn:process id="Process_No_Id"[^>]*>/,
+      '<bpmn:process>',
+      '应能移除 process id 以验证无 id 诊断路径',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    const issue = parsed.diagnostics?.compatibilityIssues.find((item) => item.code === 'multiple-lane-sets')
+
+    expect(issue?.elementIds).toBeUndefined()
+    expect(parsed.metadata?.processes?.[0]).toMatchObject({
+      laneSetId: 'LaneSet_A',
+    })
+    expect(parsed.metadata?.processes?.[0]).not.toHaveProperty('id')
+  })
+
+  it('应将重复的 BPMN id 标记为有损导入', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_DuplicateIds',
+        elements: [
+          { kind: 'startEvent', id: 'Start_A', name: '开始' },
+          { kind: 'userTask', id: 'Task_A', name: '审批' },
+          { kind: 'sequenceFlow', id: 'Flow_A', sourceRef: 'Start_A', targetRef: 'Task_A' },
+        ],
+      }],
+      shapes: {
+        Start_A: { id: 'Start_A', x: 120, y: 120, width: 36, height: 36 },
+        Task_A: { id: 'Task_A', x: 240, y: 108, width: 120, height: 60 },
+      },
+      edges: {
+        Flow_A: { id: 'Flow_A', waypoints: [{ x: 156, y: 138 }, { x: 240, y: 138 }] },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      baseXml,
+      /<bpmn:userTask id="Task_A"/,
+      '<bpmn:userTask id="Start_A"',
+      '应能制造重复的 BPMN id',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    expect(parsed.diagnostics?.compatibilityIssues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['duplicate-bpmn-id']),
+    )
+    expect(parsed.diagnostics?.lossyFlags).toEqual(
+      expect.arrayContaining(['duplicate-bpmn-id']),
+    )
+  })
+
+  it('应保留仅 plane 元数据，并把 moddle warnings 暴露为导入诊断', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_Warning_Metadata',
+        elements: [
+          { kind: 'startEvent', id: 'Start_1', name: '开始' },
+        ],
+      }],
+      shapes: {
+        Start_1: { id: 'Start_1', x: 120, y: 120, width: 36, height: 36 },
+      },
+    })
+    const xmlWithDiagramNamespace = replaceXmlOrThrow(
+      baseXml,
+      /<bpmndi:BPMNDiagram id="BPMNDiagram_1"/,
+      '<bpmndi:BPMNDiagram id="BPMNDiagram_1" xmlns:qa="http://example.com/qa"',
+      '应能为 diagram 注入测试命名空间',
+    )
+    const xml = replaceXmlOrThrow(
+      xmlWithDiagramNamespace,
+      /<bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_Warning_Metadata"/,
+      '<bpmndi:BPMNPlane id="BPMNPlane_Custom" bpmnElement="Missing_Process" foo="bar" qa:planeRole="root"',
+      '应能制造带自定义属性和无效引用的 plane 元数据',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+
+    expect(parsed.diagnostics?.warnings).toEqual(expect.arrayContaining([
+      'unknown attribute <foo>',
+      'unresolved reference <Missing_Process>',
+    ]))
+    expect(parsed.metadata?.diagram?.plane).toEqual({
+      id: 'BPMNPlane_Custom',
+      bpmnElement: 'Missing_Process',
+      $attrs: {
+        foo: 'bar',
+        'qa:planeRole': 'root',
+      },
+      $namespaces: {
+        qa: 'http://example.com/qa',
+      },
+    })
+  })
+
+  it('应将失效的 BPMNShape bpmnElement 归类为普通失效引用，而不是 plane 根引用', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_Di_Bad_Ref',
+        elements: [
+          { kind: 'startEvent', id: 'Start_1', name: '开始' },
+        ],
+      }],
+      shapes: {
+        Start_1: { id: 'Start_1', x: 120, y: 120, width: 36, height: 36 },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      baseXml,
+      /<bpmndi:BPMNShape id="Start_1_di" bpmnElement="Start_1"/,
+      '<bpmndi:BPMNShape id="Start_1_di" bpmnElement="Missing_Start"',
+      '应能制造 BPMNShape 的失效 bpmnElement 引用',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    const codes = parsed.diagnostics?.compatibilityIssues.map((issue) => issue.code) ?? []
+
+    expect(codes).toContain('invalid-reference')
+    expect(codes).not.toContain('invalid-plane-bpmn-element')
+    expect(parsed.diagnostics?.compatibilityIssues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'invalid-reference',
+        elementIds: ['Missing_Start'],
+      }),
+    ]))
+  })
+
+  it('相同的失效 BPMNDI 引用应只产出一条去重后的诊断', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_Di_Dedupe',
+        elements: [
+          { kind: 'startEvent', id: 'Start_1', name: '开始' },
+          { kind: 'userTask', id: 'Task_1', name: '审批' },
+        ],
+      }],
+      shapes: {
+        Start_1: { id: 'Start_1', x: 120, y: 120, width: 36, height: 36 },
+        Task_1: { id: 'Task_1', x: 240, y: 108, width: 120, height: 60 },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      replaceXmlOrThrow(
+        baseXml,
+        /<bpmndi:BPMNShape id="Start_1_di" bpmnElement="Start_1"/,
+        '<bpmndi:BPMNShape id="Start_1_di" bpmnElement="Missing_Shared"',
+        '应能制造第一个重复的 BPMNDI 失效引用',
+      ),
+      /<bpmndi:BPMNShape id="Task_1_di" bpmnElement="Task_1"/,
+      '<bpmndi:BPMNShape id="Task_1_di" bpmnElement="Missing_Shared"',
+      '应能制造第二个重复的 BPMNDI 失效引用',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    const duplicatedIssues = (parsed.diagnostics?.compatibilityIssues ?? []).filter((issue) => (
+      issue.code === 'invalid-reference'
+      && issue.elementIds?.[0] === 'Missing_Shared'
+    ))
+
+    expect(duplicatedIssues).toHaveLength(1)
+  })
+
+  it('应规范化原始字符串形式的引用 id', () => {
+    expect(xmlParserTest.readReferencedElementId('  Missing_Process  ')).toBe('Missing_Process')
+    expect(xmlParserTest.readReferencedElementId('   ')).toBeUndefined()
+    expect(xmlParserTest.readReferencedElementId({ id: '   ' })).toBeUndefined()
+    expect(xmlParserTest.readReferencedElementId({ id: 123 })).toBeUndefined()
+  })
+
+  it('plane 缺少 id 但保留属性时仍应保留 plane 元数据', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_Plane_No_Id',
+        elements: [
+          { kind: 'startEvent', id: 'Start_1', name: '开始' },
+        ],
+      }],
+      shapes: {
+        Start_1: { id: 'Start_1', x: 120, y: 120, width: 36, height: 36 },
+      },
+    })
+    const xmlWithDiagramNamespace = replaceXmlOrThrow(
+      baseXml,
+      /<bpmndi:BPMNDiagram id="BPMNDiagram_1"/,
+      '<bpmndi:BPMNDiagram id="BPMNDiagram_1" xmlns:qa="http://example.com/qa"',
+      '应能为 diagram 注入测试命名空间',
+    )
+    const xml = replaceXmlOrThrow(
+      xmlWithDiagramNamespace,
+      /<bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_Plane_No_Id"/,
+      '<bpmndi:BPMNPlane qa:planeRole="root" bpmnElement="Process_Plane_No_Id"',
+      '应能移除 plane id 以验证仅属性元数据路径',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+
+    expect(parsed.metadata?.diagram?.plane).toEqual({
+      $attrs: {
+        'qa:planeRole': 'root',
+      },
+      $namespaces: {
+        qa: 'http://example.com/qa',
+      },
+      bpmnElement: 'Process_Plane_No_Id',
+    })
+  })
+
+  it('plane 与 BPMNShape 使用空白 bpmnElement 时仍应只保留有效的 plane 属性元数据', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_Blank_BpmnElement',
+        elements: [
+          { kind: 'startEvent', id: 'Start_1', name: '开始' },
+        ],
+      }],
+      shapes: {
+        Start_1: { id: 'Start_1', x: 120, y: 120, width: 36, height: 36 },
+      },
+    })
+    const xmlWithDiagramNamespace = replaceXmlOrThrow(
+      baseXml,
+      /<bpmndi:BPMNDiagram id="BPMNDiagram_1"/,
+      '<bpmndi:BPMNDiagram id="BPMNDiagram_1" xmlns:qa="http://example.com/qa"',
+      '应能为 diagram 注入测试命名空间',
+    )
+    const xmlWithBlankPlaneRef = replaceXmlOrThrow(
+      xmlWithDiagramNamespace,
+      /<bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_Blank_BpmnElement"/,
+      '<bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="   " qa:planeRole="root"',
+      '应能把 plane 的 bpmnElement 改为空白字符串',
+    )
+    const xml = replaceXmlOrThrow(
+      xmlWithBlankPlaneRef,
+      /<bpmndi:BPMNShape id="Start_1_di" bpmnElement="Start_1"/,
+      '<bpmndi:BPMNShape id="Start_1_di" bpmnElement="   "',
+      '应能把 BPMNShape 的 bpmnElement 改为空白字符串',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    const codes = parsed.diagnostics?.compatibilityIssues.map((issue) => issue.code) ?? []
+
+    expect(parsed.metadata?.diagram?.plane).toEqual({
+      id: 'BPMNPlane_1',
+      $attrs: {
+        'qa:planeRole': 'root',
+      },
+      $namespaces: {
+        qa: 'http://example.com/qa',
+      },
+    })
+    expect(codes).not.toContain('invalid-reference')
+    expect(codes).not.toContain('invalid-plane-bpmn-element')
+  })
+
+  it('BPMNDiagram 缺少 id 时仍应仅由 plane 元数据构造 diagram metadata', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_Diagram_No_Id',
+        elements: [
+          { kind: 'startEvent', id: 'Start_1', name: '开始' },
+        ],
+      }],
+      shapes: {
+        Start_1: { id: 'Start_1', x: 120, y: 120, width: 36, height: 36 },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      baseXml,
+      /<bpmndi:BPMNDiagram id="BPMNDiagram_1">/,
+      '<bpmndi:BPMNDiagram>',
+      '应能移除 BPMNDiagram id 以验证空 diagram 元数据路径',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    expect(parsed.metadata?.diagram).toBeUndefined()
+  })
+
+  it('应忽略默认事件定义 id，并在缺少可选 process 元数据时只保留必要字段', async () => {
+    const xml = await buildTestXml({
+      processes: [{
+        id: 'Process_Minimal_Metadata',
+        elements: [
+          { kind: 'startEvent', id: 'Start_Message_1', name: '开始', eventDefinition: 'messageEventDefinition' },
+        ],
+      }],
+      shapes: {
+        Start_Message_1: { id: 'Start_Message_1', x: 120, y: 120, width: 36, height: 36 },
+      },
+    })
+
+    const parsed = await parseBpmnXml(xml)
+    const startEvent = parsed.nodes.find((node) => node.id === 'Start_Message_1')
+
+    expect(parsed.metadata?.processes).toEqual([
+      { id: 'Process_Minimal_Metadata', isExecutable: false },
+    ])
+    expect(startEvent?.data?.bpmn).toBeUndefined()
+  })
+
+  it('事件定义缺少 id 时不应写入保真事件定义元数据', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_Event_No_Id',
+        elements: [
+          { kind: 'startEvent', id: 'Start_Message_1', name: '开始', eventDefinition: 'messageEventDefinition' },
+        ],
+      }],
+      shapes: {
+        Start_Message_1: { id: 'Start_Message_1', x: 120, y: 120, width: 36, height: 36 },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      baseXml,
+      /<bpmn:messageEventDefinition id="Start_Message_1_ed"\s*\/>/,
+      '<bpmn:messageEventDefinition />',
+      '应能移除事件定义 id 以验证空 id 路径',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    const startEvent = parsed.nodes.find((node) => node.id === 'Start_Message_1')
+
+    expect(startEvent?.data?.bpmn).toBeUndefined()
+  })
+
+  it('BPMNShape 缺少 id 时不应生成自定义 bpmndi id 元数据', async () => {
+    const baseXml = await buildTestXml({
+      processes: [{
+        id: 'Process_Shape_No_Id',
+        elements: [
+          { kind: 'startEvent', id: 'Start_1', name: '开始' },
+        ],
+      }],
+      shapes: {
+        Start_1: { id: 'Start_1', x: 120, y: 120, width: 36, height: 36 },
+      },
+    })
+    const xml = replaceXmlOrThrow(
+      baseXml,
+      /<bpmndi:BPMNShape id="Start_1_di" bpmnElement="Start_1"/,
+      '<bpmndi:BPMNShape bpmnElement="Start_1"',
+      '应能移除 BPMNShape id 以验证空 diShapeId 路径',
+    )
+
+    const parsed = await parseBpmnXml(xml)
+    const startEvent = parsed.nodes.find((node) => node.id === 'Start_1')
+
+    expect(startEvent?.data?.bpmndi).toBeUndefined()
+  })
+})
+
+describe('导入适配器与图级状态', () => {
+  it('应回传 importedData 并允许清理图级导入状态', async () => {
+    const graph = createTestGraph()
+    const onImportedData = vi.fn()
+    const postImport = vi.fn()
+    const importer = createBpmn2ImporterAdapter({
+      zoomToFit: false,
+      onImportedData,
+      postImport,
+    })
+    const xml = await buildTestXml({
+      processes: [{
+        id: 'Process_1',
+        elements: [
+          { kind: 'startEvent', id: 'Start_1', name: '开始' },
+        ],
+      }],
+      shapes: {
+        Start_1: { id: 'Start_1', x: 120, y: 120, width: 36, height: 36 },
+      },
+    })
+
+    await importer.importXML(graph, xml, { profile: undefined } as any)
+
+    expect(onImportedData).toHaveBeenCalledTimes(1)
+    expect(postImport).toHaveBeenCalledTimes(1)
+    expect(getImportedBpmnState(graph)?.metadata?.targetNamespace).toBe('http://bpmn.io/schema/bpmn')
+
+    clearImportedBpmnState(graph)
+    expect(getImportedBpmnState(graph)).toBeUndefined()
+
+    graph.dispose()
+  })
+
+  it('导出时遇到空白 BPMNDI id 应回退到默认 id', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      id: 'Task_Blank_Di',
+      shape: BPMN_USER_TASK,
+      x: 120,
+      y: 120,
+      width: 120,
+      height: 60,
+      data: {
+        bpmndi: {
+          id: '   ',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph)
+    expect(xml).toContain('id="Task_Blank_Di_di"')
+
+    graph.dispose()
+  })
+
+  it('导出时应允许 pool 仅按 poolId 关联导入 metadata', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      id: 'Pool_Metadata_Only',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 720,
+      height: 240,
+      data: {
+        bpmn: {
+          processRef: 'Process_From_Pool_Data',
+          isHorizontal: true,
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      metadata: {
+        processes: [{
+          poolId: 'Pool_Metadata_Only',
+          name: '仅按 poolId 关联的流程',
+          isExecutable: true,
+        }],
+      },
+    })
+
+    expect(xml).toContain('Process_From_Pool_Data')
+    expect(xml).toContain('仅按 poolId 关联的流程')
+    expect(xml).toContain('isExecutable="true"')
+
+    graph.dispose()
+  })
+
+  it('导出时应忽略未映射节点和空 abort 条件的后处理分支', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      id: 'Task_No_Abort',
+      shape: BPMN_USER_TASK,
+      x: 120,
+      y: 120,
+      width: 120,
+      height: 60,
+      data: {
+        bpmn: {
+          multiInstance: true,
+          multiInstanceAbortCondition: '   ',
+        },
+      },
+    })
+    graph.addNode({
+      id: 'Helper_Abort',
+      shape: 'rect',
+      x: 320,
+      y: 120,
+      width: 80,
+      height: 40,
+      data: {
+        bpmn: {
+          multiInstanceAbortCondition: '${ignored > 0}',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph)
+    expect(xml).not.toContain('action="abort"')
+
+    graph.dispose()
+  })
+
+  it('自定义序列化已输出 abort completionCondition 时不应重复追加', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      id: 'Task_Custom_Abort',
+      shape: BPMN_USER_TASK,
+      x: 120,
+      y: 120,
+      width: 120,
+      height: 60,
+      data: {
+        bpmn: {
+          multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      serialization: {
+        nodeSerializers: {
+          [BPMN_USER_TASK]: {
+            export(context) {
+              const moddle = context.moddle as BpmnModdle
+              const element = context.element as ModdleElement & { loopCharacteristics?: ModdleElement }
+              const loop = createBpmnElement(moddle, 'multiInstanceLoopCharacteristics', {
+                isSequential: false,
+              }) as any
+              const abortExpression = createBpmnElement(moddle, 'formalExpression', {
+                body: '${nrOfRejectedInstances > 0}',
+                action: 'abort',
+              }) as any
+              loop.completionCondition = abortExpression
+              element.loopCharacteristics = loop
+
+              return {
+                omitBpmnKeys: ['multiInstanceAbortCondition'],
+              }
+            },
+          },
+        },
+      },
+    })
+
+    expect(xml.match(/action="abort"/g)).toHaveLength(1)
 
     graph.dispose()
   })

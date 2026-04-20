@@ -11,6 +11,7 @@
 
 import type { Edge, Graph } from '@antv/x6'
 import type { BpmnImportData } from './types'
+import { setImportedBpmnState } from './state'
 import {
   BPMN_COLORS,
   BPMN_EXCLUSIVE_GATEWAY,
@@ -143,6 +144,8 @@ export function loadBpmnGraph(
       graph.clearCells()
     }
   }
+
+  setImportedBpmnState(graph, data)
 
   // ---------- 加载节点 ----------
   for (const nodeData of data.nodes) {

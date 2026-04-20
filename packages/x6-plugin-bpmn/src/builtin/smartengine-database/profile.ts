@@ -73,6 +73,12 @@ export const smartengineDatabaseProfile: Profile = {
         description: '多实例完成条件',
         normalize: (v) => String(v ?? ''),
       },
+      multiInstanceAbortCondition: {
+        scope: 'node',
+        defaultValue: '',
+        description: '多实例中止条件',
+        normalize: (v) => String(v ?? ''),
+      },
 
       // 审批增强
       approvalType: {
@@ -91,7 +97,7 @@ export const smartengineDatabaseProfile: Profile = {
     categoryFields: {
       userTask: [
         'multiInstance', 'multiInstanceType', 'multiInstanceCollection',
-        'multiInstanceElementVariable', 'multiInstanceCompletionCondition',
+        'multiInstanceElementVariable', 'multiInstanceCompletionCondition', 'multiInstanceAbortCondition',
         'approvalType', 'approvalStrategy',
       ],
     },

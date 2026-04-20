@@ -101,14 +101,8 @@ export function clampLanePreviewRect(
   if (constraints.max.top !== undefined && previewTrbl.top > constraints.max.top) {
     previewTrbl.top = constraints.max.top
   }
-  if (constraints.max.right !== undefined && previewTrbl.right > constraints.max.right) {
-    previewTrbl.right = constraints.max.right
-  }
   if (constraints.max.bottom !== undefined && previewTrbl.bottom > constraints.max.bottom) {
     previewTrbl.bottom = constraints.max.bottom
-  }
-  if (constraints.max.left !== undefined && previewTrbl.left < constraints.max.left) {
-    previewTrbl.left = constraints.max.left
   }
 
   return trblToRect(previewTrbl as TRBL)

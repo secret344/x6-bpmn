@@ -837,6 +837,149 @@ describe('pool containment helpers', () => {
     expect(containmentTest.validatePoolBounds({ getNodes: () => [task] } as unknown as Graph, task)).toEqual({ valid: true })
   })
 
+  it('Pool 无重叠时不应钳制位置，存在嵌套后代时应整体平移', () => {
+    const nestedTask = {
+      id: 'nested-task',
+      isNode: () => true,
+      getChildren: () => [],
+      getPosition: () => ({ x: 120, y: 120 }),
+      setPosition: vi.fn(),
+    } as unknown as Node
+    const lane = {
+      id: 'lane-1',
+      isNode: () => true,
+      getChildren: () => [nestedTask],
+      getPosition: () => ({ x: 70, y: 70 }),
+      setPosition: vi.fn(),
+    } as unknown as Node
+    const annotation = {
+      id: 'annotation-1',
+      isNode: () => false,
+    } as any
+    const task = {
+      id: 'task-1',
+      isNode: () => true,
+      getChildren: () => [annotation],
+      getPosition: () => ({ x: 90, y: 90 }),
+      setPosition: vi.fn(),
+    } as unknown as Node
+    const pool = {
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getChildren: () => [lane, task, annotation],
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 200, height: 160 }),
+      setPosition: vi.fn(),
+    } as unknown as Node
+    const farPool = {
+      id: 'pool-2',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getChildren: () => [],
+      getPosition: () => ({ x: 400, y: 400 }),
+      getSize: () => ({ width: 200, height: 160 }),
+    } as unknown as Node
+    const overlappingPool = {
+      id: 'pool-3',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getChildren: () => [],
+      getPosition: () => ({ x: 40, y: 150 }),
+      getSize: () => ({ width: 200, height: 160 }),
+    } as unknown as Node
+
+    const noOverlapGraph = { getNodes: () => [pool, farPool, task] } as unknown as Graph
+    expect(containmentTest.resolveClampedPoolPosition(noOverlapGraph, pool)).toBeNull()
+    containmentTest.clampPoolPosition(noOverlapGraph, pool)
+    expect((pool.setPosition as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+
+    const clampedGraph = { getNodes: () => [pool, overlappingPool] } as unknown as Graph
+    containmentTest.clampPoolPosition(clampedGraph, pool)
+
+    expect((pool.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(40, -11, {
+      silent: true,
+      bpmnContainmentSync: true,
+    })
+    expect((lane.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(70, 19, {
+      silent: true,
+      bpmnContainmentSync: true,
+    })
+    expect((task.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(90, 39, {
+      silent: true,
+      bpmnContainmentSync: true,
+    })
+    expect((nestedTask.setPosition as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(120, 69, {
+      silent: true,
+      bpmnContainmentSync: true,
+    })
+    expect(containmentTest.collectDescendantNodes(pool).map((node) => node.id)).toEqual([
+      'lane-1',
+      'task-1',
+      'nested-task',
+    ])
+  })
+
+  it('Pool 双侧重叠回到原位时不应平移后代，并应覆盖右移与下移求解', () => {
+    const leafTask = {
+      id: 'leaf-task',
+      isNode: () => true,
+      getPosition: () => ({ x: 90, y: 90 }),
+      setPosition: vi.fn(),
+    } as unknown as Node
+    const pool = {
+      id: 'pool-main',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getChildren: () => [leafTask],
+      getPosition: () => ({ x: 40, y: 40 }),
+      getSize: () => ({ width: 200, height: 160 }),
+      setPosition: vi.fn(),
+    } as unknown as Node
+    const leftOverlapPool = {
+      id: 'pool-left',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getChildren: () => [],
+      getPosition: () => ({ x: -100, y: 40 }),
+      getSize: () => ({ width: 200, height: 160 }),
+    } as unknown as Node
+    const rightOverlapPool = {
+      id: 'pool-right',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getChildren: () => [],
+      getPosition: () => ({ x: 241, y: 40 }),
+      getSize: () => ({ width: 200, height: 160 }),
+    } as unknown as Node
+    const topOverlapPool = {
+      id: 'pool-top',
+      shape: BPMN_POOL,
+      isNode: () => true,
+      getChildren: () => [],
+      getPosition: () => ({ x: 40, y: -100 }),
+      getSize: () => ({ width: 200, height: 160 }),
+    } as unknown as Node
+
+    expect(containmentTest.resolveClampedPoolPosition(
+      { getNodes: () => [pool, leftOverlapPool] } as unknown as Graph,
+      pool,
+    )).toEqual({ x: 101, y: 40 })
+    expect(containmentTest.resolveClampedPoolPosition(
+      { getNodes: () => [pool, topOverlapPool] } as unknown as Graph,
+      pool,
+    )).toEqual({ x: 40, y: 61 })
+
+    containmentTest.clampPoolPosition(
+      { getNodes: () => [pool, leftOverlapPool, rightOverlapPool] } as unknown as Graph,
+      pool,
+    )
+
+    expect((pool.setPosition as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect((leafTask.setPosition as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect(containmentTest.collectDescendantNodes(pool).map((node) => node.id)).toEqual(['leaf-task'])
+  })
+
   it('containment 违规、后代选区跳过与 addChild 重挂应命中对应分支', () => {
     const lane = {
       id: 'lane-1',

@@ -85,8 +85,17 @@ export function createBpmn2ImporterAdapter(
         : undefined
 
       const data = await parseBpmnXml(xml, { serialization })
-      const { serialization: _serialization, postImport: _postImport, ...loadOptions } = options ?? {}
+      const {
+        serialization: _serialization,
+        postImport: _postImport,
+        onImportedData: _onImportedData,
+        ...loadOptions
+      } = options ?? {}
       loadBpmnGraph(graph, data, loadOptions)
+
+      if (options?.onImportedData) {
+        await options.onImportedData(data)
+      }
 
       if (options?.postImport) {
         await options.postImport(graph, context, data)

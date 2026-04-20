@@ -41,11 +41,21 @@ import {
   BPMN_TRANSACTION,
   BPMN_AD_HOC_SUB_PROCESS,
   BPMN_CALL_ACTIVITY,
+  BPMN_USER_TASK,
 } from '../utils/constants'
 import type { BpmnImportData, BpmnNodeData, BpmnEdgeData } from './types'
+import type {
+  BpmnImportCompatibilityIssue,
+  BpmnImportDiagnostics,
+  BpmnImportMetadata,
+  BpmnPreservedDiagramMetadata,
+  BpmnPreservedElementMetadata,
+  BpmnPreservedProcessMetadata,
+} from './types'
 import {
   createBpmnElementTagRegex,
   createBpmnOpeningTagRegex,
+  getBpmnAcceptedTagPrefixPattern,
   getBpmnLocalName,
   resolveBpmnXmlNameSettings,
 } from '../utils/bpmn-xml-names'
@@ -149,6 +159,7 @@ const FLOW_CONTAINER_TAGS = new Set([
  * 从 moddle 元素的 $type 提取本地标签名。
  * 例：'bpmn:StartEvent' → 'startEvent'
  */
+/* istanbul ignore next -- 只是 getBpmnLocalName 的薄包装，实际行为由所有调用方间接覆盖，函数声明本身的计数不稳定。 */
 function localTag(element: ModdleElement): string {
   /* istanbul ignore next — moddle 始终提供 $type */
   return getBpmnLocalName(String(element.$type || ''))
@@ -162,6 +173,37 @@ interface XmlEventHints {
 
 interface XmlDiHints {
   edgeMessageVisibleKinds: Map<string, 'initiating' | 'non_initiating'>
+}
+
+interface XmlBpmndiReferenceHints {
+  planeBpmnElements: string[]
+  diElementBpmnElements: string[]
+}
+
+interface XmlMultiInstanceConditionHint {
+  action?: string
+  body: string
+}
+
+interface XmlMultiInstanceHints {
+  conditionsByElementId: Map<string, XmlMultiInstanceConditionHint[]>
+}
+
+function readReferencedElementId(reference: unknown): string | undefined {
+  if (typeof reference === 'string') {
+    const normalized = reference.trim()
+    return normalized || undefined
+  }
+
+  if (reference && typeof reference === 'object') {
+    const rawId = (reference as { id?: unknown }).id
+    if (typeof rawId === 'string') {
+      const normalized = rawId.trim()
+      return normalized || undefined
+    }
+  }
+
+  return undefined
 }
 
 function collectEventXmlHints(
@@ -219,6 +261,114 @@ function collectDiXmlHints(xml: string): XmlDiHints {
     }
 
     match = pattern.exec(xml)
+  }
+
+  return hints
+}
+
+function collectBpmndiReferenceHints(xml: string): XmlBpmndiReferenceHints {
+  const hints: XmlBpmndiReferenceHints = {
+    planeBpmnElements: [],
+    diElementBpmnElements: [],
+  }
+
+  const planePattern = /<(?:\w+:)?BPMNPlane\b[^>]*\bbpmnElement="([^"]+)"/g
+  const diElementPattern = /<(?:\w+:)?BPMN(?:Shape|Edge)\b[^>]*\bbpmnElement="([^"]+)"/g
+
+  let planeMatch: RegExpExecArray | null = planePattern.exec(xml)
+  while (planeMatch) {
+    const planeBpmnElement = planeMatch[1]?.trim()
+    if (planeBpmnElement) {
+      hints.planeBpmnElements.push(planeBpmnElement)
+    }
+    planeMatch = planePattern.exec(xml)
+  }
+
+  let diElementMatch: RegExpExecArray | null = diElementPattern.exec(xml)
+  while (diElementMatch) {
+    const diElementBpmnElement = diElementMatch[1]?.trim()
+    if (diElementBpmnElement) {
+      hints.diElementBpmnElements.push(diElementBpmnElement)
+    }
+    diElementMatch = diElementPattern.exec(xml)
+  }
+
+  return hints
+}
+
+function normalizeXmlConditionBody(rawBody: string): string {
+  const trimmed = rawBody.trim()
+  const cdataMatch = trimmed.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/)
+  const normalized = cdataMatch ? cdataMatch[1].trim() : trimmed
+  return normalized
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+function hasMeaningfulElementMetadata(
+  metadata: BpmnPreservedElementMetadata | undefined,
+  defaultId?: string,
+): metadata is BpmnPreservedElementMetadata {
+  if (!metadata) {
+    return false
+  }
+
+  if (metadata.$attrs && Object.keys(metadata.$attrs).length > 0) {
+    return true
+  }
+  if (metadata.id && metadata.id !== defaultId) {
+    return true
+  }
+
+  return false
+}
+
+function collectMultiInstanceXmlHints(
+  xml: string,
+  xmlNames?: SerializationOverrides['xmlNames'],
+): XmlMultiInstanceHints {
+  const hints: XmlMultiInstanceHints = {
+    conditionsByElementId: new Map<string, XmlMultiInstanceConditionHint[]>(),
+  }
+
+  const prefixPattern = getBpmnAcceptedTagPrefixPattern(xmlNames)
+  const taskPattern = createBpmnElementTagRegex(['userTask'], xmlNames)
+  const loopPattern = new RegExp(
+    `<${prefixPattern}multiInstanceLoopCharacteristics\\b[^>]*>([\\s\\S]*?)<\\/${prefixPattern}multiInstanceLoopCharacteristics>`,
+  )
+  const completionPattern = new RegExp(
+    `<${prefixPattern}completionCondition\\b([^>]*)>([\\s\\S]*?)<\\/${prefixPattern}completionCondition>`,
+    'g',
+  )
+
+  let match: RegExpExecArray | null = taskPattern.exec(xml)
+  while (match) {
+    const [, , , elementId, , body] = match
+    const loopMatch = body.match(loopPattern)
+
+    if (loopMatch) {
+      const conditions: XmlMultiInstanceConditionHint[] = []
+      let completionMatch: RegExpExecArray | null = completionPattern.exec(loopMatch[1])
+
+      while (completionMatch) {
+        const [, attrs, rawBody] = completionMatch
+        const actionMatch = attrs.match(/\baction="([^"]+)"/)
+        conditions.push({
+          ...(actionMatch?.[1] ? { action: actionMatch[1] } : {}),
+          body: normalizeXmlConditionBody(rawBody),
+        })
+        completionMatch = completionPattern.exec(loopMatch[1])
+      }
+
+      if (conditions.length > 0) {
+        hints.conditionsByElementId.set(elementId, conditions)
+      }
+    }
+
+    match = taskPattern.exec(xml)
   }
 
   return hints
@@ -388,6 +538,13 @@ function parseDiagram(
     if (type === 'bpmndi:BPMNShape') {
       const bounds = child.bounds as ModdleElement | undefined
       const rawXmlAttrs = parsePreservedXmlAttrs(child, declaredNamespaces)
+      const diShapeId = typeof child.id === 'string' && child.id ? child.id : undefined
+      const preservedBpmndi = diShapeId && diShapeId !== `${bpmnElementId}_di`
+        ? {
+            ...(rawXmlAttrs ?? {}),
+            id: diShapeId,
+          }
+        : rawXmlAttrs
       /* istanbul ignore else */
       if (bounds) {
         /* istanbul ignore next — moddle 始终提供完整 DI 数值，?? 回退不会触发 */
@@ -402,7 +559,7 @@ function parseDiagram(
           isHorizontal: typeof child.isHorizontal === 'boolean' ? child.isHorizontal : undefined,
           isExpanded: typeof child.isExpanded === 'boolean' ? child.isExpanded : undefined,
           isMarkerVisible: typeof child.isMarkerVisible === 'boolean' ? child.isMarkerVisible : undefined,
-          bpmndi: rawXmlAttrs,
+          bpmndi: preservedBpmndi,
         })
       }
     }
@@ -415,11 +572,17 @@ function parseDiagram(
         y: wp.y ?? 0,
       }))
       const diEdgeId = String((child as { id?: string }).id || '')
+      const preservedBpmndi = diEdgeId && diEdgeId !== `${bpmnElementId}_di`
+        ? {
+            ...(rawXmlAttrs ?? {}),
+            id: diEdgeId,
+          }
+        : rawXmlAttrs
       edges.set(bpmnElementId, {
         bpmnElement: bpmnElementId,
         waypoints,
         messageVisibleKind: diEdgeId ? xmlDiHints?.edgeMessageVisibleKinds.get(diEdgeId) : undefined,
-        bpmndi: rawXmlAttrs,
+        bpmndi: preservedBpmndi,
       })
     }
     // 其他 DI 类型（BPMN 2.0 标准中不会出现）静默忽略
@@ -507,6 +670,23 @@ function collectDeclaredNamespaces(xml: string): Record<string, string> {
   return namespaces
 }
 
+function parsePreservedElementMetadata(
+  element: ModdleElement | undefined,
+  declaredNamespaces: Record<string, string>,
+): BpmnPreservedElementMetadata | undefined {
+  if (!element) return undefined
+
+  const preservedXml = parsePreservedXmlAttrs(element, declaredNamespaces)
+  const id = typeof element.id === 'string' && element.id ? element.id : undefined
+
+  if (!id && !preservedXml) return undefined
+
+  return {
+    ...(id ? { id } : {}),
+    ...(preservedXml ?? {}),
+  }
+}
+
 function parsePreservedXmlAttrs(
   element: ModdleElement,
   declaredNamespaces: Record<string, string>,
@@ -550,6 +730,133 @@ function parseRawXmlAttrs(
 
   return {
     bpmn: bpmnData,
+  }
+}
+
+function buildImportDiagnostics(params: {
+  xml: string
+  warnings: string[]
+  processes: ModdleElement[]
+  xmlBpmndiReferenceHints: XmlBpmndiReferenceHints
+  xmlMultiInstanceHints: XmlMultiInstanceHints
+  supportsSmartAbortCondition: boolean
+}): BpmnImportDiagnostics | undefined {
+  const compatibilityIssues: BpmnImportCompatibilityIssue[] = []
+  const lossyFlags = new Set<string>()
+  const reportedIssues = new Set<string>()
+  const idCounts = new Map<string, number>()
+  const pushIssue = (issue: BpmnImportCompatibilityIssue): void => {
+    const issueKey = `${issue.code}:${issue.message}:${(issue.elementIds ?? []).join(',')}`
+    if (reportedIssues.has(issueKey)) {
+      return
+    }
+
+    reportedIssues.add(issueKey)
+    compatibilityIssues.push(issue)
+  }
+  const idPattern = /\bid="([^"]+)"/g
+  let idMatch: RegExpExecArray | null = idPattern.exec(params.xml)
+
+  while (idMatch) {
+    const [, id] = idMatch
+    idCounts.set(id, (idCounts.get(id) ?? 0) + 1)
+    idMatch = idPattern.exec(params.xml)
+  }
+
+  const duplicateIds = Array.from(idCounts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([id]) => id)
+  if (duplicateIds.length > 0) {
+    pushIssue({
+      code: 'duplicate-bpmn-id',
+      message: `检测到重复的 BPMN id：${duplicateIds.join(', ')}`,
+      elementIds: duplicateIds,
+    })
+    lossyFlags.add('duplicate-bpmn-id')
+  }
+
+  const knownIds = new Set(idCounts.keys())
+  const referencePattern = /\b(sourceRef|targetRef|processRef|attachedToRef|default)="([^"]+)"/g
+  let referenceMatch: RegExpExecArray | null = referencePattern.exec(params.xml)
+  while (referenceMatch) {
+    const [, attrName, refId] = referenceMatch
+    if (!knownIds.has(refId)) {
+      pushIssue({
+        code: 'invalid-reference',
+        message: `${attrName} 引用了不存在的元素：${refId}`,
+        elementIds: [refId],
+      })
+      lossyFlags.add('invalid-reference')
+    }
+    referenceMatch = referencePattern.exec(params.xml)
+  }
+
+  for (const planeBpmnElementId of params.xmlBpmndiReferenceHints.planeBpmnElements) {
+    if (planeBpmnElementId && !knownIds.has(planeBpmnElementId)) {
+      pushIssue({
+        code: 'invalid-plane-bpmn-element',
+        message: `bpmnElement 引用了不存在的元素：${planeBpmnElementId}`,
+        elementIds: [planeBpmnElementId],
+      })
+      lossyFlags.add('invalid-plane-bpmn-element')
+    }
+  }
+
+  for (const planeElementRefId of params.xmlBpmndiReferenceHints.diElementBpmnElements) {
+    if (planeElementRefId && !knownIds.has(planeElementRefId)) {
+      pushIssue({
+        code: 'invalid-reference',
+        message: `BPMNDI 的 bpmnElement 引用了不存在的元素：${planeElementRefId}`,
+        elementIds: [planeElementRefId],
+      })
+      lossyFlags.add('invalid-reference')
+    }
+  }
+
+  for (const process of params.processes) {
+    const laneSets = (process.laneSets || []) as ModdleElement[]
+    if (laneSets.length > 1) {
+      const processId = typeof process.id === 'string' ? process.id : ''
+      pushIssue({
+        code: 'multiple-lane-sets',
+        message: `当前项目仅保真每个 process 的首个 laneSet，process ${processId} 存在多个 laneSet`,
+        ...(processId ? { elementIds: [processId] } : {}),
+      })
+      lossyFlags.add('multiple-lane-sets')
+    }
+  }
+
+  for (const [elementId, conditions] of params.xmlMultiInstanceHints.conditionsByElementId) {
+    const abortConditions = conditions.filter((condition) => condition.action === 'abort')
+    const normalConditions = conditions.filter((condition) => condition.action !== 'abort')
+
+    if (conditions.length > 1 && (!params.supportsSmartAbortCondition || abortConditions.length > 1 || normalConditions.length > 1)) {
+      pushIssue({
+        code: 'multiple-completion-conditions',
+        message: `元素 ${elementId} 包含当前项目无法完整保真的 completionCondition 组合`,
+        elementIds: [elementId],
+      })
+      lossyFlags.add('multiple-completion-conditions')
+    }
+
+    if (abortConditions.length > 0 && !params.supportsSmartAbortCondition) {
+      pushIssue({
+        code: 'smart-abort-condition-unsupported',
+        message: `元素 ${elementId} 包含 SmartEngine abort 条件，但当前导入配置不会完整保留该语义`,
+        elementIds: [elementId],
+      })
+      lossyFlags.add('smart-abort-condition-unsupported')
+    }
+  }
+
+  if (params.warnings.length === 0 && compatibilityIssues.length === 0 && lossyFlags.size === 0) {
+    return undefined
+  }
+
+  return {
+    warnings: params.warnings,
+    compatibilityIssues,
+    lossyFlags: Array.from(lossyFlags),
   }
 }
 
@@ -655,16 +962,23 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
   )
   const xmlEventHints = collectEventXmlHints(xml, xmlNames)
   const xmlDiHints = collectDiXmlHints(xml)
+  const xmlBpmndiReferenceHints = collectBpmndiReferenceHints(xml)
+  const xmlMultiInstanceHints = collectMultiInstanceXmlHints(xml, xmlNames)
   const reverseNodeMap = buildReverseNodeMap(options.serialization?.nodeMapping ?? NODE_MAPPING)
   const reverseEdgeMap = buildReverseEdgeMap(options.serialization?.edgeMapping ?? EDGE_MAPPING)
   const nodeSerializers = options.serialization?.nodeSerializers ?? {}
   const edgeSerializers = options.serialization?.edgeSerializers ?? {}
+  const supportsSmartAbortCondition = Boolean(
+    (nodeSerializers[BPMN_USER_TASK] as { supportsSmartAbortCondition?: boolean } | undefined)?.supportsSmartAbortCondition,
+  )
   void reverseEdgeMap
 
   let definitions: ModdleElement
+  let warningMessages: string[] = []
   try {
     const result = await moddle.fromXML(xml)
     definitions = result.rootElement
+    warningMessages = result.warnings.map((warning) => warning.message)
   } catch {
     throw new Error('Invalid BPMN XML: root element must be <definitions>')
   }
@@ -687,12 +1001,58 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
 
   const nodes: BpmnNodeData[] = []
   const edges: BpmnEdgeData[] = []
-  const metadata = {
+  const processMetadata: BpmnPreservedProcessMetadata[] = processes.map((process) => {
+    const preserved = parsePreservedElementMetadata(process, declaredNamespaces)
+    const laneSets = (process.laneSets || []) as ModdleElement[]
+    return {
+      ...(preserved ?? {}),
+      ...(typeof process.id === 'string' && process.id ? { id: process.id } : {}),
+      ...(typeof process.name === 'string' && process.name ? { name: process.name } : {}),
+      ...(typeof process.isExecutable === 'boolean' ? { isExecutable: process.isExecutable } : {}),
+      ...(typeof laneSets[0]?.id === 'string' && laneSets[0].id ? { laneSetId: laneSets[0].id } : {}),
+    }
+  })
+  const diagramMetadata = diagrams.length > 0
+    ? (() => {
+        const preservedDiagram = parsePreservedElementMetadata(diagrams[0], declaredNamespaces)
+        const plane = diagrams[0].plane as ModdleElement | undefined
+        const preservedPlane = parsePreservedElementMetadata(plane, declaredNamespaces)
+        const planeBpmnElement = readReferencedElementId(plane?.bpmnElement)
+          ?? xmlBpmndiReferenceHints.planeBpmnElements[0]
+        const metadata: BpmnPreservedDiagramMetadata = {
+          ...(preservedDiagram ?? {}),
+        }
+        if (hasMeaningfulElementMetadata(preservedPlane, 'BPMNPlane_1')) {
+          metadata.plane = {
+            ...preservedPlane,
+            ...(planeBpmnElement ? { bpmnElement: planeBpmnElement } : {}),
+          }
+        }
+        return hasMeaningfulElementMetadata(preservedDiagram, 'BPMNDiagram_1') || metadata.plane
+          ? metadata
+          : undefined
+      })()
+    : undefined
+  const preservedDefinitions = parsePreservedElementMetadata(definitions, declaredNamespaces)
+  const preservedCollaboration = parsePreservedElementMetadata(collaboration, declaredNamespaces)
+  const metadata: BpmnImportMetadata = {
     targetNamespace: definitions.targetNamespace as string | undefined,
     processVersion: processes[0]?.$attrs?.version as string | undefined,
+    ...(hasMeaningfulElementMetadata(preservedDefinitions, 'Definitions_1') ? { definitions: preservedDefinitions } : {}),
+    ...(hasMeaningfulElementMetadata(preservedCollaboration, 'Collaboration_1') ? { collaboration: preservedCollaboration } : {}),
+    ...(diagramMetadata ? { diagram: diagramMetadata } : {}),
+    ...(processMetadata.length > 0 ? { processes: processMetadata } : {}),
   }
   const processPoolParents = new Map<string, string>()
   const laneFlowNodeParents = new Map<string, string>()
+  const diagnostics = buildImportDiagnostics({
+    xml,
+    warnings: warningMessages,
+    processes,
+    xmlBpmndiReferenceHints,
+    xmlMultiInstanceHints,
+    supportsSmartAbortCondition,
+  })
 
   // ---------- 解析参与者（Pool）----------
   if (collaboration) {
@@ -711,9 +1071,12 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         typeof diShape?.isHorizontal === 'boolean'
           ? mergeNodeBpmnData(undefined, { isHorizontal: diShape.isHorizontal })
           : undefined
-      const mergedData = diShape?.bpmndi
-        ? mergeNodeBpmndiData(data, diShape.bpmndi)
+      const pooledData = processRef
+        ? mergeNodeBpmnData(data, { processRef })
         : data
+      const mergedData = diShape?.bpmndi
+        ? mergeNodeBpmndiData(pooledData, diShape.bpmndi)
+        : pooledData
       nodes.push({
         shape: BPMN_POOL,
         id: bpmnId,
@@ -724,11 +1087,18 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
         attrs: { headerLabel: { text: p.name || '' } },
         data: mergedData,
       })
+
+      const processMeta = processMetadata.find((meta) => meta.id === processRef)
+      if (processMeta) {
+        processMeta.poolId = bpmnId
+      }
     }
   }
 
   // 无 process 时（仅 collaboration）提前返回
-  if (processes.length === 0) return { nodes, edges, metadata }
+  if (processes.length === 0) {
+    return { nodes, edges, metadata, ...(diagnostics ? { diagnostics } : {}) }
+  }
 
   // ---------- 解析泳道（Lane）----------
   for (const process of processes) {
@@ -891,6 +1261,14 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
       nodeData.data = mergeNodeBpmnData(nodeData.data, rawXmlAttrs.bpmn as Record<string, unknown>)
     }
 
+    const eventDefinitions = (element.eventDefinitions || []) as ModdleElement[]
+    if (eventDefinitions.length > 0) {
+      const eventDefinitionId = typeof eventDefinitions[0]?.id === 'string' ? eventDefinitions[0].id : ''
+      if (eventDefinitionId && eventDefinitionId !== `${bpmnId}_ed`) {
+        nodeData.data = mergeNodeBpmnData(nodeData.data, { $eventDefinitionId: eventDefinitionId })
+      }
+    }
+
     if (tag === 'textAnnotation') {
       nodeData.data = mergeNodeBpmnData(nodeData.data, { annotationText: label })
     }
@@ -903,6 +1281,22 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
     })
     if (importedNodeBpmn && Object.keys(importedNodeBpmn).length > 0) {
       nodeData.data = mergeNodeBpmnData(nodeData.data, importedNodeBpmn)
+    }
+
+    const multiInstanceConditions = xmlMultiInstanceHints.conditionsByElementId.get(bpmnId)
+    if (shape === BPMN_USER_TASK && supportsSmartAbortCondition && multiInstanceConditions && multiInstanceConditions.length > 0) {
+      const normalCondition = multiInstanceConditions.find((condition) => condition.action !== 'abort')
+      const abortCondition = multiInstanceConditions.find((condition) => condition.action === 'abort')
+      const patch: Record<string, unknown> = {}
+      if (normalCondition?.body) {
+        patch.multiInstanceCompletionCondition = normalCondition.body
+      }
+      if (abortCondition?.body) {
+        patch.multiInstanceAbortCondition = abortCondition.body
+      }
+      if (Object.keys(patch).length > 0) {
+        nodeData.data = mergeNodeBpmnData(nodeData.data, patch)
+      }
     }
 
     if (typeof diShape?.isExpanded === 'boolean' && EXPANDABLE_ACTIVITY_SHAPES.has(shape)) {
@@ -1073,10 +1467,11 @@ export async function parseBpmnXml(xml: string, options: ParseBpmnOptions = {}):
     }
   }
 
-  return { nodes, edges, metadata }
+  return { nodes, edges, metadata, ...(diagnostics ? { diagnostics } : {}) }
 }
 
 export const __test__ = {
+  readReferencedElementId,
   mergeNodeBpmndiData,
   mergeEdgeBpmndiData,
 }

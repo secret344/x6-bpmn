@@ -87,6 +87,7 @@ describe('SmartEngine serialization contracts', () => {
         multiInstanceCollection: '',
         multiInstanceElementVariable: '',
         multiInstanceCompletionCondition: '',
+        multiInstanceAbortCondition: '',
       },
       element,
       moddle,
@@ -101,6 +102,7 @@ describe('SmartEngine serialization contracts', () => {
       'multiInstanceCollection',
       'multiInstanceElementVariable',
       'multiInstanceCompletionCondition',
+      'multiInstanceAbortCondition',
     ]))
 
     const extensionValues = ((element.extensionElements as any).values || []) as Array<Record<string, any>>
@@ -150,6 +152,34 @@ describe('SmartEngine serialization contracts', () => {
       approvalType: 'review',
       multiInstance: true,
       multiInstanceType: 'parallel',
+    })
+  })
+
+  it('Smart node serializer 导入时应识别 abort completionCondition', () => {
+    const serializer = createSmartNodeSerializer({
+      multiInstance: true,
+    })
+    const moddle = new BpmnModdle()
+    const element = moddle.create('bpmn:UserTask', { id: 'Task_Abort_1' })
+    const loop = moddle.create('bpmn:MultiInstanceLoopCharacteristics', {
+      isSequential: true,
+    })
+    const completionCondition = moddle.create('bpmn:FormalExpression', {
+      body: '${nrOfRejectedInstances > 0}',
+    })
+    ;(completionCondition.$attrs || {}).action = 'abort'
+    loop.completionCondition = completionCondition
+    element.loopCharacteristics = loop
+
+    expect(serializer.import!({
+      shape: BPMN_USER_TASK,
+      category: 'userTask' as any,
+      element,
+      namespaces: {},
+    })).toEqual({
+      multiInstance: true,
+      multiInstanceType: 'sequential',
+      multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
     })
   })
 

@@ -24,13 +24,27 @@ import type {
 export { parseBpmnXml } from './xml-parser'
 export { loadBpmnGraph } from './graph-loader'
 export { createBpmn2ImporterAdapter } from './adapter'
+export { getImportedBpmnState, clearImportedBpmnState } from './state'
 export type { LoadBpmnOptions } from './graph-loader'
-export type { BpmnImportData, BpmnNodeData, BpmnEdgeData, BpmnEdgeLabelData } from './types'
+export type {
+  BpmnImportData,
+  BpmnImportMetadata,
+  BpmnImportDiagnostics,
+  BpmnImportCompatibilityIssue,
+  BpmnPreservedElementMetadata,
+  BpmnPreservedProcessMetadata,
+  BpmnPreservedDiagramMetadata,
+  BpmnNodeData,
+  BpmnEdgeData,
+  BpmnEdgeLabelData,
+} from './types'
 export type { Bpmn2ImporterAdapterOptions, Bpmn2ImportPostProcessor } from './adapter'
 
 export interface ImportBpmnOptions extends LoadBpmnOptions {
   /** 使用方言序列化层覆盖默认 BPMN 映射 */
   serialization?: SerializationOverrides
+  /** 导入完成后回传中间数据，供宿主读取诊断与元数据。 */
+  onImportedData?: (data: import('./types').BpmnImportData) => void | Promise<void>
 }
 
 // ============================================================================
@@ -58,4 +72,5 @@ export async function importBpmnXml(
   const data = await parseBpmnXml(xml, options)
   const { serialization: _serialization, ...loadOptions } = options ?? {}
   loadBpmnGraph(graph, data, loadOptions)
+  await options?.onImportedData?.(data)
 }

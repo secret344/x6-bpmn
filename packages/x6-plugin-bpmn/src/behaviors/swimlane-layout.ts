@@ -803,8 +803,7 @@ export function autoWrapFirstPool(graph: Graph, pool: Node): Node[] {
   const targets = collectFirstPoolWrapTargets(graph, pool)
   if (targets.length === 0) return []
 
-  const rect = computeAutoWrapPoolRect(pool, targets)
-  if (!rect) return []
+  const rect = computeAutoWrapPoolRect(pool, targets) as Rect
 
   pool.setPosition(rect.x, rect.y, { bpmnLayout: true })
   if (pool.resize) {

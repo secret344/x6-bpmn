@@ -40,8 +40,8 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function cloneRecord<T extends string>(value?: Record<string, T>): Record<string, T> | undefined {
-  return value ? { ...value } : undefined
+function cloneRecord<T extends string>(value: Record<string, T>): Record<string, T> {
+  return { ...value }
 }
 
 export function resolveBpmnXmlNameSettings(
@@ -75,11 +75,9 @@ export function cloneBpmnXmlNameSettings(
 
   return {
     ...resolved,
-    acceptedTagPrefixes: resolved.acceptedTagPrefixes
-      ? [...resolved.acceptedTagPrefixes]
-      : undefined,
-    moddleNames: cloneRecord(resolved.moddleNames),
-    createModes: cloneRecord(resolved.createModes),
+    acceptedTagPrefixes: [...(resolved.acceptedTagPrefixes ?? [])],
+    moddleNames: cloneRecord(resolved.moddleNames ?? {}),
+    createModes: cloneRecord(resolved.createModes ?? {}),
   }
 }
 
