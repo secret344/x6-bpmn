@@ -155,7 +155,6 @@ import type { Cell, Edge, Graph, Node } from '@antv/x6'
 import {
   bpmn2Profile,
   classifyShape,
-  getCellLabel,
   getFieldEditorsForShape,
   getShapeLabel,
   loadBpmnFormData,
@@ -258,12 +257,30 @@ function applyEdgeLabel(edge: Edge, label: string) {
   }
 }
 
+function readRenderedCellLabel(cell: Cell): string {
+  const attrLabel = cell.getAttrByPath('label/text') as string | undefined
+  if (attrLabel) return attrLabel
+
+  const headerLabel = cell.getAttrByPath('headerLabel/text') as string | undefined
+  if (headerLabel) return headerLabel
+
+  if (cell.isEdge()) {
+    const edge = cell as Edge
+    const labels = edge.getLabels()
+    if (labels.length > 0) {
+      return (labels[0].attrs?.label?.text ?? labels[0].attrs?.text?.text ?? '') as string
+    }
+  }
+
+  return ''
+}
+
 function openModal(cell: Cell) {
   currentCell.value = cell
   resetForm()
 
   form.id = cell.id
-  form.label = getCellLabel(cell)
+  form.label = readRenderedCellLabel(cell)
   form.documentation = String(((cell.getData() || {}) as Record<string, unknown>).documentation || '')
 
   if (cell.isNode()) {
@@ -321,7 +338,6 @@ function onSave(done: (closed: boolean) => void) {
 
   const nextData: Record<string, unknown> = {
     ...previousData,
-    label,
     documentation: form.documentation,
   }
 

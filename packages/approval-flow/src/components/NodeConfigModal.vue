@@ -87,7 +87,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
-import type { Cell } from '@antv/x6'
+import type { Cell, Edge } from '@antv/x6'
 import {
   classifyShape,
   getShapeLabel,
@@ -115,6 +115,23 @@ const modalTitle = computed(() => `节点属性 - ${shapeLabel.value}`)
 
 let currentCell: Cell | null = null
 
+function readRenderedCellLabel(cell: Cell): string {
+  const attrLabel = cell.getAttrByPath('label/text') as string | undefined
+  if (attrLabel) return attrLabel
+
+  const headerLabel = cell.getAttrByPath('headerLabel/text') as string | undefined
+  if (headerLabel) return headerLabel
+
+  if (cell.isEdge()) {
+    const labels = (cell as Edge).getLabels()
+    if (labels.length > 0) {
+      return (labels[0].attrs?.label?.text ?? labels[0].attrs?.text?.text ?? '') as string
+    }
+  }
+
+  return ''
+}
+
 /**
  * 打开配置面板（由外部调用）
  */
@@ -126,8 +143,7 @@ function open(cell: Cell) {
 
   // 读取名称
   const data = cell.getData() || {}
-  const attrLabel = cell.getAttrByPath('label/text') as string | undefined
-  cellName.value = data.label || attrLabel || ''
+  cellName.value = readRenderedCellLabel(cell)
 
   // 读取 BPMN 数据
   const loaded = loadBpmnFormData(cell)

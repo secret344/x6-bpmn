@@ -84,7 +84,11 @@ import {
 } from '@arco-design/web-vue/es/icon'
 import type { Graph } from '@antv/x6'
 import BpmnModeler from 'bpmn-js/lib/Modeler'
-import { exportStandardBpmnXml, importExampleBpmnXml } from '../bpmn-xml'
+import {
+  exportStandardBpmnXml,
+  formatExampleImportSummary,
+  importExampleBpmnXml,
+} from '../bpmn-xml'
 import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-js.css'
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css'
@@ -192,13 +196,11 @@ async function onConfirm() {
       importing.value = false
       return
     }
-    await importExampleBpmnXml(props.graph, xml)
+    const importedData = await importExampleBpmnXml(props.graph, xml)
     visible.value = false
-    const nodeCount = props.graph.getNodes().length
-    const edgeCount = props.graph.getEdges().length
     Modal.success({
       title: '导入成功',
-      content: `已将 bpmn-js 中的流程导入到 X6 画布。节点: ${nodeCount}, 连线: ${edgeCount}`,
+      content: `已将 bpmn-js 中的流程导入到 X6 画布。\n${formatExampleImportSummary(importedData)}`,
     })
   } catch (err: any) {
     Modal.error({ title: '导入失败', content: err.message || String(err) })

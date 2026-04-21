@@ -206,6 +206,7 @@ import DiagramValidationModal from './DiagramValidationModal.vue'
 import { createSampleProcess } from '../sample-process'
 import { SAMPLE_BPMN_XML } from '../sample-bpmn-xml'
 import {
+  formatExampleImportSummary,
   exportStandardBpmnXml,
   importExampleBpmnXml,
 } from '../bpmn-xml'
@@ -341,18 +342,11 @@ async function onConfirmImportBpmn() {
     return
   }
   try {
-    await importExampleBpmnXml(props.graph, xml)
+    const importedData = await importExampleBpmnXml(props.graph, xml)
     xmlModalVisible.value = false
-    const nodeCount = props.graph.getNodes().length
-    const edgeCount = props.graph.getEdges().length
-    const edgeShapes = props.graph.getEdges().reduce((acc, e) => {
-      acc[e.shape] = (acc[e.shape] || 0) + 1
-      return acc
-    }, {} as Record<string, number>)
-    const edgeDetail = Object.entries(edgeShapes).map(([s, c]) => `${s}: ${c}`).join(', ')
     Modal.success({
       title: '导入成功',
-      content: `节点: ${nodeCount}, 连线: ${edgeCount}\n${edgeDetail}`,
+      content: formatExampleImportSummary(importedData),
     })
   } catch (err: any) {
     Modal.error({ title: '导入失败', content: err.message || String(err) })
@@ -393,7 +387,11 @@ async function onViewRawXml() {
 async function onLoadSampleXml() {
   if (!props.graph) return
   try {
-    await importExampleBpmnXml(props.graph, SAMPLE_BPMN_XML)
+    const importedData = await importExampleBpmnXml(props.graph, SAMPLE_BPMN_XML)
+    Modal.success({
+      title: '示例 XML 已加载',
+      content: formatExampleImportSummary(importedData),
+    })
   } catch (err: any) {
     alert('加载示例失败: ' + (err.message || err))
   }

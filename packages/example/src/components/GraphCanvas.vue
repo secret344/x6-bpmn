@@ -72,6 +72,7 @@ import {
   BPMN_POOL,
   BPMN_LANE,
   BPMN_GROUP,
+  type BpmnImportData,
 } from "@x6-bpmn2/plugin";
 import { currentEdgeType, EDGE_TYPE_OPTIONS } from "../composables/useEdgeType";
 import { createSampleProcess } from "../sample-process";
@@ -90,7 +91,7 @@ declare global {
     __x6BpmnExampleReady?: boolean;
     __x6BpmnExampleApi?: {
       exportXml: () => Promise<string>;
-      importXml: (xml: string) => Promise<void>;
+      importXml: (xml: string) => Promise<BpmnImportData>;
       getSelectedCellIds: () => string[];
       isReady: () => boolean;
     };
@@ -291,11 +292,12 @@ onMounted(async () => {
     if (!payload || !graph) return;
     const { shape } = payload;
     const point = graph.clientToLocal(e.clientX, e.clientY);
-    const { width: w, height: h, attrs, data } = buildBpmnNodeDefaults(shape, {
+    const { width: w, height: h, attrs, data: rawData } = buildBpmnNodeDefaults(shape, {
       label: payload.label || getShapeLabel(shape),
       width: payload.width,
       height: payload.height,
     });
+    const { label: _legacyLabel, ...data } = (rawData || {}) as Record<string, unknown>;
     const label = payload.label || getShapeLabel(shape);
     const draftNode = graph.createNode({
       shape,
@@ -304,7 +306,7 @@ onMounted(async () => {
       width: w,
       height: h,
       attrs,
-      data,
+      ...(Object.keys(data).length > 0 ? { data } : {}),
     });
     const hasPoolNodes = graph.getNodes().some((candidate) => isPoolShape(candidate.shape));
 

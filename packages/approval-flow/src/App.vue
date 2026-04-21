@@ -85,6 +85,7 @@ import type { Graph, Cell } from '@antv/x6'
 import {
   exportBpmnXml,
   importBpmnXml,
+  type BpmnImportData,
 } from '@x6-bpmn2/plugin'
 import {
   registerShapes,
@@ -112,6 +113,40 @@ const xmlContent = ref('')
 
 const xmlImportVisible = ref(false)
 const xmlImportContent = ref('')
+
+function summarizeImport(data: BpmnImportData | null): string {
+  if (!data) {
+    return '导入成功'
+  }
+
+  const diagnostics = data.diagnostics
+  const status = !diagnostics || (
+    diagnostics.warnings.length === 0
+    && diagnostics.compatibilityIssues.length === 0
+    && diagnostics.lossyFlags.length === 0
+  )
+    ? '标准导入'
+    : diagnostics.lossyFlags.length > 0
+      ? '有损导入'
+      : '兼容导入'
+  const lines = [
+    status,
+    `节点: ${data.nodes.length}`,
+    `连线: ${data.edges.length}`,
+  ]
+
+  if (diagnostics?.warnings.length) {
+    lines.push(`warnings: ${diagnostics.warnings.length}`)
+  }
+  if (diagnostics?.compatibilityIssues.length) {
+    lines.push(`compatibilityIssues: ${diagnostics.compatibilityIssues.length}`)
+  }
+  if (diagnostics?.lossyFlags.length) {
+    lines.push(`lossyFlags: ${diagnostics.lossyFlags.join(', ')}`)
+  }
+
+  return lines.join(' | ')
+}
 
 onMounted(async () => {
   registerShapes()
@@ -166,6 +201,9 @@ async function handleExportXml() {
     xmlContent.value = await exportBpmnXml(graphRef.value, {
       processId: 'approval-process',
       processName: '审批流程',
+      serialization: {
+        extensionProperties: false,
+      },
     })
     xmlExportVisible.value = true
   } catch (e: any) {
@@ -191,9 +229,17 @@ async function handleDoImport() {
     return
   }
   try {
-    await importBpmnXml(graphRef.value, xmlImportContent.value)
+    let importedData: BpmnImportData | null = null
+    await importBpmnXml(graphRef.value, xmlImportContent.value, {
+      serialization: {
+        extensionProperties: false,
+      },
+      onImportedData(data) {
+        importedData = data
+      },
+    })
     xmlImportVisible.value = false
-    Message.success('导入成功')
+    Message.success(summarizeImport(importedData))
   } catch (e: any) {
     Message.error(`导入失败: ${e.message}`)
   }
@@ -206,6 +252,9 @@ async function handleBpmnPreview() {
     const xml = await exportBpmnXml(graphRef.value, {
       processId: 'approval-process',
       processName: '审批流程',
+      serialization: {
+        extensionProperties: false,
+      },
     })
     bpmnPreviewRef.value?.open(xml)
   } catch (e: any) {

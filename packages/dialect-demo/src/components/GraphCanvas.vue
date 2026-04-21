@@ -194,11 +194,12 @@ onMounted(async () => {
     if (!payload || !graph) return
     const { shape } = payload
     const point = graph.clientToLocal(e.clientX, e.clientY)
-    const { width: nodeW, height: nodeH, attrs, data } = buildBpmnNodeDefaults(shape, {
+    const { width: nodeW, height: nodeH, attrs, data: rawData } = buildBpmnNodeDefaults(shape, {
       label: payload.label || getShapeLabel(shape),
       width: payload.width,
       height: payload.height,
     })
+    const { label: _legacyLabel, ...data } = (rawData || {}) as Record<string, unknown>
     const draftNode = graph.createNode({
       shape,
       x: point.x - nodeW / 2,
@@ -206,7 +207,7 @@ onMounted(async () => {
       width: nodeW,
       height: nodeH,
       attrs,
-      data,
+      ...(Object.keys(data).length > 0 ? { data } : {}),
     })
     const hasPoolNodes = graph.getNodes().some((candidate) => isPoolShape(candidate.shape))
 

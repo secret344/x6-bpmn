@@ -17,6 +17,7 @@
     "build:dialect": "pnpm --filter @x6-bpmn2/dialect-demo build",
     "build:smartengine": "pnpm --filter @x6-bpmn2/smartengine-demo build",
     "build": "pnpm run build:plugin && pnpm run build:example",
+    "publish:check": "pnpm --filter @x6-bpmn2/plugin publish:check",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm --filter @x6-bpmn2/plugin test",
     "test:coverage": "pnpm --filter @x6-bpmn2/plugin test:coverage",

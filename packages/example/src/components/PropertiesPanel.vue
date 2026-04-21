@@ -84,7 +84,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch, computed, onBeforeUnmount } from 'vue'
-import type { Graph, Cell } from '@antv/x6'
+import type { Graph, Cell, Edge } from '@antv/x6'
 import { IconSelectAll } from '@arco-design/web-vue/es/icon'
 import {
   bpmn2Profile,
@@ -93,7 +93,6 @@ import {
   getShapeLabel,
   loadBpmnFormData,
   saveBpmnFormData,
-  getCellLabel,
   type BpmnFormData,
   type DataModelSet,
   type ShapeCategory,
@@ -122,6 +121,23 @@ type SemanticEntry = {
 type SemanticSection = {
   title: string
   entries: SemanticEntry[]
+}
+
+function readRenderedCellLabel(cell: Cell): string {
+  const attrLabel = cell.getAttrByPath('label/text') as string | undefined
+  if (attrLabel) return attrLabel
+
+  const headerLabel = cell.getAttrByPath('headerLabel/text') as string | undefined
+  if (headerLabel) return headerLabel
+
+  if (cell.isEdge()) {
+    const labels = (cell as Edge).getLabels()
+    if (labels.length > 0) {
+      return (labels[0].attrs?.label?.text ?? labels[0].attrs?.text?.text ?? '') as string
+    }
+  }
+
+  return ''
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -210,7 +226,7 @@ function onCellClick({ cell }: { cell: Cell }) {
     cellPos.value = null
     cellSize.value = null
   }
-  formData.label = getCellLabel(cell)
+  formData.label = readRenderedCellLabel(cell)
 
   // 加载 BPMN 表单数据
   const loaded = loadBpmnFormData(cell)
@@ -229,12 +245,13 @@ function onBlankClick() {
 function onLabelChange() {
   if (!selectedCell.value) return
   const cell = selectedCell.value
-  const data = cell.getData() || {}
-  cell.setData({ ...data, label: formData.label })
   cellDataVersion.value += 1
-  // 同步到图形标签
   if (cell.isNode()) {
-    cell.setAttrByPath('label/text', formData.label)
+    if (cell.getAttrByPath('headerLabel/text') !== undefined) {
+      cell.setAttrByPath('headerLabel/text', formData.label)
+    } else {
+      cell.setAttrByPath('label/text', formData.label)
+    }
   } else if (cell.isEdge()) {
     const labels = cell.getLabels()
     if (labels.length > 0) {

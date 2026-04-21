@@ -120,8 +120,13 @@ onUnmounted(() => offSelect?.())
 
 const nodeLabel = computed(() => {
   if (!selectedNode.value) return ''
-  const data = selectedNode.value.getData<Record<string, unknown>>() || {}
-  return (data.label as string) || selectedNode.value.shape
+  const attrLabel = selectedNode.value.getAttrByPath('label/text') as string | undefined
+  if (attrLabel) return attrLabel
+
+  const headerLabel = selectedNode.value.getAttrByPath('headerLabel/text') as string | undefined
+  if (headerLabel) return headerLabel
+
+  return selectedNode.value.shape
 })
 
 const categoryColor = computed(() => {

@@ -66,7 +66,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
-import type { Graph, Cell } from '@antv/x6'
+import type { Graph, Cell, Edge } from '@antv/x6'
 import {
   classifyShape,
   getFieldEditorsForShape,
@@ -74,7 +74,6 @@ import {
   getBpmnShapeIcon,
   loadBpmnFormData,
   saveBpmnFormData,
-  getCellLabel,
   type BpmnFormData,
   type ShapeCategory,
 } from '@x6-bpmn2/plugin'
@@ -88,6 +87,23 @@ const cellSize = ref<{ width: number; height: number } | null>(null)
 const labelValue = ref('')
 const bpmnForm = reactive<BpmnFormData>({} as BpmnFormData)
 const { resolvedProfile } = useSmartEngineSingleton()
+
+function readRenderedCellLabel(cell: Cell): string {
+  const attrLabel = cell.getAttrByPath('label/text') as string | undefined
+  if (attrLabel) return attrLabel
+
+  const headerLabel = cell.getAttrByPath('headerLabel/text') as string | undefined
+  if (headerLabel) return headerLabel
+
+  if (cell.isEdge()) {
+    const labels = (cell as Edge).getLabels()
+    if (labels.length > 0) {
+      return (labels[0].attrs?.label?.text ?? labels[0].attrs?.text?.text ?? '') as string
+    }
+  }
+
+  return ''
+}
 
 const category = computed<ShapeCategory>(() => {
   if (!selectedCell.value) return 'unknown'
@@ -125,7 +141,7 @@ watch(() => props.graph, (g) => {
     selectedCell.value = cell
     if (cell.isNode()) { cellPos.value = cell.getPosition(); cellSize.value = cell.getSize() }
     else { cellPos.value = null; cellSize.value = null }
-    labelValue.value = getCellLabel(cell)
+    labelValue.value = readRenderedCellLabel(cell)
     Object.assign(bpmnForm, loadBpmnFormData(cell))
   }
   const onBlank = () => { selectedCell.value = null; cellPos.value = null; cellSize.value = null; labelValue.value = '' }
@@ -137,8 +153,35 @@ onUnmounted(() => cleanup?.())
 function onLabelChange() {
   if (!selectedCell.value) return
   const cell = selectedCell.value
-  cell.setData({ ...(cell.getData() || {}), label: labelValue.value })
-  if (cell.isNode()) cell.setAttrByPath('label/text', labelValue.value)
+  if (cell.isNode()) {
+    if (cell.getAttrByPath('headerLabel/text') !== undefined) {
+      cell.setAttrByPath('headerLabel/text', labelValue.value)
+    } else {
+      cell.setAttrByPath('label/text', labelValue.value)
+    }
+    return
+  }
+
+  const edge = cell as Edge
+  const labels = edge.getLabels()
+  if (labels.length > 0) {
+    edge.setLabelAt(0, {
+      ...labels[0],
+      attrs: {
+        ...labels[0].attrs,
+        label: {
+          ...(labels[0].attrs?.label || {}),
+          text: labelValue.value,
+        },
+      },
+    })
+    return
+  }
+
+  edge.appendLabel({
+    attrs: { label: { text: labelValue.value } },
+    position: { distance: 0.5 },
+  })
 }
 
 function saveBpmn() {

@@ -21,6 +21,7 @@ import {
   BPMN_TASK,
   BPMN_TRANSACTION,
   BPMN_USER_TASK,
+  classifyShape,
   // Registry & Compiler
   ProfileRegistry,
   createProfileRegistry,
@@ -60,7 +61,9 @@ import {
   validateFields,
   normalizeFieldValue,
   buildBpmnNodeDefaults,
+  getCellLabel,
   getFieldDefaultValue,
+  type BpmnImportData,
   type FieldValidateContext,
 } from '@x6-bpmn2/plugin'
 
@@ -172,14 +175,20 @@ function createLabeledNode(graph: Graph, config: {
   data?: Record<string, unknown>
 }) {
   const { label, data, ...rest } = config
+  const defaults = buildBpmnNodeDefaults(config.shape, {
+    label,
+    width: config.width,
+    height: config.height,
+    data,
+  })
+  const { label: _legacyLabel, ...nodeData } = (defaults.data || {}) as Record<string, unknown>
+
   return graph.addNode({
     ...rest,
-    ...buildBpmnNodeDefaults(config.shape, {
-      label,
-      width: config.width,
-      height: config.height,
-      data,
-    }),
+    width: defaults.width,
+    height: defaults.height,
+    ...(defaults.attrs ? { attrs: defaults.attrs } : {}),
+    ...(Object.keys(nodeData).length > 0 ? { data: nodeData } : {}),
   })
 }
 
@@ -212,7 +221,13 @@ export function useDialect() {
 
   // 注册导入/导出适配器
   manager.registerExporter(createBpmn2ExporterAdapter())
-  manager.registerImporter(createBpmn2ImporterAdapter())
+  const lastImportData = shallowRef<BpmnImportData | null>(null)
+
+  manager.registerImporter(createBpmn2ImporterAdapter({
+    onImportedData(data) {
+      lastImportData.value = data
+    },
+  }))
 
   // 方言检测器
   const detector = createDialectDetector()
@@ -320,8 +335,9 @@ export function useDialect() {
   }
 
   /** 导入 XML（自动检测方言） */
-  async function importXML(xml: string) {
+  async function importXML(xml: string): Promise<BpmnImportData | null> {
     if (!graphRef.value) throw new Error('Graph not initialized')
+    lastImportData.value = null
     // 先用检测器检测
     const detectedId = detector.detect(xml)
     if (detectedId && detectedId !== currentDialectId.value) {
@@ -329,6 +345,7 @@ export function useDialect() {
     }
     await manager.importXML(graphRef.value, xml)
     currentContext.value = manager.getContext(graphRef.value) ?? null
+    return lastImportData.value
   }
 
   /** 检测 XML 方言 */
@@ -391,6 +408,41 @@ export function useDialect() {
       profileId: resolvedProfile.value.meta.id,
     }
     return validateFields(data, fields, ctx, resolvedProfile.value.dataModel)
+  }
+
+  function runFieldValidation() {
+    if (!graphRef.value || !resolvedProfile.value) return []
+
+    const errors: Array<{ node: string; field: string; reason: string }> = []
+    const nodes = graphRef.value.getNodes()
+
+    for (const node of nodes) {
+      const shape = node.shape
+      let category = ''
+      try { category = classifyShape(shape) } catch { continue }
+
+      const fields = getFieldsForShape(shape, category, resolvedProfile.value.dataModel)
+      if (fields.length === 0) continue
+
+      const data = node.getData<Record<string, unknown>>() || {}
+      const bpmnData = (data.bpmn as Record<string, unknown> | undefined) || {}
+      const ctx: FieldValidateContext = {
+        shape,
+        category,
+        profileId: resolvedProfile.value.meta.id,
+        nodeData: bpmnData,
+      }
+      const failures = validateFields(bpmnData, fields, ctx, resolvedProfile.value.dataModel)
+      for (const failure of failures) {
+        errors.push({
+          node: getCellLabel(node) || shape,
+          field: failure.field,
+          reason: failure.reason,
+        })
+      }
+    }
+
+    return errors
   }
 
   function pickEnabledNode(shapes: string[]): string | null {
@@ -527,6 +579,7 @@ export function useDialect() {
     importXML,
     detectDialect,
     runConstraintValidation,
+    runFieldValidation,
     getFieldsFor,
     getDefaultData,
     validateNodeFields,

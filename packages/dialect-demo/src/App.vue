@@ -95,6 +95,7 @@
 import { ref, shallowRef } from 'vue'
 import type { Graph } from '@antv/x6'
 import { Message } from '@arco-design/web-vue'
+import type { BpmnImportData } from '@x6-bpmn2/plugin'
 import GraphCanvas from './components/GraphCanvas.vue'
 import ProfileSwitcher from './components/ProfileSwitcher.vue'
 import StencilPanel from './components/StencilPanel.vue'
@@ -107,6 +108,40 @@ import { useDialectSingleton } from './composables/useDialect'
 const { exportXML, importXML, detectDialect, runConstraintValidation, createSampleProcess } = useDialectSingleton()
 
 const graph = shallowRef<Graph | null>(null)
+
+function summarizeImport(data: BpmnImportData | null): string {
+  if (!data) {
+    return '导入成功'
+  }
+
+  const diagnostics = data.diagnostics
+  const status = !diagnostics || (
+    diagnostics.warnings.length === 0
+    && diagnostics.compatibilityIssues.length === 0
+    && diagnostics.lossyFlags.length === 0
+  )
+    ? '标准导入'
+    : diagnostics.lossyFlags.length > 0
+      ? '有损导入'
+      : '兼容导入'
+  const lines = [
+    status,
+    `节点: ${data.nodes.length}`,
+    `连线: ${data.edges.length}`,
+  ]
+
+  if (diagnostics?.warnings.length) {
+    lines.push(`warnings: ${diagnostics.warnings.length}`)
+  }
+  if (diagnostics?.compatibilityIssues.length) {
+    lines.push(`compatibilityIssues: ${diagnostics.compatibilityIssues.length}`)
+  }
+  if (diagnostics?.lossyFlags.length) {
+    lines.push(`lossyFlags: ${diagnostics.lossyFlags.join(', ')}`)
+  }
+
+  return lines.join(' | ')
+}
 
 function onGraphReady(g: Graph) {
   graph.value = g
@@ -143,9 +178,9 @@ function handleImport() {
 
 async function confirmImport() {
   try {
-    await importXML(xmlContent.value)
+    const importedData = await importXML(xmlContent.value)
     xmlModalVisible.value = false
-    Message.success('导入成功')
+    Message.success(summarizeImport(importedData))
   } catch (e: any) {
     Message.error(e.message || '导入失败')
   }

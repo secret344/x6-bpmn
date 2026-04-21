@@ -33,7 +33,9 @@ import {
   validateFields,
   normalizeFieldValue,
   buildBpmnNodeDefaults,
+  getCellLabel,
   getNodeCategory,
+  type BpmnImportData,
   type ProfileContext,
   type ResolvedProfile,
   type ConstraintValidateContext,
@@ -85,14 +87,20 @@ function createLabeledNode(graph: Graph, config: {
   data?: Record<string, unknown>
 }) {
   const { label, data, ...rest } = config
+  const defaults = buildBpmnNodeDefaults(config.shape, {
+    label,
+    width: config.width,
+    height: config.height,
+    data,
+  })
+  const { label: _legacyLabel, ...nodeData } = (defaults.data || {}) as Record<string, unknown>
+
   return graph.addNode({
     ...rest,
-    ...buildBpmnNodeDefaults(config.shape, {
-      label,
-      width: config.width,
-      height: config.height,
-      data,
-    }),
+    width: defaults.width,
+    height: defaults.height,
+    ...(defaults.attrs ? { attrs: defaults.attrs } : {}),
+    ...(Object.keys(nodeData).length > 0 ? { data: nodeData } : {}),
   })
 }
 
@@ -176,7 +184,13 @@ export function useSmartEngine() {
 
   // 注册适配器
   manager.registerExporter(createBpmn2ExporterAdapter())
-  manager.registerImporter(createBpmn2ImporterAdapter())
+  const lastImportData = shallowRef<BpmnImportData | null>(null)
+
+  manager.registerImporter(createBpmn2ImporterAdapter({
+    onImportedData(data) {
+      lastImportData.value = data
+    },
+  }))
 
   const detector = createDialectDetector()
 
@@ -233,13 +247,15 @@ export function useSmartEngine() {
     return manager.exportXML(graphRef.value)
   }
 
-  async function importXML(xml: string) {
+  async function importXML(xml: string): Promise<BpmnImportData | null> {
     if (!graphRef.value) throw new Error('Graph not initialized')
+    lastImportData.value = null
     await manager.importXML(graphRef.value, xml)
     context.value = manager.getContext(graphRef.value) ?? null
     if (context.value) {
       selectedMode.value = context.value.profile.meta.id as ModeId
     }
+    return lastImportData.value
   }
 
   function detectDialect(xml: string): string {
@@ -292,7 +308,7 @@ export function useSmartEngine() {
       const failures = validateFields(bpmnData, fields, fctx, resolvedProfile.value.dataModel)
       for (const f of failures) {
         errors.push({
-          node: (data.label as string) || shape,
+          node: getCellLabel(node) || shape,
           field: f.field,
           reason: f.reason,
         })
@@ -407,6 +423,8 @@ export function useSmartEngine() {
             multiInstance: true,
             multiInstanceType: 'parallel',
             approvalStrategy: 'any',
+            multiInstanceCompletionCondition: '${nrOfCompletedInstances > 0}',
+            multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
             assignee: '${approverList}',
           },
         },
