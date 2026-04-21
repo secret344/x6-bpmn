@@ -9,6 +9,145 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Graph } from '@antv/x6'
 import * as allExports from '../../../src/index'
 
+const START_EVENT_SHAPES = [
+  allExports.BPMN_START_EVENT,
+  allExports.BPMN_START_EVENT_MESSAGE,
+  allExports.BPMN_START_EVENT_TIMER,
+  allExports.BPMN_START_EVENT_CONDITIONAL,
+  allExports.BPMN_START_EVENT_SIGNAL,
+  allExports.BPMN_START_EVENT_MULTIPLE,
+  allExports.BPMN_START_EVENT_PARALLEL_MULTIPLE,
+]
+
+const INTERMEDIATE_THROW_EVENT_SHAPES = [
+  allExports.BPMN_INTERMEDIATE_THROW_EVENT,
+  allExports.BPMN_INTERMEDIATE_THROW_EVENT_MESSAGE,
+  allExports.BPMN_INTERMEDIATE_THROW_EVENT_ESCALATION,
+  allExports.BPMN_INTERMEDIATE_THROW_EVENT_LINK,
+  allExports.BPMN_INTERMEDIATE_THROW_EVENT_COMPENSATION,
+  allExports.BPMN_INTERMEDIATE_THROW_EVENT_SIGNAL,
+  allExports.BPMN_INTERMEDIATE_THROW_EVENT_MULTIPLE,
+]
+
+const INTERMEDIATE_CATCH_EVENT_SHAPES = [
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_TIMER,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_ESCALATION,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_CONDITIONAL,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_LINK,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_ERROR,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_CANCEL,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_COMPENSATION,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_SIGNAL,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_MULTIPLE,
+  allExports.BPMN_INTERMEDIATE_CATCH_EVENT_PARALLEL_MULTIPLE,
+]
+
+const BOUNDARY_EVENT_SHAPES = [
+  allExports.BPMN_BOUNDARY_EVENT,
+  allExports.BPMN_BOUNDARY_EVENT_MESSAGE,
+  allExports.BPMN_BOUNDARY_EVENT_TIMER,
+  allExports.BPMN_BOUNDARY_EVENT_ESCALATION,
+  allExports.BPMN_BOUNDARY_EVENT_CONDITIONAL,
+  allExports.BPMN_BOUNDARY_EVENT_ERROR,
+  allExports.BPMN_BOUNDARY_EVENT_CANCEL,
+  allExports.BPMN_BOUNDARY_EVENT_COMPENSATION,
+  allExports.BPMN_BOUNDARY_EVENT_SIGNAL,
+  allExports.BPMN_BOUNDARY_EVENT_MULTIPLE,
+  allExports.BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE,
+  allExports.BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
+  allExports.BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+  allExports.BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
+  allExports.BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
+  allExports.BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
+  allExports.BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
+  allExports.BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
+  allExports.BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
+]
+
+const END_EVENT_SHAPES = [
+  allExports.BPMN_END_EVENT,
+  allExports.BPMN_END_EVENT_MESSAGE,
+  allExports.BPMN_END_EVENT_ESCALATION,
+  allExports.BPMN_END_EVENT_ERROR,
+  allExports.BPMN_END_EVENT_CANCEL,
+  allExports.BPMN_END_EVENT_COMPENSATION,
+  allExports.BPMN_END_EVENT_SIGNAL,
+  allExports.BPMN_END_EVENT_TERMINATE,
+  allExports.BPMN_END_EVENT_MULTIPLE,
+]
+
+const EVENT_SHAPES = [
+  ...START_EVENT_SHAPES,
+  ...INTERMEDIATE_THROW_EVENT_SHAPES,
+  ...INTERMEDIATE_CATCH_EVENT_SHAPES,
+  ...BOUNDARY_EVENT_SHAPES,
+  ...END_EVENT_SHAPES,
+]
+
+const ACTIVITY_SHAPES = [
+  allExports.BPMN_TASK,
+  allExports.BPMN_USER_TASK,
+  allExports.BPMN_SERVICE_TASK,
+  allExports.BPMN_SCRIPT_TASK,
+  allExports.BPMN_BUSINESS_RULE_TASK,
+  allExports.BPMN_SEND_TASK,
+  allExports.BPMN_RECEIVE_TASK,
+  allExports.BPMN_MANUAL_TASK,
+  allExports.BPMN_SUB_PROCESS,
+  allExports.BPMN_EVENT_SUB_PROCESS,
+  allExports.BPMN_TRANSACTION,
+  allExports.BPMN_AD_HOC_SUB_PROCESS,
+  allExports.BPMN_CALL_ACTIVITY,
+]
+
+const GATEWAY_SHAPES = [
+  allExports.BPMN_EXCLUSIVE_GATEWAY,
+  allExports.BPMN_PARALLEL_GATEWAY,
+  allExports.BPMN_INCLUSIVE_GATEWAY,
+  allExports.BPMN_COMPLEX_GATEWAY,
+  allExports.BPMN_EVENT_BASED_GATEWAY,
+  allExports.BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY,
+  allExports.BPMN_PARALLEL_EVENT_BASED_GATEWAY,
+]
+
+const DATA_SHAPES = [
+  allExports.BPMN_DATA_OBJECT,
+  allExports.BPMN_DATA_INPUT,
+  allExports.BPMN_DATA_OUTPUT,
+  allExports.BPMN_DATA_STORE,
+]
+
+const ARTIFACT_SHAPES = [
+  allExports.BPMN_TEXT_ANNOTATION,
+  allExports.BPMN_GROUP,
+]
+
+const SWIMLANE_SHAPES = [
+  allExports.BPMN_POOL,
+  allExports.BPMN_LANE,
+]
+
+const CONNECTION_SHAPES = [
+  allExports.BPMN_SEQUENCE_FLOW,
+  allExports.BPMN_CONDITIONAL_FLOW,
+  allExports.BPMN_DEFAULT_FLOW,
+  allExports.BPMN_MESSAGE_FLOW,
+  allExports.BPMN_ASSOCIATION,
+  allExports.BPMN_DIRECTED_ASSOCIATION,
+  allExports.BPMN_DATA_ASSOCIATION,
+]
+
+const NODE_SHAPES = [
+  ...EVENT_SHAPES,
+  ...ACTIVITY_SHAPES,
+  ...GATEWAY_SHAPES,
+  ...DATA_SHAPES,
+  ...ARTIFACT_SHAPES,
+  ...SWIMLANE_SHAPES,
+]
+
 describe('BPMN 2.0 规范合规性验证', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let registerNodeSpy: any
@@ -19,6 +158,16 @@ describe('BPMN 2.0 规范合规性验证', () => {
     registerNodeSpy = vi.spyOn(Graph, 'registerNode').mockImplementation(() => undefined as any)
     registerEdgeSpy = vi.spyOn(Graph, 'registerEdge').mockImplementation(() => undefined as any)
   })
+
+  function expectRegisteredNodeNames(expectedNames: string[]) {
+    const actualNames = registerNodeSpy.mock.calls.map((call: any[]) => call[0]).sort()
+    expect(actualNames).toEqual([...expectedNames].sort())
+  }
+
+  function expectRegisteredEdgeNames(expectedNames: string[]) {
+    const actualNames = registerEdgeSpy.mock.calls.map((call: any[]) => call[0]).sort()
+    expect(actualNames).toEqual([...expectedNames].sort())
+  }
 
   // ============================================================================
   // §10.4 - Events (BPMN 2.0 Spec)
@@ -36,104 +185,82 @@ describe('BPMN 2.0 规范合规性验证', () => {
      */
 
     it('应实现 §10.4.2 规定的全部 7 种开始事件', () => {
-      const startEvents = [
-        'bpmn-start-event',                    // None
-        'bpmn-start-event-message',            // Message
-        'bpmn-start-event-timer',              // Timer
-        'bpmn-start-event-conditional',        // Conditional (Rule)
-        'bpmn-start-event-signal',             // Signal
-        'bpmn-start-event-multiple',           // Multiple
-        'bpmn-start-event-parallel-multiple',  // Parallel Multiple
-      ]
-      for (const name of startEvents) {
-        expect(allExports).toHaveProperty(
-          name.replace(/-/g, '_').toUpperCase(),
-        )
-      }
-      expect(startEvents).toHaveLength(7)
+      expect(START_EVENT_SHAPES).toEqual([
+        'bpmn-start-event',
+        'bpmn-start-event-message',
+        'bpmn-start-event-timer',
+        'bpmn-start-event-conditional',
+        'bpmn-start-event-signal',
+        'bpmn-start-event-multiple',
+        'bpmn-start-event-parallel-multiple',
+      ])
     })
 
     it('应实现 §10.4.3 规定的全部 7 种中间抛出事件', () => {
-      const throwEvents = [
-        'bpmn-intermediate-throw-event',              // None
-        'bpmn-intermediate-throw-event-message',      // Message
-        'bpmn-intermediate-throw-event-escalation',   // Escalation
-        'bpmn-intermediate-throw-event-link',         // Link
-        'bpmn-intermediate-throw-event-compensation', // Compensation
-        'bpmn-intermediate-throw-event-signal',       // Signal
-        'bpmn-intermediate-throw-event-multiple',     // Multiple
-      ]
-      expect(throwEvents).toHaveLength(7)
-      expect(allExports.BPMN_INTERMEDIATE_THROW_EVENT).toBeDefined()
-      expect(allExports.BPMN_INTERMEDIATE_THROW_EVENT_MULTIPLE).toBeDefined()
+      expect(INTERMEDIATE_THROW_EVENT_SHAPES).toEqual([
+        'bpmn-intermediate-throw-event',
+        'bpmn-intermediate-throw-event-message',
+        'bpmn-intermediate-throw-event-escalation',
+        'bpmn-intermediate-throw-event-link',
+        'bpmn-intermediate-throw-event-compensation',
+        'bpmn-intermediate-throw-event-signal',
+        'bpmn-intermediate-throw-event-multiple',
+      ])
     })
 
     it('应实现 §10.4.4 规定的全部 12 种中间捕获事件', () => {
-      const catchEvents = [
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_MESSAGE,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_TIMER,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_ESCALATION,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_CONDITIONAL,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_LINK,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_ERROR,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_CANCEL,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_COMPENSATION,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_SIGNAL,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_MULTIPLE,
-        allExports.BPMN_INTERMEDIATE_CATCH_EVENT_PARALLEL_MULTIPLE,
-      ]
-      expect(catchEvents).toHaveLength(12)
-      for (const name of catchEvents) {
-        expect(name).toBeTruthy()
-      }
+      expect(INTERMEDIATE_CATCH_EVENT_SHAPES).toEqual([
+        'bpmn-intermediate-catch-event',
+        'bpmn-intermediate-catch-event-message',
+        'bpmn-intermediate-catch-event-timer',
+        'bpmn-intermediate-catch-event-escalation',
+        'bpmn-intermediate-catch-event-conditional',
+        'bpmn-intermediate-catch-event-link',
+        'bpmn-intermediate-catch-event-error',
+        'bpmn-intermediate-catch-event-cancel',
+        'bpmn-intermediate-catch-event-compensation',
+        'bpmn-intermediate-catch-event-signal',
+        'bpmn-intermediate-catch-event-multiple',
+        'bpmn-intermediate-catch-event-parallel-multiple',
+      ])
     })
 
     it('应实现 §10.4.5 / §13.4.3 规定的全部 12 种边界事件，加上 7 种非中断变体共 19 种', () => {
-      const boundaryEvents = [
-        allExports.BPMN_BOUNDARY_EVENT,
-        allExports.BPMN_BOUNDARY_EVENT_MESSAGE,
-        allExports.BPMN_BOUNDARY_EVENT_TIMER,
-        allExports.BPMN_BOUNDARY_EVENT_ESCALATION,
-        allExports.BPMN_BOUNDARY_EVENT_CONDITIONAL,
-        allExports.BPMN_BOUNDARY_EVENT_ERROR,
-        allExports.BPMN_BOUNDARY_EVENT_CANCEL,
-        allExports.BPMN_BOUNDARY_EVENT_COMPENSATION,
-        allExports.BPMN_BOUNDARY_EVENT_SIGNAL,
-        allExports.BPMN_BOUNDARY_EVENT_MULTIPLE,
-        allExports.BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE,
-        allExports.BPMN_BOUNDARY_EVENT_NON_INTERRUPTING,
-        // 按类型非中断变体（F2）
-        allExports.BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
-        allExports.BPMN_BOUNDARY_EVENT_TIMER_NON_INTERRUPTING,
-        allExports.BPMN_BOUNDARY_EVENT_ESCALATION_NON_INTERRUPTING,
-        allExports.BPMN_BOUNDARY_EVENT_CONDITIONAL_NON_INTERRUPTING,
-        allExports.BPMN_BOUNDARY_EVENT_SIGNAL_NON_INTERRUPTING,
-        allExports.BPMN_BOUNDARY_EVENT_MULTIPLE_NON_INTERRUPTING,
-        allExports.BPMN_BOUNDARY_EVENT_PARALLEL_MULTIPLE_NON_INTERRUPTING,
-      ]
-      expect(boundaryEvents).toHaveLength(19)
-      for (const name of boundaryEvents) {
-        expect(name).toBeTruthy()
-      }
+      expect(BOUNDARY_EVENT_SHAPES).toEqual([
+        'bpmn-boundary-event',
+        'bpmn-boundary-event-message',
+        'bpmn-boundary-event-timer',
+        'bpmn-boundary-event-escalation',
+        'bpmn-boundary-event-conditional',
+        'bpmn-boundary-event-error',
+        'bpmn-boundary-event-cancel',
+        'bpmn-boundary-event-compensation',
+        'bpmn-boundary-event-signal',
+        'bpmn-boundary-event-multiple',
+        'bpmn-boundary-event-parallel-multiple',
+        'bpmn-boundary-event-non-interrupting',
+        'bpmn-boundary-event-message-non-interrupting',
+        'bpmn-boundary-event-timer-non-interrupting',
+        'bpmn-boundary-event-escalation-non-interrupting',
+        'bpmn-boundary-event-conditional-non-interrupting',
+        'bpmn-boundary-event-signal-non-interrupting',
+        'bpmn-boundary-event-multiple-non-interrupting',
+        'bpmn-boundary-event-parallel-multiple-non-interrupting',
+      ])
     })
 
     it('应实现 §10.4.6 规定的全部 9 种结束事件', () => {
-      const endEvents = [
-        allExports.BPMN_END_EVENT,
-        allExports.BPMN_END_EVENT_MESSAGE,
-        allExports.BPMN_END_EVENT_ESCALATION,
-        allExports.BPMN_END_EVENT_ERROR,
-        allExports.BPMN_END_EVENT_CANCEL,
-        allExports.BPMN_END_EVENT_COMPENSATION,
-        allExports.BPMN_END_EVENT_SIGNAL,
-        allExports.BPMN_END_EVENT_TERMINATE,
-        allExports.BPMN_END_EVENT_MULTIPLE,
-      ]
-      expect(endEvents).toHaveLength(9)
-      for (const name of endEvents) {
-        expect(name).toBeTruthy()
-      }
+      expect(END_EVENT_SHAPES).toEqual([
+        'bpmn-end-event',
+        'bpmn-end-event-message',
+        'bpmn-end-event-escalation',
+        'bpmn-end-event-error',
+        'bpmn-end-event-cancel',
+        'bpmn-end-event-compensation',
+        'bpmn-end-event-signal',
+        'bpmn-end-event-terminate',
+        'bpmn-end-event-multiple',
+      ])
     })
 
     it('应共注册 54 个事件图形', () => {
@@ -146,8 +273,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
         swimlanes: false,
         connections: false,
       })
-      // 47 原始 + 7 个按类型区分的非中断边界事件变体 = 54
-      expect(registerNodeSpy).toHaveBeenCalledTimes(54)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(EVENT_SHAPES.length)
+      expectRegisteredNodeNames(EVENT_SHAPES)
     })
   })
 
@@ -168,14 +295,16 @@ describe('BPMN 2.0 规范合规性验证', () => {
      */
 
     it('应实现 §10.2.4 规定的全部 8 种任务', () => {
-      expect(allExports.BPMN_TASK).toBe('bpmn-task')
-      expect(allExports.BPMN_USER_TASK).toBe('bpmn-user-task')
-      expect(allExports.BPMN_SERVICE_TASK).toBe('bpmn-service-task')
-      expect(allExports.BPMN_SCRIPT_TASK).toBe('bpmn-script-task')
-      expect(allExports.BPMN_BUSINESS_RULE_TASK).toBe('bpmn-business-rule-task')
-      expect(allExports.BPMN_SEND_TASK).toBe('bpmn-send-task')
-      expect(allExports.BPMN_RECEIVE_TASK).toBe('bpmn-receive-task')
-      expect(allExports.BPMN_MANUAL_TASK).toBe('bpmn-manual-task')
+      expect(ACTIVITY_SHAPES.slice(0, 8)).toEqual([
+        'bpmn-task',
+        'bpmn-user-task',
+        'bpmn-service-task',
+        'bpmn-script-task',
+        'bpmn-business-rule-task',
+        'bpmn-send-task',
+        'bpmn-receive-task',
+        'bpmn-manual-task',
+      ])
     })
 
     it('应实现 §10.2.5 规定的子流程', () => {
@@ -208,7 +337,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
         swimlanes: false,
         connections: false,
       })
-      expect(registerNodeSpy).toHaveBeenCalledTimes(13)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(ACTIVITY_SHAPES.length)
+      expectRegisteredNodeNames(ACTIVITY_SHAPES)
     })
   })
 
@@ -229,13 +359,15 @@ describe('BPMN 2.0 规范合规性验证', () => {
      */
 
     it('应实现 §10.5 规定的全部 6 种网关，以及并行 EBG', () => {
-      expect(allExports.BPMN_EXCLUSIVE_GATEWAY).toBe('bpmn-exclusive-gateway')
-      expect(allExports.BPMN_PARALLEL_GATEWAY).toBe('bpmn-parallel-gateway')
-      expect(allExports.BPMN_INCLUSIVE_GATEWAY).toBe('bpmn-inclusive-gateway')
-      expect(allExports.BPMN_COMPLEX_GATEWAY).toBe('bpmn-complex-gateway')
-      expect(allExports.BPMN_EVENT_BASED_GATEWAY).toBe('bpmn-event-based-gateway')
-      expect(allExports.BPMN_EXCLUSIVE_EVENT_BASED_GATEWAY).toBe('bpmn-exclusive-event-based-gateway')
-      expect(allExports.BPMN_PARALLEL_EVENT_BASED_GATEWAY).toBe('bpmn-parallel-event-based-gateway')
+      expect(GATEWAY_SHAPES).toEqual([
+        'bpmn-exclusive-gateway',
+        'bpmn-parallel-gateway',
+        'bpmn-inclusive-gateway',
+        'bpmn-complex-gateway',
+        'bpmn-event-based-gateway',
+        'bpmn-exclusive-event-based-gateway',
+        'bpmn-parallel-event-based-gateway',
+      ])
     })
 
     it('应共注册 7 个网关图形', () => {
@@ -248,8 +380,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
         swimlanes: false,
         connections: false,
       })
-      // 6 原始 + Parallel EBG = 7
-      expect(registerNodeSpy).toHaveBeenCalledTimes(7)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(GATEWAY_SHAPES.length)
+      expectRegisteredNodeNames(GATEWAY_SHAPES)
     })
   })
 
@@ -267,10 +399,12 @@ describe('BPMN 2.0 规范合规性验证', () => {
      */
 
     it('应实现 §10.6 规定的全部 4 种数据元素', () => {
-      expect(allExports.BPMN_DATA_OBJECT).toBe('bpmn-data-object')
-      expect(allExports.BPMN_DATA_INPUT).toBe('bpmn-data-input')
-      expect(allExports.BPMN_DATA_OUTPUT).toBe('bpmn-data-output')
-      expect(allExports.BPMN_DATA_STORE).toBe('bpmn-data-store')
+      expect(DATA_SHAPES).toEqual([
+        'bpmn-data-object',
+        'bpmn-data-input',
+        'bpmn-data-output',
+        'bpmn-data-store',
+      ])
     })
 
     it('应共注册 4 个数据图形', () => {
@@ -283,7 +417,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
         swimlanes: false,
         connections: false,
       })
-      expect(registerNodeSpy).toHaveBeenCalledTimes(4)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(DATA_SHAPES.length)
+      expectRegisteredNodeNames(DATA_SHAPES)
     })
   })
 
@@ -299,8 +434,10 @@ describe('BPMN 2.0 规范合规性验证', () => {
      */
 
     it('应实现 §10.7 规定的 2 种工件', () => {
-      expect(allExports.BPMN_TEXT_ANNOTATION).toBe('bpmn-text-annotation')
-      expect(allExports.BPMN_GROUP).toBe('bpmn-group')
+      expect(ARTIFACT_SHAPES).toEqual([
+        'bpmn-text-annotation',
+        'bpmn-group',
+      ])
     })
 
     it('应共注册 2 个工件图形', () => {
@@ -313,7 +450,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
         swimlanes: false,
         connections: false,
       })
-      expect(registerNodeSpy).toHaveBeenCalledTimes(2)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(ARTIFACT_SHAPES.length)
+      expectRegisteredNodeNames(ARTIFACT_SHAPES)
     })
   })
 
@@ -329,8 +467,10 @@ describe('BPMN 2.0 规范合规性验证', () => {
      */
 
     it('应实现 §9.3-9.4 规定的 2 种泳道', () => {
-      expect(allExports.BPMN_POOL).toBe('bpmn-pool')
-      expect(allExports.BPMN_LANE).toBe('bpmn-lane')
+      expect(SWIMLANE_SHAPES).toEqual([
+        'bpmn-pool',
+        'bpmn-lane',
+      ])
     })
 
     it('应共注册 2 个泳道图形', () => {
@@ -343,7 +483,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
         swimlanes: true,
         connections: false,
       })
-      expect(registerNodeSpy).toHaveBeenCalledTimes(2)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(SWIMLANE_SHAPES.length)
+      expectRegisteredNodeNames(SWIMLANE_SHAPES)
     })
   })
 
@@ -364,13 +505,15 @@ describe('BPMN 2.0 规范合规性验证', () => {
      */
 
     it('应实现 §7.5 规定的全部 7 种连接线', () => {
-      expect(allExports.BPMN_SEQUENCE_FLOW).toBe('bpmn-sequence-flow')
-      expect(allExports.BPMN_CONDITIONAL_FLOW).toBe('bpmn-conditional-flow')
-      expect(allExports.BPMN_DEFAULT_FLOW).toBe('bpmn-default-flow')
-      expect(allExports.BPMN_MESSAGE_FLOW).toBe('bpmn-message-flow')
-      expect(allExports.BPMN_ASSOCIATION).toBe('bpmn-association')
-      expect(allExports.BPMN_DIRECTED_ASSOCIATION).toBe('bpmn-directed-association')
-      expect(allExports.BPMN_DATA_ASSOCIATION).toBe('bpmn-data-association')
+      expect(CONNECTION_SHAPES).toEqual([
+        'bpmn-sequence-flow',
+        'bpmn-conditional-flow',
+        'bpmn-default-flow',
+        'bpmn-message-flow',
+        'bpmn-association',
+        'bpmn-directed-association',
+        'bpmn-data-association',
+      ])
     })
 
     it('应共注册 7 个连接线图形', () => {
@@ -383,7 +526,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
         swimlanes: false,
         connections: true,
       })
-      expect(registerEdgeSpy).toHaveBeenCalledTimes(7)
+      expect(registerEdgeSpy).toHaveBeenCalledTimes(CONNECTION_SHAPES.length)
+      expectRegisteredEdgeNames(CONNECTION_SHAPES)
     })
   })
 
@@ -438,7 +582,7 @@ describe('BPMN 2.0 规范合规性验证', () => {
     it('事件子流程应有虚线边框（BPMN 规范）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_EVENT_SUB_PROCESS)!
       const config = call[1] as any
-      expect(config.attrs.body.strokeDasharray).toBeTruthy()
+      expect(config.attrs.body.strokeDasharray).toBe('8,4')
     })
 
     it('事务应有双边框（BPMN 规范）', () => {
@@ -451,7 +595,8 @@ describe('BPMN 2.0 规范合规性验证', () => {
     it('非中断边界应有虚线边框（BPMN 规范）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_BOUNDARY_EVENT_NON_INTERRUPTING)!
       const config = call[1] as any
-      expect(config.attrs.body.strokeDasharray).toBeTruthy()
+      expect(config.attrs.body.strokeDasharray).toBe('5,3')
+      expect(config.attrs.innerCircle.strokeDasharray).toBe('5,3')
     })
 
     it('数据对象应有折角（BPMN 规范页面形状）', () => {
@@ -471,15 +616,15 @@ describe('BPMN 2.0 规范合规性验证', () => {
     it('消息流应为虚线带圆形起点和空心箭头（BPMN 规范）', () => {
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_MESSAGE_FLOW)!
       const config = call[1] as any
-      expect(config.attrs.line.strokeDasharray).toBeTruthy()
+      expect(config.attrs.line.strokeDasharray).toBe('8,5')
       expect(config.attrs.line.sourceMarker.name).toBe('ellipse')
       expect(config.attrs.line.targetMarker.open).toBe(true)
     })
 
-    it('关联应为虹线无箭头（BPMN 规范）', () => {
+    it('关联应为点线无箭头（BPMN 规范）', () => {
       const call = registerEdgeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_ASSOCIATION)!
       const config = call[1] as any
-      expect(config.attrs.line.strokeDasharray).toBeTruthy()
+      expect(config.attrs.line.strokeDasharray).toBe('4,4')
       expect(config.attrs.line.targetMarker).toBeNull()
     })
 
@@ -492,7 +637,7 @@ describe('BPMN 2.0 规范合规性验证', () => {
     it('分组应有虚线圆角矩形（BPMN 规范）', () => {
       const call = registerNodeSpy.mock.calls.find((c: any[]) => c[0] === allExports.BPMN_GROUP)!
       const config = call[1] as any
-      expect(config.attrs.body.strokeDasharray).toBeTruthy()
+      expect(config.attrs.body.strokeDasharray).toBe('10,4')
       expect(config.attrs.body.rx).toBeGreaterThan(0)
     })
 
@@ -511,9 +656,10 @@ describe('BPMN 2.0 规范合规性验证', () => {
   describe('图形总数验证', () => {
     it('应注册 89 个元素（82 个节点 + 7 个连接线）', () => {
       allExports.forceRegisterBpmnShapes()
-      // 54 事件 + 13 活动 + 7 网关 + 4 数据 + 2 工件 + 2 泳道 = 82 节点
-      expect(registerNodeSpy).toHaveBeenCalledTimes(82)
-      expect(registerEdgeSpy).toHaveBeenCalledTimes(7)
+      expect(registerNodeSpy).toHaveBeenCalledTimes(NODE_SHAPES.length)
+      expect(registerEdgeSpy).toHaveBeenCalledTimes(CONNECTION_SHAPES.length)
+      expectRegisteredNodeNames(NODE_SHAPES)
+      expectRegisteredEdgeNames(CONNECTION_SHAPES)
     })
 
     it('图形数量明细：54 事件 + 13 活动 + 7 网关 + 4 数据 + 2 工件 + 2 泳道 = 82', () => {

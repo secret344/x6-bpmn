@@ -8,7 +8,11 @@ import { describe, it, expect } from 'vitest'
 import { createBpmn2NodeRenderers } from '../../../src/core/rendering/node-renderers'
 import { createBpmn2EdgeRenderers } from '../../../src/core/rendering/edge-renderers'
 import type { ThemeTokens, NodeDefinition, EdgeDefinition } from '../../../src/core/dialect/types'
-import { BPMN_COLORS, BPMN_ICONS } from '../../../src/utils/constants'
+import {
+  BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING,
+  BPMN_COLORS,
+  BPMN_ICONS,
+} from '../../../src/utils/constants'
 
 // ============================================================================
 // 辅助
@@ -76,7 +80,7 @@ describe('createBpmn2NodeRenderers', () => {
   })
 
   it('non-interrupting 边界事件应使用虚线', () => {
-    const def = makeNodeDef('bpmn-boundary-event-non-interrupting-message', 'boundaryEvent', 'boundaryEvent')
+    const def = makeNodeDef(BPMN_BOUNDARY_EVENT_MESSAGE_NON_INTERRUPTING, 'boundaryEvent', 'boundaryEvent')
     const shape = renderers.boundaryEvent(theme, def)
     expect(shape.attrs?.body?.strokeDasharray).toBeDefined()
   })
