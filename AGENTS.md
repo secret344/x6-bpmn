@@ -48,6 +48,14 @@ These rules apply to all AI coding agents in this workspace.
 - Generated spec file names must not duplicate any existing spec file name in the browser test directory.
 - When an architectural issue is discovered that a patch cannot cleanly fix, thorough refactoring is permitted and encouraged over incremental workarounds.
 
+## 风险敏感区域 / Risk-sensitive Areas
+- 修改 `docs/swimlane-resize-risk-guards.md` 中定义的任一风险区前，必须先阅读该文档，并明确本次变更依赖的关键假设。
+	Before changing any risk-sensitive area documented in `docs/swimlane-resize-risk-guards.md`, read that document first and make the key assumption for the change explicit.
+- 若变更命中该文档中的任一风险区，最终汇报或 PR 摘要必须警示：触碰了哪项风险、底层假设是否保持不变、以及重新运行了哪些定向验证。
+	If a change touches any risk area from that document, the final report or PR summary must warn which risk was touched, whether the underlying assumption was preserved, and which targeted validations were rerun.
+- 若变更修改的是假设本身而不是单纯实现细节，必须在同一变更中同步更新 `docs/swimlane-resize-risk-guards.md`。
+	If the change modifies the assumption itself rather than only the implementation detail, update `docs/swimlane-resize-risk-guards.md` in the same change.
+
 ## Submodule Policy
 - Do not directly modify content inside git submodules under `packages/**`.
 - Current reference/documentation submodules include `packages/bpmn2-spec`, `packages/bpmn-moddle`, and `packages/bpmn-js`.

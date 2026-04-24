@@ -1232,6 +1232,100 @@ test.describe('泳道 resize 浏览器视觉回归', () => {
     expect(previewBox!.height).toBeGreaterThan(beforeBox!.height)
   })
 
+  test('Pool 左上角轻微拖拽时 preview 应先变化且真实节点不应先跟随漂移', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createMultiLaneScenario(page)
+    const beforePool = await getNodeSnapshot(page, scenario.poolId)
+    const beforeLane = await getNodeSnapshot(page, scenario.lane1Id)
+    const beforeTask = await getNodeSnapshot(page, scenario.taskId)
+    const poolLocator = getNodeLocator(page, scenario.poolId)
+    const beforeBox = await poolLocator.boundingBox()
+
+    expect(beforeBox).not.toBeNull()
+    await takeScreenshot(page, 'Pool-top-left-轻微拖拽-初始')
+
+    const previewSamples: Array<{
+      step: number
+      previewBox: { x: number; y: number; width: number; height: number }
+      pool: NodeSnapshot
+      lane: NodeSnapshot
+      task: NodeSnapshot
+    }> = []
+
+    await resizeNodeByHandleOverTime(page, scenario.poolId, 'top-left', { x: 24, y: 18 }, {
+      selectOffset: { x: 220, y: 120 },
+      durationMs: 900,
+      steps: 12,
+      onStep: async ({ step }) => {
+        if (step !== 6 && step !== 9) {
+          return
+        }
+
+        await page.evaluate(() => new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        }))
+
+        const preview = getResizePreviewLocator(page, scenario.poolId)
+        await expect(preview).toBeVisible()
+        const previewBox = await preview.boundingBox()
+        expect(previewBox).not.toBeNull()
+
+        previewSamples.push({
+          step,
+          previewBox: previewBox!,
+          pool: await getNodeSnapshot(page, scenario.poolId),
+          lane: await getNodeSnapshot(page, scenario.lane1Id),
+          task: await getNodeSnapshot(page, scenario.taskId),
+        })
+
+        if (step === 9) {
+          await takeScreenshot(page, 'Pool-top-left-轻微拖拽-preview')
+        }
+      },
+    })
+
+    expect(previewSamples).toHaveLength(2)
+    expect(previewSamples[0].step).toBe(6)
+    expect(previewSamples[1].step).toBe(9)
+
+    for (const sample of previewSamples) {
+      expect(sample.previewBox.width).toBeLessThan(beforeBox!.width)
+      expect(sample.previewBox.height).toBeLessThan(beforeBox!.height)
+      expect(sample.pool.x).toBeCloseTo(beforePool.x, 0)
+      expect(sample.pool.y).toBeCloseTo(beforePool.y, 0)
+      expect(sample.pool.width).toBeCloseTo(beforePool.width, 0)
+      expect(sample.pool.height).toBeCloseTo(beforePool.height, 0)
+      expect(sample.lane.x).toBeCloseTo(beforeLane.x, 0)
+      expect(sample.lane.y).toBeCloseTo(beforeLane.y, 0)
+      expect(sample.lane.width).toBeCloseTo(beforeLane.width, 0)
+      expect(sample.lane.height).toBeCloseTo(beforeLane.height, 0)
+      expect(sample.task.x).toBeCloseTo(beforeTask.x, 0)
+      expect(sample.task.y).toBeCloseTo(beforeTask.y, 0)
+      expect(sample.task.width).toBeCloseTo(beforeTask.width, 0)
+      expect(sample.task.height).toBeCloseTo(beforeTask.height, 0)
+    }
+
+    expect(previewSamples[1].previewBox.width).toBeLessThanOrEqual(previewSamples[0].previewBox.width)
+    expect(previewSamples[1].previewBox.height).toBeLessThanOrEqual(previewSamples[0].previewBox.height)
+
+    const after = await getLaneMatrixSnapshot(page, scenario.poolId, [
+      scenario.taskId,
+      scenario.gatewayId,
+      scenario.task2Id,
+      scenario.sendTaskId,
+      scenario.serviceTaskId,
+    ])
+    await takeScreenshot(page, 'Pool-top-left-轻微拖拽-终态')
+
+    expectLaneStackFillsPool(after)
+    expect(after.pool.x).toBeGreaterThan(beforePool.x)
+    expect(after.pool.y).toBeGreaterThan(beforePool.y)
+    expect(after.pool.width).toBeLessThan(beforePool.width)
+    expect(after.pool.height).toBeLessThan(beforePool.height)
+  })
+
   for (const resizeCase of resizeCases) {
     test(resizeCase.title, async ({ page }, testInfo) => {
       test.fail(Boolean(resizeCase.expectedFailureReason), resizeCase.expectedFailureReason)

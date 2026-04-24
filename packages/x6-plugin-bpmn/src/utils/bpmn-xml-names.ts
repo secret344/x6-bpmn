@@ -75,9 +75,9 @@ export function cloneBpmnXmlNameSettings(
 
   return {
     ...resolved,
-    acceptedTagPrefixes: [...(resolved.acceptedTagPrefixes ?? [])],
-    moddleNames: cloneRecord(resolved.moddleNames ?? {}),
-    createModes: cloneRecord(resolved.createModes ?? {}),
+    acceptedTagPrefixes: [...resolved.acceptedTagPrefixes!],
+    moddleNames: cloneRecord(resolved.moddleNames!),
+    createModes: cloneRecord(resolved.createModes!),
   }
 }
 

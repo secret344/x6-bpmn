@@ -276,10 +276,11 @@ export function setupSwimlaneResize(
     initialOriginalRect: Rect | null,
     buildRequestedRect: (state: ResizePreviewState, liveRect: Rect) => Rect,
   ) => {
+    const liveRect = nodeRect(node)
     const state = initialOriginalRect
       ? ensurePreviewStateFromRect(node, direction, initialOriginalRect)
       : ensurePreviewState(node, direction)
-    const requestedRect = buildRequestedRect(state, nodeRect(node))
+    const requestedRect = buildRequestedRect(state, liveRect)
     const nextPreviewRect = clampPreviewRect(
       node,
       requestedRect,
@@ -291,7 +292,19 @@ export function setupSwimlaneResize(
     state.previewElement = renderPreviewElement(graph, node.id, state.previewRect, state.previewElement)
     node.setPosition(state.originalRect.x, state.originalRect.y, { silent: true, bpmnPreview: true })
     node.setSize(state.originalRect.width, state.originalRect.height, { silent: true, bpmnPreview: true })
+
+    if (initialOriginalRect && isPoolShape(node.shape)) {
+      restorePoolPreviewLiveGeometry(node, liveRect, state.originalRect)
+      state.childLaneRects = captureChildLaneRects(node)
+      state.descendantNodeRects = captureDescendantNodeRects(node)
+      return
+    }
+
     restoreDescendantNodeRects(state.descendantNodeRects)
+
+    if (initialOriginalRect) {
+      state.descendantNodeRects = captureDescendantNodeRects(node)
+    }
   }
 
   const isStaleLivePositionUpdate = (
@@ -414,11 +427,15 @@ export function setupSwimlaneResize(
 
     const liveRect = nodeRect(node)
     const existingState = previewStates.get(node.id)
+    const previousPosition = getPreviousNodePosition(node)
     const initialOriginalRect = previewStates.has(node.id)
       ? null
       : isLaneShape(node.shape)
         ? captureStablePreviewOriginalRect(node)
-        : buildOriginalRectFromLiveSizeChange(liveRect, previous, direction)
+        : reconcileOriginalRectWithLivePositionChange(
+          buildOriginalRectFromLiveSizeChange(liveRect, previous, direction),
+          previousPosition,
+        )
 
     if (existingState) {
       existingState.originalRect = reconcileOriginalRectWithLiveSizeChange(existingState.originalRect, previous)
@@ -462,6 +479,11 @@ export function setupSwimlaneResize(
 
     const liveRect = nodeRect(node)
     const existingState = previewStates.get(node.id)
+    const initialOriginalRect = previewStates.has(node.id)
+      ? null
+      : isPoolShape(node.shape)
+        ? buildOriginalRectFromLivePositionChange(liveRect, previous, direction)
+        : null
 
     if (existingState) {
       existingState.originalRect = reconcileOriginalRectWithLivePositionChange(existingState.originalRect, previous)
@@ -476,12 +498,12 @@ export function setupSwimlaneResize(
       return
     }
 
-    if (!existingState) {
+    if (!existingState && !initialOriginalRect) {
       return
     }
 
     void eventOptions
-    updateLivePreviewState(node, direction, null, (state, nextLiveRect) => buildResizeRectFromLivePosition(
+    updateLivePreviewState(node, direction, initialOriginalRect, (state, nextLiveRect) => buildResizeRectFromLivePosition(
       state.previewRect,
       nextLiveRect,
       state.direction,
@@ -971,6 +993,21 @@ function reconcileOriginalRectWithLivePositionChange(
   }
 }
 
+function getPreviousNodePosition(node: Node): { x?: number; y?: number } | undefined {
+  const previousPosition = (node as Node & {
+    previous?: (name: string) => { x?: number; y?: number } | undefined
+  }).previous?.('position')
+
+  if (!previousPosition) {
+    return undefined
+  }
+
+  return {
+    x: previousPosition.x,
+    y: previousPosition.y,
+  }
+}
+
 function renderPreviewElement(
   graph: Graph,
   nodeId: string,
@@ -1391,6 +1428,33 @@ function computePoolContentInsetLeft(pool: Node, poolRect: Rect = nodeRect(pool)
   return Math.max(0, minInsetLeft)
 }
 
+function restorePoolPreviewLiveGeometry(pool: Node, liveRect: Rect, originalRect: Rect): void {
+  syncPoolLanes(pool, liveRect, originalRect)
+
+  const deltaX = liveRect.x - originalRect.x
+  const deltaY = liveRect.y - originalRect.y
+
+  const visit = (current: Node): void => {
+    for (const child of safeGetChildren(current)) {
+      if (!child?.isNode?.()) {
+        continue
+      }
+
+      const childNode = child as Node
+      if (current.id === pool.id && isLaneShape(childNode.shape)) {
+        visit(childNode)
+        continue
+      }
+
+      const childRect = nodeRect(childNode)
+      childNode.setPosition(childRect.x - deltaX, childRect.y - deltaY, { silent: true, bpmnPreview: true })
+      visit(childNode)
+    }
+  }
+
+  visit(pool)
+}
+
 function applyBounds(node: Node, rect: Rect): void {
   node.setPosition(rect.x, rect.y)
   node.setSize(rect.width, rect.height)
@@ -1431,6 +1495,7 @@ export const __test__ = {
   buildOriginalRectFromLivePositionChange,
   reconcileOriginalRectWithLiveSizeChange,
   reconcileOriginalRectWithLivePositionChange,
+  getPreviousNodePosition,
   resolveResizeDirection,
   resolveRawResizeDirection,
   projectPreviewRectToContainer,
@@ -1452,6 +1517,7 @@ export const __test__ = {
   restoreChildLaneRects,
   captureDescendantNodeRects,
   restoreDescendantNodeRects,
+  restorePoolPreviewLiveGeometry,
   applyBounds,
   findAncestorPool,
   safeGetChildren,

@@ -356,7 +356,7 @@ describe('setupSwimlaneResize', () => {
     dispose()
   })
 
-  it('Pool live size 在无 resize 实现时应走原始矩形回推，live position 无 state 但有 direction 时也应安全返回', () => {
+  it('Pool live size 在无 resize 实现时应走原始矩形回推，live position 首次先到时也应建立 preview 并回滚真实节点', () => {
     const handlers: Record<string, (args: any) => void> = {}
     const poolWithResizeChild = createMockResizeNode('pool-live-child-with-resize', BPMN_LANE, {
       x: 70,
@@ -384,6 +384,20 @@ describe('setupSwimlaneResize', () => {
     }, { children: [poolChild] })
     delete pool.resize
     poolChild.__setParent(pool)
+    const freshPoolChild = createMockResizeNode('pool-position-first-child', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 400,
+    })
+    const freshPool = createMockResizeNode('pool-position-first', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 900,
+      height: 400,
+    }, { children: [freshPoolChild] })
+    delete freshPool.resize
+    freshPoolChild.__setParent(freshPool)
     const freshLane = createMockResizeNode('fresh-live-position', BPMN_LANE, {
       x: 70,
       y: 40,
@@ -398,7 +412,7 @@ describe('setupSwimlaneResize', () => {
       }),
       off: vi.fn(),
       getPlugin: vi.fn(() => null),
-      getNodes: vi.fn(() => [poolWithResize, poolWithResizeChild, pool, poolChild, freshLane]),
+      getNodes: vi.fn(() => [poolWithResize, poolWithResizeChild, pool, poolChild, freshPool, freshPoolChild, freshLane]),
       startBatch: vi.fn(),
       stopBatch: vi.fn(),
     } as unknown as Graph
@@ -420,6 +434,25 @@ describe('setupSwimlaneResize', () => {
     })
     expect(getPreviewElement(graph, pool.id)?.style.height).toBe('430px')
 
+    freshPool.setPosition(60, 50)
+    freshPool.setSize(880, 390)
+    freshPoolChild.setPosition(90, 55)
+    freshPoolChild.setSize(850, 390)
+    handlers['node:change:position']({
+      node: freshPool,
+      previous: { x: 40, y: 40 },
+      options: { direction: 'top-left', relativeDirection: 'top-left', ui: true },
+    })
+
+    expect(getPreviewElement(graph, freshPool.id)?.style.left).toBe('60px')
+    expect(getPreviewElement(graph, freshPool.id)?.style.top).toBe('50px')
+    expect(getPreviewElement(graph, freshPool.id)?.style.width).toBe('880px')
+    expect(getPreviewElement(graph, freshPool.id)?.style.height).toBe('390px')
+    expect(freshPool.getPosition()).toEqual({ x: 40, y: 40 })
+    expect(freshPool.getSize()).toEqual({ width: 900, height: 400 })
+    expect(freshPoolChild.getPosition()).toEqual({ x: 70, y: 40 })
+    expect(freshPoolChild.getSize()).toEqual({ width: 870, height: 400 })
+
     handlers['node:change:position']({
       node: freshLane,
       previous: { x: 70, y: 40 },
@@ -427,6 +460,137 @@ describe('setupSwimlaneResize', () => {
     })
 
     dispose()
+  })
+
+  it('Pool 首个 live size 若已污染 position，应结合 previous position 回滚真实节点并等待后续 position 推进 preview', () => {
+    const handlers: Record<string, (args: any) => void> = {}
+    const poolChild = createMockResizeNode('pool-size-first-child', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 400,
+    })
+    const pool = createMockResizeNode('pool-size-first', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 900,
+      height: 400,
+    }, { children: [poolChild] })
+    delete pool.resize
+    pool.previous = vi.fn((name: string) => {
+      if (name === 'position') {
+        return { x: 40, y: 40 }
+      }
+
+      return undefined
+    })
+    poolChild.__setParent(pool)
+
+    const graph = {
+      container: document.createElement('div'),
+      options: {},
+      on: vi.fn((event: string, handler: (args: any) => void) => {
+        handlers[event] = handler
+      }),
+      off: vi.fn(),
+      getPlugin: vi.fn(() => null),
+      getNodes: vi.fn(() => [pool, poolChild]),
+      startBatch: vi.fn(),
+      stopBatch: vi.fn(),
+    } as unknown as Graph
+
+    const dispose = setupSwimlaneResize(graph)
+
+    pool.setPosition(30, 30)
+    pool.setSize(900, 400)
+    poolChild.setPosition(60, 30)
+    poolChild.setSize(870, 400)
+    handlers['node:change:size']({
+      node: pool,
+      previous: { width: 900, height: 400 },
+      options: { direction: 'top-left', relativeDirection: 'top-left', ui: true },
+    })
+
+    expect(getPreviewElement(graph, pool.id)?.style.left).toBe('40px')
+    expect(getPreviewElement(graph, pool.id)?.style.top).toBe('40px')
+    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
+    expect(pool.getSize()).toEqual({ width: 900, height: 400 })
+    expect(poolChild.getPosition()).toEqual({ x: 70, y: 40 })
+    expect(poolChild.getSize()).toEqual({ width: 870, height: 400 })
+
+    pool.setPosition(60, 50)
+    pool.setSize(880, 390)
+    poolChild.setPosition(90, 55)
+    poolChild.setSize(850, 390)
+    handlers['node:change:position']({
+      node: pool,
+      previous: { x: 40, y: 40 },
+      options: { direction: 'top-left', relativeDirection: 'top-left', ui: true },
+    })
+
+    expect(getPreviewElement(graph, pool.id)?.style.left).toBe('60px')
+    expect(getPreviewElement(graph, pool.id)?.style.top).toBe('50px')
+    expect(getPreviewElement(graph, pool.id)?.style.width).toBe('880px')
+    expect(getPreviewElement(graph, pool.id)?.style.height).toBe('390px')
+    expect(pool.getPosition()).toEqual({ x: 40, y: 40 })
+    expect(pool.getSize()).toEqual({ width: 900, height: 400 })
+    expect(poolChild.getPosition()).toEqual({ x: 70, y: 40 })
+    expect(poolChild.getSize()).toEqual({ width: 870, height: 400 })
+
+    dispose()
+  })
+
+  it('Pool preview 回滚应在无位移时保持稳定，并在有位移时只回退非 Lane 后代', () => {
+    const poolNoiseChild = { isNode: () => false }
+    const laneNoiseChild = { isNode: () => false }
+    const task = createMockResizeNode('pool-preview-task', BPMN_USER_TASK, {
+      x: 300,
+      y: 120,
+      width: 100,
+      height: 60,
+    })
+    const lane = createMockResizeNode('pool-preview-lane', BPMN_LANE, {
+      x: 70,
+      y: 40,
+      width: 870,
+      height: 400,
+    }, { children: [task, laneNoiseChild] })
+    const pool = createMockResizeNode('pool-preview-pool', BPMN_POOL, {
+      x: 40,
+      y: 40,
+      width: 900,
+      height: 400,
+    }, { children: [lane, poolNoiseChild] })
+    lane.__setParent(pool)
+    task.__setParent(lane)
+    pool.getChildren = () => [lane, poolNoiseChild]
+    lane.getChildren = () => [task, laneNoiseChild]
+
+    resizeTest.restorePoolPreviewLiveGeometry(
+      pool as unknown as Node,
+      { x: 40, y: 40, width: 900, height: 400 },
+      { x: 40, y: 40, width: 900, height: 400 },
+    )
+
+    expect(lane.getPosition()).toEqual({ x: 70, y: 40 })
+    expect(lane.getSize()).toEqual({ width: 870, height: 400 })
+    expect(task.getPosition()).toEqual({ x: 300, y: 120 })
+
+    pool.setPosition(60, 50)
+    pool.setSize(880, 390)
+    lane.setPosition(90, 55)
+    lane.setSize(850, 390)
+    task.setPosition(320, 130)
+
+    resizeTest.restorePoolPreviewLiveGeometry(
+      pool as unknown as Node,
+      { x: 60, y: 50, width: 880, height: 390 },
+      { x: 40, y: 40, width: 900, height: 400 },
+    )
+
+    expect(lane.getPosition()).toEqual({ x: 70, y: 40 })
+    expect(lane.getSize()).toEqual({ width: 870, height: 400 })
+    expect(task.getPosition()).toEqual({ x: 300, y: 120 })
   })
 
   it('Lane preview clamp 应按分隔线约束裁剪 preview 边界', () => {

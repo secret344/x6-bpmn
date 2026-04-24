@@ -77,6 +77,15 @@ applyTo:
 3. 重新运行完整插件测试，验证覆盖率阈值维持 100%。
    Re-run full plugin tests and verify coverage thresholds remain 100%.
 
+## 风险触发告警 / Risk-triggered warning requirement
+
+- 触碰 `docs/swimlane-resize-risk-guards.md` 中定义的任一风险区之前，必须先阅读该文档并识别本次变更命中的风险项。
+  Before changing any risk area defined in `docs/swimlane-resize-risk-guards.md`, read that document first and identify which risk item the change touches.
+- 若本次变更命中风险区，最终汇报必须额外说明：命中了哪一项风险、相关假设是否保持不变、以及为此重新运行了哪些定向验证。
+  If the change touches a risk area, the final report must additionally state which risk was touched, whether the related assumption remained unchanged, and which targeted validations were rerun.
+- 若本次变更修改了风险背后的假设本身，必须同步更新 `docs/swimlane-resize-risk-guards.md`，不得只更新代码或测试。
+  If the change modifies the assumption behind that risk, update `docs/swimlane-resize-risk-guards.md` in the same change instead of updating only code or tests.
+
 ## 测试 XML 生成规范 / Test XML Generation
 
 **禁止**在测试文件中使用原始 XML 模板字符串。所有 BPMN XML 必须通过标准工具链生成。

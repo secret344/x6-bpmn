@@ -19,7 +19,7 @@ function createTestGraph(): Graph {
 }
 
 describe('example demo XML wrapper', () => {
-  it('exportStandardBpmnXml 应直接透传主库导出参数', async () => {
+  it('exportStandardBpmnXml 应透传主库导出参数并显式关闭通用扩展属性', async () => {
     vi.resetModules()
     const exportBpmnXml = vi.fn().mockResolvedValue('<bpmn:definitions />')
     const importBpmnXml = vi.fn()
@@ -43,6 +43,7 @@ describe('example demo XML wrapper', () => {
       processName: 'BPMN流程',
       serialization: {
         namespaces: { custom: 'http://example.com/custom' },
+        extensionProperties: false,
       },
     })
 
@@ -50,7 +51,7 @@ describe('example demo XML wrapper', () => {
     vi.resetModules()
   })
 
-  it('应使用主库默认扩展属性序列化未知字段并可导回', async () => {
+  it('应关闭通用扩展属性序列化未知字段并在导回时丢弃这些字段', async () => {
     vi.resetModules()
     vi.doMock('@x6-bpmn2/plugin', async () => {
       const [{ exportBpmnXml }, { importBpmnXml }, { NODE_MAPPING, EDGE_MAPPING }] = await Promise.all([
@@ -111,18 +112,18 @@ describe('example demo XML wrapper', () => {
 
     const xml = await mod.exportStandardBpmnXml(graph)
 
-    expect(xml).toContain('xmlns:modeler="http://x6-bpmn2.io/schema"')
-    expect(xml).toContain('<bpmn:extensionElements>')
-    expect(xml).toContain('<modeler:properties>')
-    expect(xml).toContain('name="assignee" value="#{userId}"')
-    expect(xml).toContain('name="dueDate" value="${dueDate}"')
-    expect(xml).toContain('name="priority" value="50"')
-    expect(xml).toContain('name="implementationType" value="delegateExpression"')
-    expect(xml).toContain('name="implementation" value="${notifyDelegate}"')
-    expect(xml).toContain('name="resultVariable" value="notifyResult"')
-    expect(xml).toContain('name="isAsync" value="true"')
-    expect(xml).toContain('name="messageRef" value="Message_1"')
-    expect(xml).toContain('name="messageName" value="审批通知"')
+    expect(xml).not.toContain('xmlns:modeler="http://x6-bpmn2.io/schema"')
+    expect(xml).not.toContain('<bpmn:extensionElements>')
+    expect(xml).not.toContain('<modeler:properties>')
+    expect(xml).not.toContain('name="assignee" value="#{userId}"')
+    expect(xml).not.toContain('name="dueDate" value="${dueDate}"')
+    expect(xml).not.toContain('name="priority" value="50"')
+    expect(xml).not.toContain('name="implementationType" value="delegateExpression"')
+    expect(xml).not.toContain('name="implementation" value="${notifyDelegate}"')
+    expect(xml).not.toContain('name="resultVariable" value="notifyResult"')
+    expect(xml).not.toContain('name="isAsync" value="true"')
+    expect(xml).not.toContain('name="messageRef" value="Message_1"')
+    expect(xml).not.toContain('name="messageName" value="审批通知"')
     expect(xml).not.toContain('camunda:')
     expect(xml).not.toContain('example:')
 
@@ -132,15 +133,15 @@ describe('example demo XML wrapper', () => {
     const importedUserTask = importedGraph.getCellById('userTask1')
     const importedSendTask = importedGraph.getCellById('sendTask1')
 
-    expect(((importedUserTask?.getData() as any)?.bpmn ?? {}).assignee).toBe('#{userId}')
-    expect(((importedUserTask?.getData() as any)?.bpmn ?? {}).dueDate).toBe('${dueDate}')
-    expect(((importedUserTask?.getData() as any)?.bpmn ?? {}).priority).toBe('50')
-    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).implementationType).toBe('delegateExpression')
-    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).implementation).toBe('${notifyDelegate}')
-    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).resultVariable).toBe('notifyResult')
-    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).isAsync).toBe(true)
-    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).messageRef).toBe('Message_1')
-    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).messageName).toBe('审批通知')
+    expect(((importedUserTask?.getData() as any)?.bpmn ?? {}).assignee).toBeUndefined()
+    expect(((importedUserTask?.getData() as any)?.bpmn ?? {}).dueDate).toBeUndefined()
+    expect(((importedUserTask?.getData() as any)?.bpmn ?? {}).priority).toBeUndefined()
+    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).implementationType).toBeUndefined()
+    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).implementation).toBeUndefined()
+    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).resultVariable).toBeUndefined()
+    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).isAsync).toBeUndefined()
+    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).messageRef).toBeUndefined()
+    expect(((importedSendTask?.getData() as any)?.bpmn ?? {}).messageName).toBeUndefined()
 
     destroyBehaviorTestGraph(graph)
     destroyBehaviorTestGraph(importedGraph)
