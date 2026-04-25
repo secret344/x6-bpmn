@@ -170,6 +170,12 @@ export interface LaneSpec {
   id: string
   name?: string
   flowNodeRefs?: string[]
+  childLaneSet?: ChildLaneSetSpec
+}
+
+export interface ChildLaneSetSpec {
+  id: string
+  lanes: LaneSpec[]
 }
 
 export interface SequenceFlowSpec extends FlowContainerChildSpec {
@@ -436,14 +442,7 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
     processEl.flowElements = processFlowElements
 
     if (laneSetSpec) {
-      const lanes = laneSetSpec.lanes.map((lane) => {
-        const flowNodeRefs = (lane.flowNodeRefs ?? []).map((refId) => nodeRegistry.get(refId)).filter(Boolean) as ModdleElement[]
-        return createBpmn(moddle, 'lane', {
-          id: lane.id,
-          name: lane.name,
-          flowNodeRef: flowNodeRefs,
-        })
-      })
+      const lanes = laneSetSpec.lanes.map((lane) => createLane(moddle, lane, nodeRegistry))
       processEl.laneSets = [createBpmn(moddle, 'laneSet', {
         id: laneSetSpec.id,
         lanes,
@@ -570,6 +569,30 @@ export async function buildAndValidateBpmn(spec: BpmnDocumentSpec): Promise<Bpmn
     warnings: warningMessages,
     rootElement: rootElement as ModdleElement,
   }
+}
+
+function createLane(
+  moddle: BpmnModdle,
+  lane: LaneSpec,
+  nodeRegistry: Map<string, ModdleElement>,
+): ModdleElement {
+  const flowNodeRefs = (lane.flowNodeRefs ?? [])
+    .map((refId) => nodeRegistry.get(refId))
+    .filter(Boolean) as ModdleElement[]
+  const laneElement = createBpmn(moddle, 'lane', {
+    id: lane.id,
+    name: lane.name,
+    flowNodeRef: flowNodeRefs,
+  })
+
+  if (lane.childLaneSet) {
+    laneElement.childLaneSet = createBpmn(moddle, 'laneSet', {
+      id: lane.childLaneSet.id,
+      lanes: lane.childLaneSet.lanes.map((childLane) => createLane(moddle, childLane, nodeRegistry)),
+    })
+  }
+
+  return laneElement
 }
 
 // ============================================================================

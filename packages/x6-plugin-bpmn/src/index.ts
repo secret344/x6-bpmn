@@ -69,9 +69,14 @@ export type { BpmnNodeMapping, BpmnEdgeMapping } from './export/bpmn-mapping'
 export {
   findBoundaryAttachHost,
   findContainingBpmnParent,
+  resolveBpmnDropAction,
   resolveBpmnEmbeddingTargets,
 } from './behaviors/embedding'
-export type { ResolveBpmnEmbeddingOptions } from './behaviors/embedding'
+export type {
+  BpmnDropAction,
+  BpmnDropRejectReason,
+  ResolveBpmnEmbeddingOptions,
+} from './behaviors/embedding'
 export {
   isContainedFlowNode,
   patchLaneInteracting,

@@ -3543,6 +3543,48 @@ describe('结构层与导入诊断保真', () => {
     )
   })
 
+  it('应将嵌套 childLaneSet 标记为当前项目不支持的有损导入', async () => {
+    const { xml } = await buildAndValidateBpmn({
+      processes: [{
+        id: 'Process_ChildLaneSet',
+        elements: [
+          {
+            kind: 'laneSet',
+            id: 'LaneSet_Root',
+            lanes: [{
+              id: 'Lane_Parent',
+              name: '父泳道',
+              flowNodeRefs: ['Task_A'],
+              childLaneSet: {
+                id: 'LaneSet_Child',
+                lanes: [{ id: 'Lane_Child', name: '子泳道', flowNodeRefs: ['Task_A'] }],
+              },
+            }],
+          },
+          { kind: 'userTask', id: 'Task_A', name: '审批' },
+        ],
+      }],
+      shapes: {
+        Lane_Parent: { id: 'Lane_Parent', x: 80, y: 60, width: 640, height: 180, isHorizontal: true },
+        Lane_Child: { id: 'Lane_Child', x: 110, y: 100, width: 590, height: 100, isHorizontal: true },
+        Task_A: { id: 'Task_A', x: 180, y: 120, width: 120, height: 60 },
+      },
+    })
+
+    const parsed = await parseBpmnXml(xml)
+
+    expect(parsed.diagnostics?.compatibilityIssues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'unsupported-child-lane-set',
+        elementIds: ['Lane_Parent'],
+      }),
+    ]))
+    expect(parsed.diagnostics?.lossyFlags).toEqual(
+      expect.arrayContaining(['unsupported-child-lane-set']),
+    )
+    expect(parsed.nodes.some((node) => node.id === 'Lane_Child')).toBe(false)
+  })
+
   it('缺少 process id 时仍应保留 multiple laneSets 诊断，但不附带 elementIds', async () => {
     const baseXml = await buildTestXml({
       processes: [{
@@ -4046,6 +4088,115 @@ describe('导入适配器与图级状态', () => {
     graph.dispose()
   })
 
+  it('事件定义的空白保真 id 应回退为默认导出 id', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      id: 'Start_Blank_EventDef',
+      shape: BPMN_START_EVENT_TIMER,
+      x: 120,
+      y: 120,
+      width: 36,
+      height: 36,
+      data: {
+        bpmn: {
+          name: '定时开始',
+          $eventDefinitionId: '   ',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph)
+
+    expect(xml).toContain('timerEventDefinition id="Start_Blank_EventDef_ed"')
+
+    graph.dispose()
+  })
+
+  it('未显式授权时不应从裸 multiInstanceAbortCondition 追加 Smart abort 条件', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      id: 'Task_Untrusted_Abort',
+      shape: BPMN_USER_TASK,
+      x: 120,
+      y: 120,
+      width: 120,
+      height: 60,
+      data: {
+        bpmn: {
+          multiInstanceAbortCondition: '${ignored > 0}',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      serialization: {
+        nodeSerializers: {
+          [BPMN_USER_TASK]: {
+            export(context) {
+              const moddle = context.moddle as BpmnModdle
+              const element = context.element as ModdleElement & { loopCharacteristics?: ModdleElement }
+              element.loopCharacteristics = createBpmnElement(moddle, 'multiInstanceLoopCharacteristics', {
+                isSequential: false,
+              })
+
+              return {
+                omitBpmnKeys: ['multiInstanceAbortCondition'],
+              }
+            },
+          },
+        },
+      },
+    })
+
+    expect(xml).toContain('<bpmn:multiInstanceLoopCharacteristics')
+    expect(xml).not.toContain('action="abort"')
+
+    graph.dispose()
+  })
+
+  it('序列化器显式授权时才应追加 Smart abort completionCondition', async () => {
+    const graph = createTestGraph()
+    graph.addNode({
+      id: 'Task_Authorized_Abort',
+      shape: BPMN_USER_TASK,
+      x: 120,
+      y: 120,
+      width: 120,
+      height: 60,
+      data: {
+        bpmn: {
+          multiInstanceAbortCondition: '${nrOfRejectedInstances > 0}',
+        },
+      },
+    })
+
+    const xml = await exportBpmnXml(graph, {
+      serialization: {
+        nodeSerializers: {
+          [BPMN_USER_TASK]: {
+            export(context) {
+              const moddle = context.moddle as BpmnModdle
+              const element = context.element as ModdleElement & { loopCharacteristics?: ModdleElement }
+              element.loopCharacteristics = createBpmnElement(moddle, 'multiInstanceLoopCharacteristics', {
+                isSequential: false,
+              })
+
+              return {
+                omitBpmnKeys: ['multiInstanceAbortCondition'],
+                smartAbortCompletionCondition: '${nrOfRejectedInstances > 0}',
+              }
+            },
+          },
+        },
+      },
+    })
+
+    expect(xml).toContain('action="abort"')
+    expect(xml).toContain('${nrOfRejectedInstances &gt; 0}')
+
+    graph.dispose()
+  })
+
   it('自定义序列化已输出 abort completionCondition 时不应重复追加', async () => {
     const graph = createTestGraph()
     graph.addNode({
@@ -4081,6 +4232,7 @@ describe('导入适配器与图级状态', () => {
 
               return {
                 omitBpmnKeys: ['multiInstanceAbortCondition'],
+                smartAbortCompletionCondition: '${nrOfRejectedInstances > 0}',
               }
             },
           },

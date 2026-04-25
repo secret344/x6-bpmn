@@ -31,6 +31,23 @@ export type PoolLaneTransactionScenarioIds = {
   transactionId: string
 }
 
+export type PoolTwoLaneTransactionInternalScenarioIds = {
+  poolId: string
+  lane1Id: string
+  lane2Id: string
+  transactionId: string
+  taskId: string
+}
+
+export type PoolTwoLaneTransactionExtractionScenarioIds = {
+  poolId: string
+  lane1Id: string
+  lane2Id: string
+  transactionId: string
+  taskId: string
+  peerTaskId: string
+}
+
 export type FirstPoolWrapScenarioIds = {
   poolId: string
   taskId: string
@@ -155,6 +172,30 @@ export async function createPoolLaneTransactionScenario(page: Page): Promise<Poo
       throw new Error('浏览器测试 harness 尚未就绪')
     }
     return harness.createPoolLaneTransactionScenario()
+  })
+}
+
+export async function createPoolTwoLaneTransactionInternalScenario(
+  page: Page,
+): Promise<PoolTwoLaneTransactionInternalScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.createPoolTwoLaneTransactionInternalScenario()
+  })
+}
+
+export async function createPoolTwoLaneTransactionExtractionScenario(
+  page: Page,
+): Promise<PoolTwoLaneTransactionExtractionScenarioIds> {
+  return page.evaluate(() => {
+    const harness = window.__x6PluginBrowserHarness
+    if (!harness) {
+      throw new Error('浏览器测试 harness 尚未就绪')
+    }
+    return harness.createPoolTwoLaneTransactionExtractionScenario()
   })
 }
 

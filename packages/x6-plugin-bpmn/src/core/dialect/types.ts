@@ -236,6 +236,8 @@ export interface NodeSerializationExportContext {
 export interface NodeSerializationExportResult {
   /** 已由自定义序列化消费的 bpmn key，后续跳过通用扩展属性导出。 */
   omitBpmnKeys?: string[]
+  /** 序列化器显式授权追加的 SmartEngine abort completionCondition。 */
+  smartAbortCompletionCondition?: string
 }
 
 /** 节点导入序列化上下文。 */

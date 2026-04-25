@@ -17,16 +17,10 @@ import {
   getShapeLabel,
   buildBpmnNodeDefaults,
   setupBpmnGraph,
-  isBoundaryShape,
   attachBoundaryToHost,
-  findBoundaryAttachHost,
-  findContainingBpmnParent,
+  resolveBpmnDropAction,
   resolveBpmnEmbeddingTargets,
-  isContainedFlowNode,
-  isPoolShape,
   BPMN_POOL,
-  BPMN_LANE,
-  BPMN_GROUP,
   BPMN_SEQUENCE_FLOW,
 } from '@x6-bpmn2/plugin'
 import { useSmartEngineSingleton } from '../composables/useSmartEngine'
@@ -201,24 +195,17 @@ onMounted(async () => {
       attrs,
       ...(Object.keys(data).length > 0 ? { data } : {}),
     })
-    const hasPoolNodes = graph.getNodes().some((candidate) => isPoolShape(candidate.shape))
+    const dropAction = resolveBpmnDropAction(graph, draftNode)
+    if (dropAction.kind === 'reject') return
 
-    if (isBoundaryShape(shape)) {
-      const host = findBoundaryAttachHost(graph, draftNode)
-      if (!host) return
-
-      const newNode = graph.addNode(draftNode)
-      attachBoundaryToHost(graph, newNode, host)
+    const newNode = graph.addNode(draftNode)
+    if (dropAction.kind === 'attach-boundary') {
+      attachBoundaryToHost(graph, newNode, dropAction.host)
       return
     }
 
-    const parent = findContainingBpmnParent(graph, draftNode)
-    if (shape === BPMN_LANE && !parent) return
-    if (isContainedFlowNode(shape) && hasPoolNodes && !parent) return
-
-    const newNode = graph.addNode(draftNode)
-    if (parent) {
-      parent.embed(newNode)
+    if (dropAction.parent) {
+      dropAction.parent.embed(newNode)
     }
   })
 

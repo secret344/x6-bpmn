@@ -62,16 +62,10 @@ import {
   registerBpmnShapes,
   setupBpmnGraph,
   attachBoundaryToHost,
-  isBoundaryShape,
-  findBoundaryAttachHost,
-  findContainingBpmnParent,
+  resolveBpmnDropAction,
   resolveBpmnEmbeddingTargets,
-  isContainedFlowNode,
   addLaneToPool,
-  isPoolShape,
   BPMN_POOL,
-  BPMN_LANE,
-  BPMN_GROUP,
   type BpmnImportData,
 } from "@x6-bpmn2/plugin";
 import { currentEdgeType, EDGE_TYPE_OPTIONS } from "../composables/useEdgeType";
@@ -308,34 +302,26 @@ onMounted(async () => {
       attrs,
       ...(Object.keys(data).length > 0 ? { data } : {}),
     });
-    const hasPoolNodes = graph.getNodes().some((candidate) => isPoolShape(candidate.shape));
-
-    if (isBoundaryShape(shape)) {
-      const host = findBoundaryAttachHost(graph, draftNode);
-      if (!host) {
+    const dropAction = resolveBpmnDropAction(graph, draftNode);
+    if (dropAction.kind === "reject") {
+      if (dropAction.reason === "boundary-host-required") {
         Message.warning("边界事件必须附着到活动边框上");
-        return;
+      } else if (dropAction.reason === "lane-parent-required") {
+        Message.warning("Lane 必须放置在 Pool 内");
+      } else {
+        Message.warning("流程节点必须位于 Pool 或 Lane 容器内");
       }
-
-      const newNode = graph.addNode(draftNode);
-      attachBoundaryToHost(graph, newNode, host);
-      return;
-    }
-
-    const parent = findContainingBpmnParent(graph, draftNode);
-    if (shape === BPMN_LANE && !parent) {
-      Message.warning("Lane 必须放置在 Pool 内");
-      return;
-    }
-
-    if (isContainedFlowNode(shape) && hasPoolNodes && !parent) {
-      Message.warning("流程节点必须位于 Pool 或 Lane 容器内");
       return;
     }
 
     const newNode = graph.addNode(draftNode);
-    if (parent) {
-      parent.embed(newNode);
+    if (dropAction.kind === "attach-boundary") {
+      attachBoundaryToHost(graph, newNode, dropAction.host);
+      return;
+    }
+
+    if (dropAction.parent) {
+      dropAction.parent.embed(newNode);
     }
   });
 

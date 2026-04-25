@@ -813,6 +813,26 @@ function buildImportDiagnostics(params: {
     }
   }
 
+  const collectLanesWithChildLaneSet = (laneSets: ModdleElement[]): string[] => {
+    const laneIds = new Set<string>()
+    const visitLane = (lane: ModdleElement): void => {
+      const childLaneSet = lane.childLaneSet as ModdleElement | undefined
+      if (childLaneSet) {
+        laneIds.add(lane.id as string)
+
+        const childLanes = childLaneSet.lanes as ModdleElement[]
+        childLanes.forEach(visitLane)
+      }
+    }
+
+    for (const laneSet of laneSets) {
+      const lanes = laneSet.lanes as ModdleElement[]
+      lanes.forEach(visitLane)
+    }
+
+    return Array.from(laneIds)
+  }
+
   for (const process of params.processes) {
     const laneSets = (process.laneSets || []) as ModdleElement[]
     if (laneSets.length > 1) {
@@ -823,6 +843,16 @@ function buildImportDiagnostics(params: {
         ...(processId ? { elementIds: [processId] } : {}),
       })
       lossyFlags.add('multiple-lane-sets')
+    }
+
+    const lanesWithChildLaneSet = collectLanesWithChildLaneSet(laneSets)
+    if (lanesWithChildLaneSet.length > 0) {
+      pushIssue({
+        code: 'unsupported-child-lane-set',
+        message: `当前项目尚未保真 Lane.childLaneSet，lane ${lanesWithChildLaneSet.join(', ')} 的嵌套泳道将被忽略`,
+        elementIds: lanesWithChildLaneSet,
+      })
+      lossyFlags.add('unsupported-child-lane-set')
     }
   }
 

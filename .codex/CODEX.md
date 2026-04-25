@@ -11,6 +11,7 @@ This file aligns Codex behavior with repository agent rules.
 ## Non-negotiable quality gates
 - For any `packages/x6-plugin-bpmn` logic change, run tests before completion.
 - Coverage should remain aligned with configured 100% thresholds.
+- Browser-impacting changes must leave `npm run test:browser` green before delivery; do not mark a task complete with known browser failures just because the new targeted case passed. If a visual change is intentional, update and review the affected snapshots in the same change.
 - New tests must be tied to real business behavior, not synthetic line coverage.
 
 ## Required command set
@@ -27,8 +28,10 @@ In `packages/x6-plugin-bpmn`:
 - Every new ignore must carry an inline reason comment that explains why the branch is unreachable, tool-miscounted, or otherwise not worth a real scenario.
 - When editing code around historical ignores, review whether they can be replaced by a meaningful test and delete them when they are no longer justified.
 - Headless browser tests must generate and assert visual snapshots; artifact-only screenshots are not sufficient verification.
+- Browser-impacting changes must leave the full browser suite green; targeted browser passes are supporting evidence, not a substitute for fixing or intentionally updating every failing browser snapshot.
 - Browser regression specs must live under `packages/x6-plugin-bpmn/tests/browser/*.spec.ts` and reuse the existing spec file when the scenario belongs to the same behavior area; do not create parallel duplicate spec files for the same regression theme.
 - Snapshot baselines for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/<spec-file>.ts-snapshots/`, grouped by test-case folders.
+- Snapshot baselines must be visible to Git and reviewable in the same change; ignored local-only snapshots are not valid delivery evidence.
 - Runtime screenshot artifacts for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/artifacts/screenshots/`, grouped by the same test-case folders.
 - Runtime screenshot artifacts must be generated directly into that fixed artifact directory during test execution so they remain available for manual verification.
 - Do not create extra flat files, sibling snapshot folders, or alternate artifact directories for an existing browser spec, and do not rely on post-run moving or cleanup to normalize screenshot locations.

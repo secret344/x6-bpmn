@@ -641,7 +641,7 @@ const resizeCases: ResizeCase[] = [
       expect(after.pool.height).toBeLessThanOrEqual(before.pool.height)
       expect(Math.abs(afterBottom - beforeBottom)).toBeLessThanOrEqual(10)
       expect(after.lane1.height).toBeGreaterThanOrEqual(60)
-      expect(after.lane2.height).toBeCloseTo(before.lane2.height, 0)
+      expect(after.lane2.height).toBeCloseTo(before.lane2.height + (afterBottom - beforeBottom), 0)
     },
   },
   {

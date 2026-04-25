@@ -13,6 +13,7 @@ import {
   BPMN_START_EVENT,
   BPMN_SUB_PROCESS,
   BPMN_TEXT_ANNOTATION,
+  BPMN_TRANSACTION,
   BPMN_USER_TASK,
 } from '../../../src/utils/constants'
 import { buildAndValidateBpmn, validateBpmnXml } from '../../helpers/bpmn-builder'
@@ -37,6 +38,7 @@ function ensureTestShapesRegistered(): void {
     BPMN_SERVICE_TASK,
     BPMN_START_EVENT,
     BPMN_SUB_PROCESS,
+    BPMN_TRANSACTION,
     BPMN_USER_TASK,
   ])
 
@@ -332,6 +334,78 @@ describe('泳道结构往返', () => {
     expect(importData.nodes.find((node) => node.id === 'Lane_1')?.parent).toBe('Pool_1')
     expect(importData.nodes.find((node) => node.id === 'Task_1')?.parent).toBe('Lane_1')
     expect(importData.nodes.find((node) => node.id === 'Boundary_1')?.parent).toBe('Task_1')
+  })
+
+  it('事务位于 Lane 内时，Lane 应只引用事务本体且事务内部节点仍导出到事务 flowElements', async () => {
+    const graph = createTestGraph()
+
+    const pool = graph.addNode({
+      shape: BPMN_POOL,
+      id: 'Pool_1',
+      x: 40,
+      y: 40,
+      width: 720,
+      height: 260,
+      attrs: { headerLabel: { text: '订单流程' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane = graph.addNode({
+      shape: BPMN_LANE,
+      id: 'Lane_1',
+      x: 70,
+      y: 40,
+      width: 690,
+      height: 260,
+      attrs: { headerLabel: { text: '财务' } },
+      data: { bpmn: { isHorizontal: true } },
+    })
+    pool.embed(lane)
+
+    const transaction = graph.addNode({
+      shape: BPMN_TRANSACTION,
+      id: 'Transaction_1',
+      x: 160,
+      y: 90,
+      width: 320,
+      height: 140,
+      attrs: { label: { text: '付款事务' } },
+    })
+    lane.embed(transaction)
+
+    const task = graph.addNode({
+      shape: BPMN_USER_TASK,
+      id: 'Task_Inside_Transaction',
+      x: 220,
+      y: 130,
+      width: 140,
+      height: 60,
+      attrs: { label: { text: '确认付款' } },
+    })
+    transaction.embed(task)
+
+    const xml = await exportBpmnXml(graph, { processName: '订单流程' })
+    const validation = await validateBpmnXml(xml)
+    expect(validation.valid).toBe(true)
+
+    const moddle = new BpmnModdle()
+    const { rootElement } = await moddle.fromXML(xml)
+    const definitions = rootElement as unknown as {
+      rootElements?: Array<{
+        $type?: string
+        laneSets?: Array<{ lanes?: Array<{ id?: string; flowNodeRef?: Array<{ id?: string }> }> }>
+        flowElements?: Array<{ id?: string; flowElements?: Array<{ id?: string }> }>
+      }>
+    }
+    const process = definitions.rootElements?.find((element) => element.$type === 'bpmn:Process')
+    const exportedLane = process?.laneSets?.[0]?.lanes?.[0]
+    const exportedTransaction = process?.flowElements?.find((element) => element.id === 'Transaction_1')
+
+    expect(exportedLane?.flowNodeRef?.map((node) => node.id)).toEqual(['Transaction_1'])
+    expect(exportedTransaction?.flowElements?.map((node) => node.id)).toEqual(['Task_Inside_Transaction'])
+
+    const importData = await parseBpmnXml(xml)
+    expect(importData.nodes.find((node) => node.id === 'Transaction_1')?.parent).toBe('Lane_1')
+    expect(importData.nodes.find((node) => node.id === 'Task_Inside_Transaction')?.parent).toBe('Transaction_1')
   })
 
   it('应在导出再导入后保留 lane -> 子流程 -> 内部节点/边界事件 的父子链', async () => {

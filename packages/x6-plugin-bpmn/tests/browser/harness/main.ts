@@ -55,6 +55,23 @@ type PoolLaneTransactionScenarioIds = {
   transactionId: string
 }
 
+type PoolTwoLaneTransactionInternalScenarioIds = {
+  poolId: string
+  lane1Id: string
+  lane2Id: string
+  transactionId: string
+  taskId: string
+}
+
+type PoolTwoLaneTransactionExtractionScenarioIds = {
+  poolId: string
+  lane1Id: string
+  lane2Id: string
+  transactionId: string
+  taskId: string
+  peerTaskId: string
+}
+
 type FirstPoolWrapScenarioIds = {
   poolId: string
   taskId: string
@@ -113,6 +130,8 @@ declare global {
       createStandaloneTaskScenario: () => StandaloneTaskScenarioIds
       createTransactionWrapScenario: () => TransactionWrapScenarioIds
       createPoolLaneTransactionScenario: () => PoolLaneTransactionScenarioIds
+      createPoolTwoLaneTransactionInternalScenario: () => PoolTwoLaneTransactionInternalScenarioIds
+      createPoolTwoLaneTransactionExtractionScenario: () => PoolTwoLaneTransactionExtractionScenarioIds
       addFirstPoolScenario: () => FirstPoolWrapScenarioIds
       createPoolLaneTaskScenario: () => ScenarioIds
       createPoolLaneTaskBoundaryScenario: () => ScenarioIds
@@ -523,6 +542,176 @@ function createPoolLaneTransactionScenario(): PoolLaneTransactionScenarioIds {
   return {
     poolId: pool.id,
     transactionId: transaction.id,
+  }
+}
+
+function createPoolTwoLaneTransactionInternalScenario(): PoolTwoLaneTransactionInternalScenarioIds {
+  clear()
+
+  const pool = graph.addNode({
+    id: 'pool-transaction-lanes',
+    shape: BPMN_POOL,
+    x: 40,
+    y: 40,
+    width: 620,
+    height: 360,
+    attrs: { headerLabel: { text: 'Pool' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+  const lane1 = graph.addNode({
+    id: 'lane-transaction-source',
+    shape: BPMN_LANE,
+    x: 70,
+    y: 40,
+    width: 590,
+    height: 160,
+    parent: pool.id,
+    attrs: { headerLabel: { text: 'Lane 1' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+  const lane2 = graph.addNode({
+    id: 'lane-transaction-target',
+    shape: BPMN_LANE,
+    x: 70,
+    y: 200,
+    width: 590,
+    height: 200,
+    parent: pool.id,
+    attrs: { headerLabel: { text: 'Lane 2' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+  pool.embed(lane1)
+  pool.embed(lane2)
+  emitGraphEvent('node:added', { node: pool })
+  emitGraphEvent('node:added', { node: lane1 })
+  emitGraphEvent('node:added', { node: lane2 })
+
+  const transaction = graph.addNode({
+    id: 'transaction-cross-lane',
+    shape: BPMN_TRANSACTION,
+    x: 140,
+    y: 75,
+    width: 260,
+    height: 100,
+    parent: lane1.id,
+    attrs: { label: { text: '事务' } },
+  })
+  const task = graph.addNode({
+    id: 'transaction-internal-task',
+    shape: BPMN_USER_TASK,
+    x: 185,
+    y: 100,
+    width: 120,
+    height: 50,
+    parent: transaction.id,
+    attrs: { label: { text: '内部任务' } },
+  })
+  lane1.embed(transaction)
+  transaction.embed(task)
+  emitGraphEvent('node:added', { node: transaction })
+  emitGraphEvent('node:added', { node: task })
+
+  return {
+    poolId: pool.id,
+    lane1Id: lane1.id,
+    lane2Id: lane2.id,
+    transactionId: transaction.id,
+    taskId: task.id,
+  }
+}
+
+function createPoolTwoLaneTransactionExtractionScenario(): PoolTwoLaneTransactionExtractionScenarioIds {
+  clear()
+
+  const pool = graph.addNode({
+    id: 'pool-transaction-extraction',
+    shape: BPMN_POOL,
+    x: 40,
+    y: 40,
+    width: 620,
+    height: 360,
+    attrs: { headerLabel: { text: 'Pool' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+  const lane1 = graph.addNode({
+    id: 'lane-transaction-extraction-source',
+    shape: BPMN_LANE,
+    x: 70,
+    y: 40,
+    width: 590,
+    height: 160,
+    parent: pool.id,
+    attrs: { headerLabel: { text: 'Lane 1' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+  const lane2 = graph.addNode({
+    id: 'lane-transaction-extraction-target',
+    shape: BPMN_LANE,
+    x: 70,
+    y: 200,
+    width: 590,
+    height: 200,
+    parent: pool.id,
+    attrs: { headerLabel: { text: 'Lane 2' } },
+    data: { bpmn: { isHorizontal: true } },
+  })
+  pool.embed(lane1)
+  pool.embed(lane2)
+  emitGraphEvent('node:added', { node: pool })
+  emitGraphEvent('node:added', { node: lane1 })
+  emitGraphEvent('node:added', { node: lane2 })
+
+  const transaction = graph.addNode({
+    id: 'transaction-extraction',
+    shape: BPMN_TRANSACTION,
+    x: 140,
+    y: 75,
+    width: 280,
+    height: 100,
+    parent: lane1.id,
+    attrs: { label: { text: '事务' } },
+  })
+  const task = graph.addNode({
+    id: 'transaction-extraction-task',
+    shape: BPMN_USER_TASK,
+    x: 180,
+    y: 100,
+    width: 110,
+    height: 50,
+    parent: transaction.id,
+    attrs: { label: { text: '待拖出任务' } },
+  })
+  const peerTask = graph.addNode({
+    id: 'transaction-extraction-peer-task',
+    shape: BPMN_USER_TASK,
+    x: 305,
+    y: 100,
+    width: 90,
+    height: 50,
+    parent: transaction.id,
+    attrs: { label: { text: '事务内任务' } },
+  })
+  lane1.embed(transaction)
+  transaction.embed(task)
+  transaction.embed(peerTask)
+  emitGraphEvent('node:added', { node: transaction })
+  emitGraphEvent('node:added', { node: task })
+  emitGraphEvent('node:added', { node: peerTask })
+
+  graph.addEdge({
+    id: 'transaction-extraction-edge',
+    shape: BPMN_SEQUENCE_FLOW,
+    source: task,
+    target: peerTask,
+  })
+
+  return {
+    poolId: pool.id,
+    lane1Id: lane1.id,
+    lane2Id: lane2.id,
+    transactionId: transaction.id,
+    taskId: task.id,
+    peerTaskId: peerTask.id,
   }
 }
 
@@ -1257,6 +1446,8 @@ window.__x6PluginBrowserHarness = {
   createStandaloneTaskScenario,
   createTransactionWrapScenario,
   createPoolLaneTransactionScenario,
+  createPoolTwoLaneTransactionInternalScenario,
+  createPoolTwoLaneTransactionExtractionScenario,
   addFirstPoolScenario,
   createPoolLaneTaskScenario,
   createPoolLaneTaskBoundaryScenario,

@@ -5,6 +5,8 @@ import {
   waitForHarness,
   createPoolLaneTaskScenario,
   createPoolLaneTransactionScenario,
+  createPoolTwoLaneTransactionExtractionScenario,
+  createPoolTwoLaneTransactionInternalScenario,
   createStandaloneTaskScenario,
   createTransactionWrapScenario,
   addFirstPoolScenario,
@@ -134,6 +136,113 @@ test.describe('主库浏览器行为回归', () => {
     await clickNode(page, scenario.transactionId, { x: 20, y: 20 })
     await expect.poll(() => getSelectedCellIds(page)).toEqual([scenario.transactionId])
     expect(transactionAfter).toEqual(transactionBefore)
+  })
+
+  test('事务跨 Lane 拖拽时，内部节点仍应保持事务父级', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolTwoLaneTransactionInternalScenario(page)
+    const transactionBefore = await getNodeSnapshot(page, scenario.transactionId)
+    const taskBefore = await getNodeSnapshot(page, scenario.taskId)
+    await takeScreenshot(page, '事务跨-Lane-拖拽前内部节点属于事务')
+
+    await dragNodeBy(page, scenario.transactionId, { x: 0, y: 170 }, { startOffset: { x: 28, y: 24 } })
+    await takeScreenshot(page, '事务跨-Lane-拖拽后内部节点仍属于事务')
+
+    const lane2After = await getNodeSnapshot(page, scenario.lane2Id)
+    const transactionAfter = await getNodeSnapshot(page, scenario.transactionId)
+    const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+    const transactionDelta = {
+      x: transactionAfter.x - transactionBefore.x,
+      y: transactionAfter.y - transactionBefore.y,
+    }
+
+    expect([scenario.lane1Id, scenario.lane2Id, scenario.poolId]).toContain(transactionAfter.parentId)
+    expect(taskAfter.parentId).toBe(scenario.transactionId)
+    expect(transactionAfter.y).toBeGreaterThan(transactionBefore.y)
+    expectMovedNear(taskBefore, taskAfter, transactionDelta)
+    if (transactionAfter.parentId === scenario.lane2Id) {
+      expectInsideRect(transactionAfter, lane2After)
+    }
+    expectInsideRect(taskAfter, transactionAfter)
+  })
+
+  test('选中事务后拖拽选框跨 Lane 时，内部节点仍应保持事务父级', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolTwoLaneTransactionInternalScenario(page)
+    const transactionBefore = await getNodeSnapshot(page, scenario.transactionId)
+    const taskBefore = await getNodeSnapshot(page, scenario.taskId)
+
+    await clickNode(page, scenario.transactionId, { x: 30, y: 30 })
+    await expect.poll(() => getSelectedCellIds(page)).toEqual([scenario.transactionId])
+    await takeScreenshot(page, '选中事务后跨-Lane-拖拽前内部节点属于事务')
+
+    await dragSelectionBoxBy(page, { x: 0, y: 170 })
+    await takeScreenshot(page, '选中事务后跨-Lane-拖拽后内部节点仍属于事务')
+
+    const lane2After = await getNodeSnapshot(page, scenario.lane2Id)
+    const transactionAfter = await getNodeSnapshot(page, scenario.transactionId)
+    const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+    const transactionDelta = {
+      x: transactionAfter.x - transactionBefore.x,
+      y: transactionAfter.y - transactionBefore.y,
+    }
+
+    expect([scenario.lane1Id, scenario.lane2Id, scenario.poolId]).toContain(transactionAfter.parentId)
+    expect(taskAfter.parentId).toBe(scenario.transactionId)
+    expect(transactionAfter.y).toBeGreaterThan(transactionBefore.y)
+    expectMovedNear(taskBefore, taskAfter, transactionDelta)
+    if (transactionAfter.parentId === scenario.lane2Id) {
+      expectInsideRect(transactionAfter, lane2After)
+    }
+    expectInsideRect(taskAfter, transactionAfter)
+  })
+
+  test('事务内部节点直接拖出事务后，应改挂目标 Lane 并断开与事务内部节点的连线', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolTwoLaneTransactionExtractionScenario(page)
+    await expect.poll(() => getEdgeCountByShape(page, 'bpmn-sequence-flow')).toBe(1)
+    await takeScreenshot(page, '事务内部节点拖出前保持事务内连线')
+
+    await dragNodeBy(page, scenario.taskId, { x: 0, y: 190 })
+    await takeScreenshot(page, '事务内部节点拖出后改挂目标-Lane-并断开内部连线')
+
+    const lane2After = await getNodeSnapshot(page, scenario.lane2Id)
+    const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+    const peerTaskAfter = await getNodeSnapshot(page, scenario.peerTaskId)
+
+    await expect.poll(() => getEdgeCountByShape(page, 'bpmn-sequence-flow')).toBe(0)
+    expect(taskAfter.parentId).toBe(scenario.lane2Id)
+    expect(peerTaskAfter.parentId).toBe(scenario.transactionId)
+    expectInsideRect(taskAfter, lane2After)
+  })
+
+  test('事务内部节点选中拖出事务后，应改挂目标 Lane 并断开与事务内部节点的连线', async ({ page }, testInfo) => {
+    await waitForHarness(page)
+    const takeScreenshot = createBrowserScreenshotTaker(testInfo)
+
+    const scenario = await createPoolTwoLaneTransactionExtractionScenario(page)
+    await clickNode(page, scenario.taskId)
+    await expect.poll(() => getSelectedCellIds(page)).toEqual([scenario.taskId])
+    await expect.poll(() => getEdgeCountByShape(page, 'bpmn-sequence-flow')).toBe(1)
+    await takeScreenshot(page, '事务内部节点选中拖出前保持事务内连线')
+
+    await dragSelectionBoxBy(page, { x: 0, y: 190 })
+    await takeScreenshot(page, '事务内部节点选中拖出后改挂目标-Lane-并断开内部连线')
+
+    const lane2After = await getNodeSnapshot(page, scenario.lane2Id)
+    const taskAfter = await getNodeSnapshot(page, scenario.taskId)
+    const peerTaskAfter = await getNodeSnapshot(page, scenario.peerTaskId)
+
+    await expect.poll(() => getEdgeCountByShape(page, 'bpmn-sequence-flow')).toBe(0)
+    expect(taskAfter.parentId).toBe(scenario.lane2Id)
+    expect(peerTaskAfter.parentId).toBe(scenario.transactionId)
+    expectInsideRect(taskAfter, lane2After)
   })
 
   test('节点拖向 Pool 外部时，应被钳制在 Pool 内容区并继续随 Pool 联动', async ({ page }, testInfo) => {

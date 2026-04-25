@@ -27,6 +27,7 @@ These rules apply to all AI coding agents in this workspace.
 - Any change under `packages/x6-plugin-bpmn/src/**` must run tests in `packages/x6-plugin-bpmn`.
 - Preferred command for cross-module or risky changes: `npm run test:coverage` in `packages/x6-plugin-bpmn`.
 - Minimum command for small, isolated changes: `npm run test` in `packages/x6-plugin-bpmn`.
+- Browser-impacting changes must leave `npm run test:browser` green before delivery; do not mark a task complete with known browser failures just because the new targeted case passed. If a visual change is intentional, update and review the affected snapshots in the same change.
 
 ## Coverage and Test Quality
 - Keep coverage thresholds at 100% as configured in Vitest.
@@ -38,8 +39,10 @@ These rules apply to all AI coding agents in this workspace.
 - Any newly added ignore must include an inline reason comment explaining why the branch is unreachable, tool-miscounted, or otherwise not worth a real scenario.
 - When touching historical ignores, review whether they are still necessary and delete them if a meaningful test can replace them.
 - Headless browser tests must generate and assert visual snapshots; artifact-only screenshots are not sufficient verification.
+- Browser-impacting changes must leave the full browser suite green; targeted browser passes are supporting evidence, not a substitute for fixing or intentionally updating every failing browser snapshot.
 - Browser regression specs must live under `packages/x6-plugin-bpmn/tests/browser/*.spec.ts` and reuse the existing spec file when the scenario belongs to the same behavior area; do not create parallel duplicate spec files for the same regression theme.
 - Snapshot baselines for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/<spec-file>.ts-snapshots/`, grouped by test-case folders.
+- Snapshot baselines must be visible to Git and reviewable in the same change; ignored local-only snapshots are not valid delivery evidence.
 - Runtime screenshot artifacts for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/artifacts/screenshots/`, grouped by the same test-case folders.
 - Runtime screenshot artifacts must be generated directly into that fixed artifact directory during test execution so they remain available for manual verification.
 - Do not create extra flat files, sibling snapshot folders, or alternate artifact directories for an existing browser spec, and do not rely on post-run moving or cleanup to normalize screenshot locations.

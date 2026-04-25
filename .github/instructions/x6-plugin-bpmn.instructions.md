@@ -1,8 +1,6 @@
 ---
 description: "Use when editing x6-plugin-bpmn source or tests. Enforce business-driven tests and 100% coverage verification."
-applyTo:
-  - "packages/x6-plugin-bpmn/src/**/*.ts"
-  - "packages/x6-plugin-bpmn/tests/**/*.test.ts"
+applyTo: "packages/x6-plugin-bpmn/src/**/*.ts,packages/x6-plugin-bpmn/tests/**/*.test.ts,packages/x6-plugin-bpmn/tests/browser/**/*.ts"
 ---
 
 # x6-plugin-bpmn 变更规范 / Change Guardrails
@@ -28,6 +26,8 @@ applyTo:
   Run `npm run test:coverage` when change spans multiple modules, affects behavior contracts, or modifies branching logic.
 - 范围较小的独立变更至少运行 `npm run test`。
   Run at least `npm run test` for narrowly scoped updates.
+- 影响浏览器行为或快照的变更必须让 `npm run test:browser` 全量通过后才能交付；不能因为新增定向用例通过就接受其他浏览器失败。若视觉变化是预期结果，必须在同一变更中更新并复核受影响快照。
+  Browser-impacting or snapshot-impacting changes must leave the full `npm run test:browser` suite green before delivery; do not accept other browser failures just because a new targeted case passes. If the visual change is intentional, update and review the affected snapshots in the same change.
 
 ## 测试质量要求 / Business-related test policy
 - 添加代表真实 BPMN 或 SmartEngine 使用路径的测试。
@@ -40,12 +40,16 @@ applyTo:
   Avoid weak assertions like existence-only checks if business outcomes can be asserted.
 - 无头浏览器测试必须生成并断言视觉快照，不能只保留截图产物或仅验证流程通过。
   Headless browser tests must generate and assert visual snapshots; saving screenshot artifacts or asserting pass/fail alone is insufficient.
+- 影响浏览器行为的变更必须修复或有意更新所有失败的浏览器快照；定向浏览器通过只能作为辅助证据，不能替代全量浏览器通过。
+  Browser-impacting changes must fix or intentionally update every failing browser snapshot; targeted browser passes are supporting evidence only and cannot replace a green full browser suite.
 - 若预期的界面变化会更新基线快照，需在回归中显式更新快照并复核差异是否符合业务预期。
   When intended UI changes require new baselines, update the snapshots explicitly during regression and review the visual diffs against expected business behavior.
 - 浏览器回归测试文件必须放在 `packages/x6-plugin-bpmn/tests/browser/*.spec.ts`；若同一行为域已有对应 spec，必须复用该文件，不得为同类回归再创建平行重复 spec。
   Browser regression specs must live under `packages/x6-plugin-bpmn/tests/browser/*.spec.ts`; if a spec already exists for the same behavior area, reuse it instead of creating a parallel duplicate spec.
 - 某个浏览器 spec 的快照基线只能放在 `packages/x6-plugin-bpmn/tests/browser/<spec-file>.ts-snapshots/` 下，并按测试用例目录归档。
   Snapshot baselines for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/<spec-file>.ts-snapshots/`, organized by test-case folders.
+- 快照基线必须能被 Git 发现并随同一变更审查；被忽略的本地快照不能作为交付通过依据。
+  Snapshot baselines must be visible to Git and reviewable in the same change; ignored local-only snapshots are not valid delivery evidence.
 - 某个浏览器 spec 的运行期截图产物只能放在 `packages/x6-plugin-bpmn/tests/browser/artifacts/screenshots/` 下，并与快照使用相同的测试用例目录结构。
   Runtime screenshot artifacts for a browser spec must live only under `packages/x6-plugin-bpmn/tests/browser/artifacts/screenshots/`, using the same test-case folder structure as snapshots.
 - 运行期截图产物必须在测试执行时直接落盘到该固定目录，以便人工核验；不得先写到其他位置，再通过事后迁移或清理来修正目录结构。

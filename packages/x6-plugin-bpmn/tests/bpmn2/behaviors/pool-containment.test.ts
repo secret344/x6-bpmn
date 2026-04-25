@@ -15,10 +15,11 @@ import {
   BPMN_BOUNDARY_EVENT_TIMER,
   BPMN_LANE,
   BPMN_POOL,
+  BPMN_TRANSACTION,
   BPMN_USER_TASK,
 } from '../../../src/utils/constants'
 
-registerBehaviorTestShapes([BPMN_POOL, BPMN_LANE, BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
+registerBehaviorTestShapes([BPMN_POOL, BPMN_LANE, BPMN_TRANSACTION, BPMN_USER_TASK, BPMN_BOUNDARY_EVENT_TIMER])
 
 describe('setupPoolContainment', () => {
   it('不应对 Lane 的 node:moved 事件做交互期违规校验', () => {
@@ -441,6 +442,130 @@ describe('setupPoolContainment', () => {
 
     expect((lane1 as unknown as { embed: ReturnType<typeof vi.fn> }).embed).not.toHaveBeenCalled()
     expect((lane2 as unknown as { embed: ReturnType<typeof vi.fn> }).embed).not.toHaveBeenCalled()
+  })
+
+  it('事务跨 Lane 联动内部节点时，不应把内部节点重挂到目标 Lane', () => {
+    const graph = createBehaviorTestGraph()
+    const pool = graph.addNode({
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 600,
+      height: 320,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane1 = graph.addNode({
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 570,
+      height: 140,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane2 = graph.addNode({
+      id: 'lane-2',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 180,
+      width: 570,
+      height: 180,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const transaction = graph.addNode({
+      id: 'transaction-1',
+      shape: BPMN_TRANSACTION,
+      x: 120,
+      y: 70,
+      width: 240,
+      height: 90,
+    })
+    const task = graph.addNode({
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      x: 150,
+      y: 90,
+      width: 100,
+      height: 50,
+    })
+    pool.embed(lane1)
+    pool.embed(lane2)
+    lane1.embed(transaction)
+    transaction.embed(task)
+
+    transaction.setPosition(120, 210)
+    task.setPosition(150, 230)
+
+    expect(containmentTest.resolveFlowNodeClampRect(task)).toBeNull()
+    containmentTest.syncFlowNodeSwimlaneParent(graph, task)
+
+    expect(task.getParent()?.id).toBe(transaction.id)
+    expect((lane2.getChildren() ?? []).map((child) => child.id)).not.toContain(task.id)
+
+    destroyBehaviorTestGraph(graph)
+  })
+
+  it('事务内部节点 resize 跨 Lane 时，不应通过 resize 事件改挂到目标 Lane', () => {
+    const graph = createBehaviorTestGraph()
+    const pool = graph.addNode({
+      id: 'pool-1',
+      shape: BPMN_POOL,
+      x: 40,
+      y: 40,
+      width: 600,
+      height: 320,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane1 = graph.addNode({
+      id: 'lane-1',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 40,
+      width: 570,
+      height: 140,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const lane2 = graph.addNode({
+      id: 'lane-2',
+      shape: BPMN_LANE,
+      x: 70,
+      y: 180,
+      width: 570,
+      height: 180,
+      data: { bpmn: { isHorizontal: true } },
+    })
+    const transaction = graph.addNode({
+      id: 'transaction-1',
+      shape: BPMN_TRANSACTION,
+      x: 120,
+      y: 70,
+      width: 260,
+      height: 210,
+    })
+    const task = graph.addNode({
+      id: 'task-1',
+      shape: BPMN_USER_TASK,
+      x: 150,
+      y: 95,
+      width: 100,
+      height: 150,
+    })
+    pool.embed(lane1)
+    pool.embed(lane2)
+    lane1.embed(transaction)
+    transaction.embed(task)
+
+    const dispose = setupPoolContainment(graph)
+
+    task.setSize(100, 170)
+    emitGraphEvent(graph, 'node:resized', { node: task })
+
+    expect(task.getParent()?.id).toBe(transaction.id)
+    expect((lane2.getChildren() ?? []).map((child) => child.id)).not.toContain(task.id)
+
+    dispose()
+    destroyBehaviorTestGraph(graph)
   })
 })
 

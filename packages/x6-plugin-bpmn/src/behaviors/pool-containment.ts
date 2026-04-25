@@ -7,7 +7,7 @@
  */
 
 import type { Cell, Graph, Node } from '@antv/x6'
-import { findContainingSwimlane } from '../core/swimlane-membership'
+import { findContainingSwimlane, getAncestorFlowContainer } from '../core/swimlane-membership'
 import {
   isBoundaryShape,
   isLaneShape,
@@ -54,6 +54,10 @@ export function validatePoolContainment(
 
   if (isLaneShape(node.shape)) {
     return validateLaneBounds(node)
+  }
+
+  if (getAncestorFlowContainer(node)) {
+    return { valid: true }
   }
 
   const swimlaneParent = findSwimlaneParent(node)
@@ -444,6 +448,10 @@ function resolveClampedPoolPosition(graph: Graph, pool: Node): { x: number; y: n
 }
 
 function resolveFlowNodeClampRect(node: Node): Rect | null {
+  if (getAncestorFlowContainer(node)) {
+    return null
+  }
+
   const container = findSwimlaneParent(node)
   if (!container) {
     return null
@@ -464,6 +472,10 @@ function resolveFlowNodeClampRect(node: Node): Rect | null {
 
 function syncFlowNodeSwimlaneParent(graph: Graph, node: Node): void {
   if (isSwimlaneShape(node.shape) || hasAttachedBoundaryHost(node)) {
+    return
+  }
+
+  if (getAncestorFlowContainer(node)) {
     return
   }
 

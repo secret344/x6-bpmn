@@ -14,6 +14,14 @@ import { BPMN_TRANSACTION } from '../utils/constants'
 import type { BoundaryAttachOptions } from './boundary-attach'
 import type { PoolContainmentOptions } from './pool-containment'
 import { setupBoundaryAttach } from './boundary-attach'
+import {
+  clearMovingBpmnNode,
+  markMovingBpmnNode,
+} from './embedding'
+import {
+  commitSelectedFlowContainerExtractions,
+  reconcileFlowContainerEmbedding,
+} from './flow-container-extraction'
 import { setupPoolContainment } from './pool-containment'
 import { setupSwimlaneDelete } from './swimlane-delete'
 import { setupSwimlaneResize, type SwimlaneResizeOptions } from './swimlane-resize'
@@ -40,6 +48,18 @@ export {
   clampLanePreviewRect,
 } from './swimlane-resize'
 export type { SwimlaneResizeOptions } from './swimlane-resize'
+
+export {
+  findBoundaryAttachHost,
+  findContainingBpmnParent,
+  resolveBpmnDropAction,
+  resolveBpmnEmbeddingTargets,
+} from './embedding'
+export type {
+  BpmnDropAction,
+  BpmnDropRejectReason,
+  ResolveBpmnEmbeddingOptions,
+} from './embedding'
 
 export {
   setupSwimlaneDelete,
@@ -70,6 +90,17 @@ export function setupBpmnInteractionBehaviors(
     on?: (event: string, handler: (...args: any[]) => void) => void
     off?: (event: string, handler: (...args: any[]) => void) => void
     getSelectedCells?: () => Array<{ id?: string }>
+    getConnectedEdges?: (node: unknown) => Array<{
+      getSourceCellId?: () => string | null | undefined
+      getTargetCellId?: () => string | null | undefined
+      remove?: () => void
+    }>
+    getCellById?: (id: string) => {
+      id?: string
+      isNode?: () => boolean
+      getParent?: () => unknown
+      shape?: string
+    } | null | undefined
     cleanSelection?: () => void
     select?: (cell: unknown) => void
   }
@@ -101,10 +132,21 @@ export function setupBpmnInteractionBehaviors(
   const handleNodeEmbedded = ({
     node,
     currentParent,
+    previousParent,
   }: {
     node: any
     currentParent?: any
+    previousParent?: any
   }) => {
+    const flowContainerResult = reconcileFlowContainerEmbedding(graphWithSelection, {
+      node,
+      currentParent,
+      previousParent,
+    })
+    if (flowContainerResult !== 'unchanged') {
+      return
+    }
+
     if (!currentParent?.isNode?.() || currentParent.shape !== BPMN_TRANSACTION) {
       return
     }
@@ -116,13 +158,37 @@ export function setupBpmnInteractionBehaviors(
     node?.toFront?.()
   }
 
+  const markMovingNode = ({ node }: { node: any }) => {
+    markMovingBpmnNode(node)
+  }
+
+  const clearMovingNode = ({ node }: { node: any }) => {
+    window.requestAnimationFrame(() => {
+      clearMovingBpmnNode(node)
+    })
+  }
+
+  const handleSelectionBatchStop = ({ name }: { name?: string }) => {
+    if (name !== 'move-selection') {
+      return
+    }
+
+    commitSelectedFlowContainerExtractions(graphWithSelection)
+  }
+
   if (canWireGraphEvents) {
     graphWithSelection.on?.('node:click', handleNodeClick)
     graphWithSelection.on?.('node:embedded', handleNodeEmbedded)
+    graphWithSelection.on?.('node:moving', markMovingNode)
+    graphWithSelection.on?.('node:moved', clearMovingNode)
+    graphWithSelection.on?.('batch:stop', handleSelectionBatchStop)
   }
 
   return () => {
     if (canWireGraphEvents) {
+      graphWithSelection.off?.('batch:stop', handleSelectionBatchStop)
+      graphWithSelection.off?.('node:moved', clearMovingNode)
+      graphWithSelection.off?.('node:moving', markMovingNode)
       graphWithSelection.off?.('node:embedded', handleNodeEmbedded)
       graphWithSelection.off?.('node:click', handleNodeClick)
     }

@@ -477,7 +477,14 @@ export function createSmartNodeSerializer(options: {
         omitted.add('multiInstanceAbortCondition')
       }
 
-      return { omitBpmnKeys: Array.from(omitted) }
+      const smartAbortCompletionCondition = options.multiInstance
+        ? String(context.bpmnData.multiInstanceAbortCondition || '').trim()
+        : ''
+
+      return {
+        omitBpmnKeys: Array.from(omitted),
+        ...(smartAbortCompletionCondition ? { smartAbortCompletionCondition } : {}),
+      }
     },
 
     import(context) {

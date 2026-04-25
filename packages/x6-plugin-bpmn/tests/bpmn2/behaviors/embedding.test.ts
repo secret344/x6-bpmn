@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  clearMovingBpmnNode,
   DEFAULT_EMBEDDABLE_CONTAINER_SHAPES,
   findBoundaryAttachHost,
   findContainingBpmnParent,
   isEmbeddableContainerShape,
+  markMovingBpmnNode,
+  resolveBpmnDropAction,
   resolveBpmnEmbeddingTargets,
   resolveContainingBpmnParents,
 } from '../../../src/behaviors/embedding'
@@ -22,10 +25,13 @@ function createMockNode(
   id: string,
   shape: string,
   rect: { x: number; y: number; width: number; height: number },
+  parent: { id: string; shape: string; getParent?: () => unknown; isNode?: () => boolean } | null = null,
 ) {
   return {
     id,
     shape,
+    getParent: () => parent,
+    isNode: () => true,
     getBBox: () => ({
       ...rect,
       containsRect(other: { x: number; y: number; width: number; height: number }) {
@@ -60,6 +66,66 @@ describe('embedding helpers', () => {
     expect(resolveBpmnEmbeddingTargets(graph as never, task as never).map((node) => node.id)).toEqual(['sub', 'lane', 'pool'])
   })
 
+  it('事务内部节点仍在事务框内时，自动 embedding 目标应保持为事务祖先', () => {
+    const pool = createMockNode('pool', BPMN_POOL, { x: 40, y: 40, width: 600, height: 360 })
+    const lane = createMockNode('lane', BPMN_LANE, { x: 70, y: 200, width: 570, height: 180 }, pool)
+    const transaction = createMockNode('transaction', BPMN_TRANSACTION, { x: 120, y: 220, width: 240, height: 100 }, lane)
+    const task = createMockNode('task', BPMN_USER_TASK, { x: 150, y: 250, width: 100, height: 50 }, transaction)
+    const graph = {
+      getNodes: () => [pool, lane, transaction, task],
+    } as const
+
+    expect(resolveBpmnEmbeddingTargets(graph as never, task as never).map((node) => node.id)).toEqual(['transaction'])
+  })
+
+  it('事务内部节点被显式拖出事务框后，应允许按目标 Lane 重新判定 embedding', () => {
+    const pool = createMockNode('pool', BPMN_POOL, { x: 40, y: 40, width: 600, height: 360 })
+    const lane = createMockNode('lane', BPMN_LANE, { x: 70, y: 200, width: 570, height: 180 }, pool)
+    const transaction = createMockNode('transaction', BPMN_TRANSACTION, { x: 120, y: 220, width: 240, height: 100 }, lane)
+    const task = createMockNode('task', BPMN_USER_TASK, { x: 430, y: 250, width: 100, height: 50 }, transaction)
+    const graph = {
+      getNodes: () => [pool, lane, transaction, task],
+      getSelectedCells: () => [task],
+    } as const
+
+    expect(resolveBpmnEmbeddingTargets(graph as never, task as never).map((node) => node.id)).toEqual(['lane', 'pool'])
+  })
+
+  it('直接拖拽事务内部节点越出事务框时，即使 selection 尚未建立也应允许改挂到 Lane', () => {
+    const pool = createMockNode('pool', BPMN_POOL, { x: 40, y: 40, width: 600, height: 360 })
+    const lane = createMockNode('lane', BPMN_LANE, { x: 70, y: 200, width: 570, height: 180 }, pool)
+    const transaction = createMockNode('transaction', BPMN_TRANSACTION, { x: 120, y: 220, width: 240, height: 100 }, lane)
+    const task = createMockNode('task', BPMN_USER_TASK, { x: 430, y: 250, width: 100, height: 50 }, transaction)
+    const graph = {
+      getNodes: () => [pool, lane, transaction, task],
+    } as const
+
+    markMovingBpmnNode(task as never)
+
+    try {
+      expect(resolveBpmnEmbeddingTargets(graph as never, task as never).map((node) => node.id)).toEqual(['lane', 'pool'])
+    } finally {
+      clearMovingBpmnNode(task as never)
+    }
+  })
+
+  it('事务内部节点 bbox 暂不可读且没有显式选中自身时，应继续保持事务祖先', () => {
+    const pool = createMockNode('pool', BPMN_POOL, { x: 40, y: 40, width: 600, height: 360 })
+    const lane = createMockNode('lane', BPMN_LANE, { x: 70, y: 200, width: 570, height: 180 }, pool)
+    const transaction = {
+      ...createMockNode('transaction', BPMN_TRANSACTION, { x: 120, y: 220, width: 240, height: 100 }, lane),
+      getBBox: () => {
+        throw new Error('bbox pending')
+      },
+    }
+    const task = createMockNode('task', BPMN_USER_TASK, { x: 430, y: 250, width: 100, height: 50 }, transaction)
+    const graph = {
+      getNodes: () => [pool, lane, transaction, task],
+    } as const
+
+    expect(resolveBpmnEmbeddingTargets(graph as never, task as never).map((node) => node.id)).toEqual(['transaction'])
+  })
+
   it('Lane 只应允许嵌入 Pool', () => {
     const pool = createMockNode('pool', BPMN_POOL, { x: 40, y: 40, width: 500, height: 300 })
     const lane = createMockNode('lane', BPMN_LANE, { x: 70, y: 40, width: 470, height: 180 })
@@ -77,6 +143,19 @@ describe('embedding helpers', () => {
     expect(resolveContainingBpmnParents(graph as never, task as never)).toEqual([])
   })
 
+  it('拖放决策应区分 Lane、流程节点与普通嵌入场景', () => {
+    const pool = createMockNode('pool', BPMN_POOL, { x: 40, y: 40, width: 500, height: 300 })
+    const lane = createMockNode('lane', BPMN_LANE, { x: 70, y: 40, width: 470, height: 180 })
+    const taskInLane = createMockNode('task-in-lane', BPMN_USER_TASK, { x: 160, y: 110, width: 100, height: 60 })
+    const taskOutside = createMockNode('task-outside', BPMN_USER_TASK, { x: 620, y: 110, width: 100, height: 60 })
+    const laneOutside = createMockNode('lane-outside', BPMN_LANE, { x: 620, y: 260, width: 260, height: 120 })
+    const graph = { getNodes: () => [pool, lane, taskInLane, taskOutside, laneOutside] } as const
+
+    expect(resolveBpmnDropAction(graph as never, taskInLane as never)).toEqual({ kind: 'embed', parent: lane })
+    expect(resolveBpmnDropAction(graph as never, taskOutside as never)).toEqual({ kind: 'reject', reason: 'contained-flow-node-parent-required' })
+    expect(resolveBpmnDropAction(graph as never, laneOutside as never)).toEqual({ kind: 'reject', reason: 'lane-parent-required' })
+  })
+
   it('边界事件应选最近且合法的宿主，并在超出阈值时返回空', () => {
     const boundary = createMockNode('boundary', BPMN_BOUNDARY_EVENT_TIMER, { x: 182, y: 82, width: 36, height: 36 })
     const task = createMockNode('task', BPMN_USER_TASK, { x: 100, y: 100, width: 200, height: 100 })
@@ -85,10 +164,12 @@ describe('embedding helpers', () => {
 
     expect(findBoundaryAttachHost(graph as never, boundary as never)?.id).toBe('task')
     expect(resolveBpmnEmbeddingTargets(graph as never, boundary as never).map((node) => node.id)).toEqual(['task'])
+    expect(resolveBpmnDropAction(graph as never, boundary as never)).toEqual({ kind: 'attach-boundary', host: task })
 
     const detachedBoundary = createMockNode('boundary-far', BPMN_BOUNDARY_EVENT_TIMER, { x: 182, y: 78, width: 36, height: 36 })
     expect(findBoundaryAttachHost(graph as never, detachedBoundary as never, { boundarySnapDistance: 2 })).toBeNull()
     expect(resolveBpmnEmbeddingTargets(graph as never, detachedBoundary as never, { boundarySnapDistance: 2 })).toEqual([])
+    expect(resolveBpmnDropAction(graph as never, detachedBoundary as never, { boundarySnapDistance: 2 })).toEqual({ kind: 'reject', reason: 'boundary-host-required' })
   })
 
   it('边界事件与多个宿主等距时应优先选择面积更小的宿主', () => {

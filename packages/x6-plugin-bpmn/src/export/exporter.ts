@@ -56,7 +56,7 @@ import {
   resolveExtensionPropertySerialization,
 } from '../utils/extension-properties'
 import { resolveSwimlaneIsHorizontal } from '../shapes/swimlane-presentation'
-import { resolveLaneMemberNodes } from '../core/swimlane-membership'
+import { getAncestorFlowContainer, resolveLaneMemberNodes } from '../core/swimlane-membership'
 
 const EXPANDABLE_ACTIVITY_SHAPES = new Set([
   BPMN_SUB_PROCESS,
@@ -64,13 +64,6 @@ const EXPANDABLE_ACTIVITY_SHAPES = new Set([
   BPMN_TRANSACTION,
   BPMN_AD_HOC_SUB_PROCESS,
   BPMN_CALL_ACTIVITY,
-])
-
-const FLOW_CONTAINER_SHAPES = new Set([
-  BPMN_SUB_PROCESS,
-  BPMN_EVENT_SUB_PROCESS,
-  BPMN_TRANSACTION,
-  BPMN_AD_HOC_SUB_PROCESS,
 ])
 
 interface ProcessBuildContext {
@@ -332,19 +325,6 @@ function getAncestorPool(node: Node): Node | null {
 
   while (current) {
     if (current.isNode() && isPoolShape(current.shape)) {
-      return current as Node
-    }
-    current = current.getParent()
-  }
-
-  return null
-}
-
-function getAncestorFlowContainer(node: Node): Node | null {
-  let current = node.getParent()
-
-  while (current) {
-    if (current.isNode() && FLOW_CONTAINER_SHAPES.has(current.shape)) {
       return current as Node
     }
     current = current.getParent()
@@ -722,6 +702,7 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   const nodeElements = new Map<string, ModdleElement>()
   // 映射：边 ID → moddle 元素
   const swimlaneElements = new Map<string, ModdleElement>()
+  const smartAbortCompletionConditions = new Map<string, string>()
 
   const appendFlowElement = (context: ProcessBuildContext, ownerId: string | null, element: ModdleElement): void => {
     if (!ownerId) {
@@ -841,6 +822,11 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
 
       for (const key of result?.omitBpmnKeys ?? []) {
         omitBpmnKeys.add(key)
+      }
+
+      const smartAbortCompletionCondition = String(result?.smartAbortCompletionCondition || '').trim()
+      if (smartAbortCompletionCondition) {
+        smartAbortCompletionConditions.set(node.id, smartAbortCompletionCondition)
       }
     }
 
@@ -1421,17 +1407,9 @@ export async function exportBpmnXml(graph: Graph, options: ExportBpmnOptions = {
   const { xml } = await moddle.toXML(definitions, { format: true, preamble: true })
   const bpmnTagPrefix = xmlNames.useDefaultNamespace ? '' : 'bpmn:'
 
-  const xmlWithSmartAbortConditions = graph.getNodes().reduce((currentXml, node) => {
-    const bpmnData = node.getData<{ bpmn?: Record<string, unknown> }>()?.bpmn
-    const abortCondition = readInternalBpmnString(bpmnData, 'multiInstanceAbortCondition')
-    if (!abortCondition) {
-      return currentXml
-    }
-
+  const xmlWithSmartAbortConditions = Array.from(smartAbortCompletionConditions.entries()).reduce((currentXml, [cellId, abortCondition]) => {
+    const node = graph.getCellById(cellId) as Node
     const mapping = nodeMapping[node.shape]
-    if (!mapping) {
-      return currentXml
-    }
 
     const nodeId = escapeRegExp(toXmlId(node.id))
     const tagName = escapeRegExp(`${bpmnTagPrefix}${mapping.tag}`)

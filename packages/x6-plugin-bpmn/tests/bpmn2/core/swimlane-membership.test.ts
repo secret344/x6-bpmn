@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { Node } from '@antv/x6'
 import {
   findContainingSwimlane,
+  getAncestorFlowContainer,
   getAncestorPool,
   getAncestorSwimlane,
+  hasAncestorNode,
+  isFlowContainerShape,
   resolveLaneMemberNodes,
 } from '../../../src/core/swimlane-membership'
-import { BPMN_LANE, BPMN_POOL, BPMN_USER_TASK } from '../../../src/utils/constants'
+import { BPMN_LANE, BPMN_POOL, BPMN_TRANSACTION, BPMN_USER_TASK } from '../../../src/utils/constants'
 
 function createMockNode(
   id: string,
@@ -85,5 +88,31 @@ describe('swimlane-membership', () => {
     expect(resolveLaneMemberNodes(parentLane, [nestedTask, centeredTask, outsideTask]).map((node) => node.id)).toEqual([
       'task-centered',
     ])
+  })
+
+  it('Lane 成员解析应只引用事务本体，不应平铺事务内部流程节点', () => {
+    const pool = createMockNode('pool', BPMN_POOL, 0, 0, 500, 320)
+    const lane = createMockNode('lane', BPMN_LANE, 30, 0, 470, 160, pool)
+    const transaction = createMockNode('transaction', BPMN_TRANSACTION, 90, 40, 220, 100, lane)
+    const nestedTask = createMockNode('task-nested', BPMN_USER_TASK, 120, 70, 100, 50, transaction)
+    const laneTask = createMockNode('task-lane', BPMN_USER_TASK, 340, 70, 100, 50, lane)
+
+    expect(isFlowContainerShape(BPMN_TRANSACTION)).toBe(true)
+    expect(getAncestorFlowContainer(nestedTask)?.id).toBe('transaction')
+    expect(resolveLaneMemberNodes(lane, [transaction, nestedTask, laneTask]).map((node) => node.id)).toEqual([
+      'transaction',
+      'task-lane',
+    ])
+  })
+
+  it('通用祖先判断应识别深层事务子树并忽略空祖先标识', () => {
+    const pool = createMockNode('pool', BPMN_POOL, 0, 0, 500, 320)
+    const lane = createMockNode('lane', BPMN_LANE, 30, 0, 470, 160, pool)
+    const transaction = createMockNode('transaction', BPMN_TRANSACTION, 90, 40, 220, 100, lane)
+    const nestedTask = createMockNode('task-nested', BPMN_USER_TASK, 120, 70, 100, 50, transaction)
+
+    expect(hasAncestorNode(nestedTask, transaction.id)).toBe(true)
+    expect(hasAncestorNode(nestedTask, 'other-transaction')).toBe(false)
+    expect(hasAncestorNode(nestedTask, null)).toBe(false)
   })
 })
